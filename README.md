@@ -1,6 +1,6 @@
-# HelpfulDjinn# HelpfulD- **Purchasing/Orders**:
+# HelpfulDjinn# HelpDesk System:
 
-	- Planned Items list with Dept/Cost Code, bulk d## Microsoft Graph
+	- HelpDesk system with Purchasing, Assets,  and Documents.
 
 A Flask-based HelpDesk and lightweight purchasing app using SQLite + SQLAlchemy, Flask-Login, and Bootstrap. It ingests emails from Microsoft Graph to create tickets and includes asset management, purchase order workflows, project tracking, and scheduled tickets.- Configure in Admin > Microsoft Graph. The poller runs every `POLL_INTERVAL_SECONDS` ## Troubleshooting
 
