@@ -128,10 +128,17 @@ def email_logs():
     """Show email polling logs for the last N days with per-message actions and filters."""
     from datetime import timedelta
     from ..models import EmailCheck, EmailCheckEntry
+    from sqlalchemy import or_, func
 
     # Filters
     q = (request.args.get('q') or '').strip()
     action = (request.args.get('action') or '').strip().lower()
+    # Optional toggle to hide "No new messages" rows (action == 'none')
+    hide_none_raw = request.args.get('hide_none')
+    hide_none = False
+    if hide_none_raw is not None:
+        val = (str(hide_none_raw) or '').strip().lower()
+        hide_none = val in ('1', 'true', 'yes', 'on') or hide_none_raw == ''
     try:
         days = int(request.args.get('days') or 7)
     except Exception:
@@ -169,6 +176,11 @@ def email_logs():
     ql = q.lower()
     if action:
         query = query.filter(EmailCheckEntry.action.ilike(action))
+    # Apply hide-none filter
+    if hide_none:
+        query = query.filter(
+            or_(EmailCheckEntry.action.is_(None), func.lower(EmailCheckEntry.action) != 'none')
+        )
     if ql:
         query = query.filter(
             (EmailCheckEntry.sender.ilike(f'%{ql}%')) |
@@ -186,7 +198,8 @@ def email_logs():
         q=q,
         action=action,
         days=days,
-        per_page=per_page
+        per_page=per_page,
+        hide_none=hide_none,
     )
 
 

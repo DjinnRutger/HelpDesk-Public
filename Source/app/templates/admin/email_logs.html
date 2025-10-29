@@ -34,6 +34,12 @@
         <option value="7" {{ 'selected' if d==7 else '' }}>7</option>
       </select>
     </div>
+    <div class="col-sm-6 col-md-2 col-lg-2">
+      <div class="form-check mt-3">
+        <input class="form-check-input" type="checkbox" id="hide_none" name="hide_none" value="1" {{ 'checked' if hide_none else '' }}>
+        <label class="form-check-label small" for="hide_none">Hide "No new messages"</label>
+      </div>
+    </div>
     <div class="col-sm-12 col-md-2 col-lg-2 text-end">
       <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-funnel me-1"></i>Filter</button>
       <a href="{{ url_for('admin.email_logs') }}" class="btn btn-outline-secondary btn-sm ms-2">Clear</a>
@@ -43,8 +49,10 @@
   <div class="card-footer small text-muted">
     Showing results filtered by
     {% if q %}query "{{ q }}"{% endif %}
-    {% if q and action %} and {% endif %}
-    {% if action %}action "{{ action }}"{% endif %}.
+    {% if (q and action) or (q and hide_none) %} and {% endif %}
+    {% if action %}action "{{ action }}"{% endif %}
+    {% if (action and hide_none) or (not action and hide_none and q) %} and {% endif %}
+    {% if hide_none %}hiding "No new messages"{% endif %}.
   </div>
   {% endif %}
 </form>
@@ -59,9 +67,9 @@
       </span>
       <div>
         <label class="small me-2">Per page:</label>
-        <a href="{{ url_for('admin.email_logs', q=q, action=action, days=days, per_page=20, page=1) }}" 
+        <a href="{{ url_for('admin.email_logs', q=q, action=action, days=days, per_page=20, page=1, hide_none=1 if hide_none else None) }}" 
            class="btn btn-sm {{ 'btn-primary' if per_page == 20 else 'btn-outline-secondary' }}">20</a>
-        <a href="{{ url_for('admin.email_logs', q=q, action=action, days=days, per_page=100, page=1) }}" 
+        <a href="{{ url_for('admin.email_logs', q=q, action=action, days=days, per_page=100, page=1, hide_none=1 if hide_none else None) }}" 
            class="btn btn-sm {{ 'btn-primary' if per_page == 100 else 'btn-outline-secondary' }} ms-1">100</a>
       </div>
     </div>
@@ -121,7 +129,7 @@
       <nav aria-label="Email logs pagination">
         <ul class="pagination pagination-sm mb-0 justify-content-center">
           <li class="page-item {{ 'disabled' if not pagination.has_prev else '' }}">
-            <a class="page-link" href="{{ url_for('admin.email_logs', q=q, action=action, days=days, per_page=per_page, page=pagination.prev_num) if pagination.has_prev else '#' }}">
+            <a class="page-link" href="{{ url_for('admin.email_logs', q=q, action=action, days=days, per_page=per_page, page=pagination.prev_num, hide_none=1 if hide_none else None) if pagination.has_prev else '#' }}">
               <i class="bi bi-chevron-left"></i> Previous
             </a>
           </li>
@@ -131,7 +139,7 @@
           
           {% if start_page > 1 %}
             <li class="page-item">
-              <a class="page-link" href="{{ url_for('admin.email_logs', q=q, action=action, days=days, per_page=per_page, page=1) }}">1</a>
+              <a class="page-link" href="{{ url_for('admin.email_logs', q=q, action=action, days=days, per_page=per_page, page=1, hide_none=1 if hide_none else None) }}">1</a>
             </li>
             {% if start_page > 2 %}
               <li class="page-item disabled"><span class="page-link">...</span></li>
@@ -140,7 +148,7 @@
           
           {% for p in range(start_page, end_page + 1) %}
             <li class="page-item {{ 'active' if p == pagination.page else '' }}">
-              <a class="page-link" href="{{ url_for('admin.email_logs', q=q, action=action, days=days, per_page=per_page, page=p) }}">{{ p }}</a>
+              <a class="page-link" href="{{ url_for('admin.email_logs', q=q, action=action, days=days, per_page=per_page, page=p, hide_none=1 if hide_none else None) }}">{{ p }}</a>
             </li>
           {% endfor %}
           
@@ -149,12 +157,12 @@
               <li class="page-item disabled"><span class="page-link">...</span></li>
             {% endif %}
             <li class="page-item">
-              <a class="page-link" href="{{ url_for('admin.email_logs', q=q, action=action, days=days, per_page=per_page, page=pagination.pages) }}">{{ pagination.pages }}</a>
+              <a class="page-link" href="{{ url_for('admin.email_logs', q=q, action=action, days=days, per_page=per_page, page=pagination.pages, hide_none=1 if hide_none else None) }}">{{ pagination.pages }}</a>
             </li>
           {% endif %}
           
           <li class="page-item {{ 'disabled' if not pagination.has_next else '' }}">
-            <a class="page-link" href="{{ url_for('admin.email_logs', q=q, action=action, days=days, per_page=per_page, page=pagination.next_num) if pagination.has_next else '#' }}">
+            <a class="page-link" href="{{ url_for('admin.email_logs', q=q, action=action, days=days, per_page=per_page, page=pagination.next_num, hide_none=1 if hide_none else None) if pagination.has_next else '#' }}">
               Next <i class="bi bi-chevron-right"></i>
             </a>
           </li>
