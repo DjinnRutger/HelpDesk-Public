@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block title %}Microsoft Graph · HelpDesk{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8 col-xl-6">
+    <div class="card shadow-sm">
+      <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+        <div class="d-flex align-items-center gap-2">
+          <i class="bi bi-envelope-paper text-primary"></i>
+          <div>
+            <h1 class="h5 mb-0">Microsoft Graph Settings</h1>
+            <small class="text-muted">Configure mailbox credentials and polling cadence</small>
+          </div>
+        </div>
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('admin.index') }}"><i class="bi bi-arrow-left"></i></a>
+      </div>
+      <div class="card-body p-4">
+        <form method="post" class="row g-3">
+          {{ form.hidden_tag() }}
+          <div class="col-12">{{ form.client_id.label('Client ID', class='form-label small fw-semibold') }} {{ form.client_id(class='form-control') }}</div>
+          <div class="col-12">{{ form.client_secret.label('Client Secret', class='form-label small fw-semibold') }} {{ form.client_secret(class='form-control') }}</div>
+          <div class="col-md-6">{{ form.tenant_id.label('Tenant ID', class='form-label small fw-semibold') }} {{ form.tenant_id(class='form-control') }}</div>
+          <div class="col-md-6">{{ form.user_email.label('Mailbox User', class='form-label small fw-semibold') }} {{ form.user_email(class='form-control') }}</div>
+          <div class="col-md-4">{{ form.poll_interval.label('Poll Interval (seconds)', class='form-label small fw-semibold') }} {{ form.poll_interval(class='form-control') }}</div>
+          <div class="col-12 d-flex flex-wrap gap-2 justify-content-end mt-2">
+            <button class="btn btn-outline-info" name="action" value="test" type="submit"><i class="bi bi-lightning-charge me-1"></i>Test Connection</button>
+            <button class="btn btn-outline-secondary" name="action" value="check_now" type="submit"><i class="bi bi-arrow-repeat me-1"></i>Check Now</button>
+            {{ form.submit(class='btn btn-primary') }}
+          </div>
+        </form>
+      </div>
+      <div class="card-footer bg-body-tertiary text-end">
+        <a href="https://learn.microsoft.com/en-us/graph/auth-register-app-v2" target="_blank" rel="noopener noreferrer" class="btn btn-link btn-sm text-decoration-none">
+          <i class="bi bi-question-circle me-1"></i>Help: Set up Microsoft Graph
+          <i class="bi bi-box-arrow-up-right ms-1"></i>
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

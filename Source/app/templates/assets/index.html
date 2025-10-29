@@ -1,0 +1,243 @@
+{% extends 'base.html' %}
+{% block title %}Assets · HelpDesk{% endblock %}
+{% block content %}
+<div class="card shadow-sm">
+  <div class="card-header bg-body-tertiary">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <div>
+        <h1 class="h5 mb-0"><i class="bi bi-laptop me-2"></i>Assets</h1>
+        <small class="text-muted">Manage and track organizational assets</small>
+      </div>
+      <div class="d-flex gap-2">
+        {% if current_user.role in ['admin','tech','manager'] %}
+        <a href="{{ url_for('assets.new') }}" class="btn btn-primary btn-sm">
+          <i class="bi bi-plus-lg me-1"></i>New Asset
+        </a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  
+  <div class="card-body">
+    <!-- Filters -->
+    <form method="get" class="mb-4">
+      <div class="row g-3 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">Search</label>
+          <input type="text" name="q" value="{{ q }}" class="form-control" placeholder="Name, tag, serial number...">
+        </div>
+        <div class="col-md-3 col-lg-2">
+          <label class="form-label small fw-semibold">Category</label>
+          <select name="category" class="form-select">
+            <option value="">All Categories</option>
+            {% for c in categories %}
+            <option value="{{ c.name }}" {% if category==c.name %}selected{% endif %}>{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small fw-semibold">Status</label>
+          <select name="status" class="form-select">
+            <option value="">Any Status</option>
+            {% for s in ['available','deployed','maintenance','retired','archived'] %}
+            <option value="{{ s }}" {% if status==s %}selected{% endif %}>{{ s|capitalize }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small fw-semibold">Per Page</label>
+          <select name="per_page" class="form-select">
+            <option value="20" {% if per_page==20 %}selected{% endif %}>20</option>
+            <option value="100" {% if per_page==100 %}selected{% endif %}>100</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <input type="hidden" name="page" value="1">
+          <div class="d-flex gap-1">
+            <button class="btn btn-primary flex-fill">
+              <i class="bi bi-funnel me-1"></i>Filter
+            </button>
+            {% if q or status or category or per_page!=20 %}
+            <a class="btn btn-outline-secondary" href="{{ url_for('assets.index') }}" title="Clear filters">
+              <i class="bi bi-x-lg"></i>
+            </a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </form>
+
+    <!-- Results Summary -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div class="text-muted small">
+        <i class="bi bi-list-ul me-1"></i>
+        Showing {{ assets|length }} of {{ total }} asset(s)
+        {% if q or status or category %}
+          <span class="badge text-bg-info ms-1">Filtered</span>
+        {% endif %}
+      </div>
+      <div class="text-muted small">
+        Page {{ page }} of {{ pages }}
+      </div>
+    </div>
+
+    <!-- Assets Table -->
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead class="table-light">
+          <tr>
+            <th class="fw-semibold">Asset</th>
+            <th class="fw-semibold">Category</th>
+            <th class="fw-semibold">Status</th>
+            <th class="fw-semibold">Assigned To</th>
+            <th class="fw-semibold">Location</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in assets %}
+          <tr class="clickable-row" data-href="{{ url_for('assets.detail', asset_id=a.id) }}">
+            <td>
+              <div class="d-flex align-items-start">
+                <div class="me-2">
+                  {% if a.category %}
+                    {% if 'laptop' in a.category.lower() %}
+                      <i class="bi bi-laptop text-primary"></i>
+                    {% elif 'desktop' in a.category.lower() %}
+                      <i class="bi bi-pc-display text-success"></i>
+                    {% elif 'monitor' in a.category.lower() %}
+                      <i class="bi bi-display text-info"></i>
+                    {% elif 'phone' in a.category.lower() %}
+                      <i class="bi bi-phone text-warning"></i>
+                    {% elif 'tablet' in a.category.lower() %}
+                      <i class="bi bi-tablet text-secondary"></i>
+                    {% else %}
+                      <i class="bi bi-device-hdd text-muted"></i>
+                    {% endif %}
+                  {% else %}
+                    <i class="bi bi-device-hdd text-muted"></i>
+                  {% endif %}
+                </div>
+                <div>
+                  <div class="fw-semibold">{{ a.name }}</div>
+                  <div class="small text-muted">
+                    {% if a.asset_tag %}Tag: {{ a.asset_tag }}{% endif %}
+                    {% if a.asset_tag and a.serial_number %} • {% endif %}
+                    {% if a.serial_number %}S/N: {{ a.serial_number }}{% endif %}
+                  </div>
+                </div>
+              </div>
+            </td>
+            <td>
+              <span class="badge text-bg-light border">{{ a.category or 'Unspecified' }}</span>
+            </td>
+            <td>
+              {% set status_class = 'secondary' %}
+              {% if a.status == 'deployed' %}{% set status_class = 'success' %}{% endif %}
+              {% if a.status == 'maintenance' %}{% set status_class = 'warning' %}{% endif %}
+              {% if a.status in ['retired', 'archived'] %}{% set status_class = 'danger' %}{% endif %}
+              {% if a.status == 'available' %}{% set status_class = 'primary' %}{% endif %}
+              <span class="badge text-bg-{{ status_class }} text-capitalize">{{ a.status or 'Unknown' }}</span>
+            </td>
+            <td>
+              {% if a.assigned_contact %}
+                <div class="d-flex align-items-center">
+                  <i class="bi bi-person-circle me-1 text-muted"></i>
+                  <span>{{ a.assigned_contact.name or a.assigned_contact.email }}</span>
+                </div>
+              {% else %}
+                <span class="text-muted small"><i class="bi bi-dash-lg"></i> Unassigned</span>
+              {% endif %}
+            </td>
+            <td>
+              <div class="small">
+                {% if a.location or a.default_location %}
+                  <i class="bi bi-geo-alt me-1 text-muted"></i>{{ a.location or a.default_location }}
+                {% else %}
+                  <span class="text-muted"><i class="bi bi-dash-lg"></i></span>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="5" class="text-center py-5">
+              <div class="text-muted">
+                <i class="bi bi-inbox display-1 d-block mb-3 opacity-25"></i>
+                <h6>No assets found</h6>
+                <p class="small mb-0">
+                  {% if q or status or show=='available' %}
+                    Try adjusting your filters or <a href="{{ url_for('assets.index') }}">clear all filters</a>
+                  {% else %}
+                    {% if current_user.role == 'admin' %}
+                      <a href="{{ url_for('admin.index') }}#assets-card">Import assets</a> to get started
+                    {% else %}
+                      No assets have been imported yet
+                    {% endif %}
+                  {% endif %}
+                </p>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    {% if total > per_page %}
+    <nav class="mt-4">
+      <div class="d-flex justify-content-center">
+        <ul class="pagination pagination-sm mb-0">
+          <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+            {% if page > 1 %}
+              <a class="page-link" href="{{ url_for('assets.index', q=q, status=status, category=category, per_page=per_page, page=page-1) }}">
+                <i class="bi bi-chevron-left"></i> Previous
+              </a>
+            {% else %}
+              <span class="page-link"><i class="bi bi-chevron-left"></i> Previous</span>
+            {% endif %}
+          </li>
+          
+          {% set start_page = [1, page - 2]|max %}
+          {% set end_page = [pages, page + 2]|min %}
+          
+          {% if start_page > 1 %}
+            <li class="page-item">
+              <a class="page-link" href="{{ url_for('assets.index', q=q, status=status, category=category, per_page=per_page, page=1) }}">1</a>
+            </li>
+            {% if start_page > 2 %}
+              <li class="page-item disabled"><span class="page-link">...</span></li>
+            {% endif %}
+          {% endif %}
+          
+          {% for p in range(start_page, end_page + 1) %}
+            <li class="page-item {% if p == page %}active{% endif %}">
+              <a class="page-link" href="{{ url_for('assets.index', q=q, status=status, category=category, per_page=per_page, page=p) }}">{{ p }}</a>
+            </li>
+          {% endfor %}
+          
+          {% if end_page < pages %}
+            {% if end_page < pages - 1 %}
+              <li class="page-item disabled"><span class="page-link">...</span></li>
+            {% endif %}
+            <li class="page-item">
+              <a class="page-link" href="{{ url_for('assets.index', q=q, status=status, category=category, per_page=per_page, page=pages) }}">{{ pages }}</a>
+            </li>
+          {% endif %}
+          
+          <li class="page-item {% if page >= pages %}disabled{% endif %}">
+            {% if page < pages %}
+              <a class="page-link" href="{{ url_for('assets.index', q=q, status=status, category=category, per_page=per_page, page=page+1) }}">
+                Next <i class="bi bi-chevron-right"></i>
+              </a>
+            {% else %}
+              <span class="page-link">Next <i class="bi bi-chevron-right"></i></span>
+            {% endif %}
+          </li>
+        </ul>
+      </div>
+    </nav>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

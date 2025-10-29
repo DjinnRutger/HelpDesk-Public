@@ -1,0 +1,129 @@
+<style>
+  /* Order items grid layout */
+  #ticketOrderItemsList .order-grid { display:grid; grid-template-columns: 1fr 60px 140px 80px 85px 70px 70px; gap:.5rem; align-items:center; }
+  #ticketOrderItemsList .order-grid.header { font-weight:600; font-size:.7rem; text-transform:uppercase; letter-spacing:.05em; opacity:.75; }
+  #ticketOrderItemsList .order-actions { display:flex; gap:.3rem; justify-content:flex-end; }
+  #ticketOrderItemsList .order-inline-edit { background: var(--bs-body-bg); border:1px solid var(--bs-border-color); padding:.5rem; border-radius:.375rem; }
+  #ticketOrderItemsList .order-inline-edit .form-control { font-size:.7rem; }
+</style>
+{% if items %}
+<ul class="list-group list-group-flush small" id="ticketOrderItemsList">
+  <li class="list-group-item py-1">
+    <div class="order-grid header">
+  <div>Description</div>
+  <div>Qty</div>
+  <div>Vendor</div>
+  <div>Cost</div>
+  <div>Status</div>
+  <div>PO</div>
+  <div class="text-end">Actions</div>
+    </div>
+  </li>
+  {% for oi in items %}
+  <li class="list-group-item py-2" data-item-row="{{ oi.id }}">
+    <div class="order-grid">
+      <div class="text-truncate" title="{{ oi.description }}">{{ oi.description }}</div>
+      <div>x{{ oi.quantity }}</div>
+      <div class="text-truncate">{{ oi.target_vendor or '—' }}</div>
+      <div>{% if oi.est_unit_cost %}${{ '%.2f'|format(oi.est_unit_cost) }}{% else %}—{% endif %}</div>
+      <div><span class="badge text-bg-light border">{{ oi.status }}</span></div>
+      <div>
+        {% if oi.po_id %}
+          {# Show PO number if exists else ID fallback #}
+          {% set _po = oi.purchase_order %}
+          {% if _po %}
+            <a href="{{ url_for('orders.show_po', po_id=_po.id) }}" class="text-decoration-none" title="View PO #{{ _po.po_number or _po.id }}">
+              {{ _po.po_number or ('ID ' ~ _po.id) }}
+            </a>
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
+        {% else %}
+          <span class="text-muted">—</span>
+        {% endif %}
+      </div>
+      <div class="order-actions">
+        <button class="btn btn-sm btn-outline-secondary order-item-edit-btn d-none" data-item="{{ oi.id }}" title="Edit"><i class="bi bi-pencil"></i></button>
+        <form method="post" action="{{ url_for('orders.delete_item', item_id=oi.id) }}" class="d-none order-item-delete-form" onsubmit="return confirm('Delete item?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-sm btn-outline-danger" title="Delete"><i class="bi bi-trash"></i></button>
+        </form>
+      </div>
+    </div>
+    {% if oi.source_url %}<div class="small text-truncate ms-1"><a href="{{ oi.source_url }}" target="_blank" rel="noopener">Link</a></div>{% endif %}
+    <form method="post" action="{{ url_for('orders.update_item', item_id=oi.id) }}" class="order-item-edit-form order-inline-edit mt-2 d-none small">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="row g-1 align-items-end">
+        <div class="col-md-5"><label class="form-label form-label-sm m-0 small">Description</label><input name="description" class="form-control form-control-sm" value="{{ oi.description }}"></div>
+        <div class="col-md-2"><label class="form-label form-label-sm m-0 small">Qty</label><input name="quantity" type="number" min="1" class="form-control form-control-sm" value="{{ oi.quantity }}"></div>
+        <div class="col-md-3"><label class="form-label form-label-sm m-0 small">Vendor</label><input name="target_vendor" class="form-control form-control-sm" value="{{ oi.target_vendor or '' }}"></div>
+        <div class="col-md-2"><label class="form-label form-label-sm m-0 small">Cost</label><input name="est_unit_cost" class="form-control form-control-sm" value="{{ '%.2f'|format(oi.est_unit_cost) if oi.est_unit_cost else '' }}"></div>
+        <div class="col-12 d-flex gap-2 mt-2">
+          <button class="btn btn-sm btn-outline-primary"><i class="bi bi-check"></i> Save</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary order-item-cancel" data-item="{{ oi.id }}">Cancel</button>
+        </div>
+      </div>
+    </form>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+  <div class="text-muted small">No items yet.</div>
+{% endif %}
+<script>
+(function(){
+  const container = document.currentScript.closest('#ticketOrderItemsContainer');
+  if(!container) return;
+  let editing = container.getAttribute('data-editing') === '1';
+  function wire(){
+    if(editing){
+      container.querySelectorAll('.order-item-edit-btn, .order-item-delete-form').forEach(el=>el.classList.remove('d-none'));
+    }
+    container.querySelectorAll('.order-item-edit-btn').forEach(btn=>{
+      btn.addEventListener('click', e=>{
+        e.preventDefault();
+        const li = btn.closest('li');
+        const form = li.querySelector('.order-item-edit-form');
+        if(form) form.classList.toggle('d-none');
+      });
+    });
+    container.querySelectorAll('.order-item-cancel').forEach(btn=>{
+      btn.addEventListener('click', e=>{
+        e.preventDefault();
+        const li = btn.closest('li');
+        const form = li.querySelector('.order-item-edit-form');
+        if(form) form.classList.add('d-none');
+      });
+    });
+    container.querySelectorAll('.order-item-edit-form').forEach(f=>{
+      f.addEventListener('submit', async ev=>{
+        ev.preventDefault();
+        const fd = new FormData(f);
+        try{
+          const res = await fetch(f.action, { method:'POST', body: fd, headers:{'X-Requested-With':'XMLHttpRequest'} });
+          if(res.status===204 && window.refreshOrderItems){ window.refreshOrderItems(); }
+        }catch(err){ console.error(err); }
+      });
+    });
+    container.querySelectorAll('.order-item-delete-form').forEach(f=>{
+      f.addEventListener('submit', async ev=>{
+        ev.preventDefault();
+        if(!confirm('Delete item?')) return;
+        const fd = new FormData(f);
+        try {
+          const res = await fetch(f.action, { method:'POST', body: fd, headers:{'X-Requested-With':'XMLHttpRequest'} });
+          if(res.status===204 && window.refreshOrderItems){ window.refreshOrderItems(); }
+        } catch(err){ console.error(err); }
+      });
+    });
+  }
+  wire();
+  // In case attribute set immediately before injection, re-evaluate after microtask
+  setTimeout(()=>{
+    editing = container.getAttribute('data-editing') === '1';
+    if (editing) {
+      container.querySelectorAll('.order-item-edit-btn, .order-item-delete-form').forEach(el=>el.classList.remove('d-none'));
+    }
+  },0);
+})();
+</script>

@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+{% block title %}Asset Audits · Admin{% endblock %}
+{% block content %}
+<div class="card shadow-sm mb-3">
+  <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div class="d-flex align-items-center gap-2">
+      <i class="bi bi-clipboard-data text-primary"></i>
+      <h1 class="h5 mb-0">Asset Audit Log</h1>
+    </div>
+    <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> Admin</a>
+  </div>
+  <div class="card-body">
+    <form class="row g-2 align-items-end mb-3" method="get">
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold mb-1">Search</label>
+        <input type="text" name="q" class="form-control" value="{{ q }}" placeholder="Field / old / new value">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold mb-1">Action</label>
+        <select name="action" class="form-select">
+          <option value="">Any</option>
+          {% for a in ['edit','checkout','checkin'] %}
+          <option value="{{ a }}" {% if action==a %}selected{% endif %}>{{ a.title() }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold mb-1">Asset ID</label>
+        <input type="text" name="asset_id" class="form-control" value="{{ asset_id }}" placeholder="e.g. 12">
+      </div>
+      <div class="col-md-2">
+        <button class="btn btn-primary w-100" type="submit"><i class="bi bi-search me-1"></i>Filter</button>
+      </div>
+      <div class="col-md-2">
+        <a href="{{ url_for('admin.audits') }}" class="btn btn-outline-secondary w-100"><i class="bi bi-x-circle me-1"></i>Clear</a>
+      </div>
+    </form>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Asset</th>
+            <th>Action</th>
+            <th>Field</th>
+            <th>Old Value</th>
+            <th>New Value</th>
+            <th>User</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in audits %}
+          <tr>
+            <td class="text-nowrap small">{{ a.created_at|cst_datetime }}</td>
+            <td class="small">
+              {% set asset_obj = asset_map.get(a.asset_id) %}
+              <a href="{{ url_for('assets.detail', asset_id=a.asset_id) }}">#{{ a.asset_id }}</a>
+              {% if asset_obj %}
+                <div class="text-muted text-truncate" style="max-width:200px">
+                  {{ asset_obj.name }}
+                  {% if asset_obj.asset_tag %}<span class="badge text-bg-light border ms-1">Tag: {{ asset_obj.asset_tag }}</span>{% endif %}
+                </div>
+              {% endif %}
+            </td>
+            <td class="small"><span class="badge text-bg-secondary text-capitalize">{{ a.action }}</span></td>
+            <td class="small">{{ a.field or '—' }}</td>
+            <td class="small text-muted">{{ a.old_value or '—' }}</td>
+            <td class="small">{{ a.new_value or '—' }}</td>
+            <td class="small">{% set u=users.get(a.user_id) %}{% if u %}{{ u.name }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="text-muted small">No audit entries match your filters.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

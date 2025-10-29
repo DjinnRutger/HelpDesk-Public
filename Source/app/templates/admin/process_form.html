@@ -1,0 +1,152 @@
+{% extends 'base.html' %}
+{% block title %}{{ action }} Process · HelpDesk{% endblock %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+        <div class="d-flex align-items-center gap-2">
+          <i class="bi bi-diagram-3 text-primary"></i>
+          <h2 class="h6 mb-0">{{ action }} Process</h2>
+        </div>
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('admin.processes') }}"><i class="bi bi-arrow-left"></i></a>
+      </div>
+      <div class="card-body">
+        <form method="post" class="row g-3">
+          {{ form.hidden_tag() }}
+          <div class="col-12">{{ form.name.label(class='form-label small fw-semibold') }} {{ form.name(class='form-control') }}</div>
+          <div class="col-12 d-flex flex-wrap gap-2 justify-content-end">{{ form.submit(class='btn btn-primary') }}</div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  {% if template %}
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-header bg-body-tertiary">
+        <h2 class="h6 mb-0">Checklist Items</h2>
+      </div>
+      <div class="card-body">
+        {% if template.items %}
+        <ul class="list-group list-group-flush mb-3" id="ptItems" data-reorder-url="{{ url_for('admin.process_reorder_items', template_id=template.id) }}">
+          {% for it in template.items %}
+          <li class="list-group-item" draggable="true" data-id="{{ it.id }}">
+            <div class="d-flex justify-content-between align-items-center item-view">
+              <div class="flex-grow-1">
+                <div class="fw-semibold">{{ it.label }}</div>
+                <div class="small text-muted">Type: {{ it.type }} {% if it.assigned_tech %}· Assigned: {{ it.assigned_tech.name }}{% endif %}</div>
+              </div>
+              <div class="ms-2">
+                <form method="post" action="{{ url_for('admin.process_delete_item', template_id=template.id, item_id=it.id) }}" onsubmit="return confirm('Delete this item?')">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="btn btn-sm btn-outline-danger">Delete</button>
+                </form>
+              </div>
+            </div>
+            <div class="item-edit d-none mt-2">
+              <form method="post" action="{{ url_for('admin.process_update_item', template_id=template.id, item_id=it.id) }}" class="row g-2 align-items-end">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="col-md-4">
+                  <label class="form-label">Type</label>
+                  <select name="type" class="form-select">
+                    <option value="checkbox" {% if it.type=='checkbox' %}selected{% endif %}>Checkbox</option>
+                    <option value="text" {% if it.type=='text' %}selected{% endif %}>Text</option>
+                  </select>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Label</label>
+                  <input name="label" class="form-control" value="{{ it.label }}">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Assigned Tech</label>
+                  <select name="assigned_tech_id" class="form-select">
+                    <option value="0" {% if not it.assigned_tech_id %}selected{% endif %}>— None —</option>
+                    {% for u in (item_form.assigned_tech_id.choices[1:] if item_form and item_form.assigned_tech_id and item_form.assigned_tech_id.choices else []) %}
+                      <option value="{{ u[0] }}" {% if it.assigned_tech_id==u[0] %}selected{% endif %}>{{ u[1] }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-1 d-grid">
+                  <button class="btn btn-primary">Save</button>
+                </div>
+              </form>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="empty-state py-4">
+          <i class="bi bi-list-check empty-icon"></i>
+          <div class="empty-title">No checklist items yet</div>
+          <div class="empty-body">Add steps to guide technicians through this process.</div>
+        </div>
+        {% endif %}
+
+  <div class="card border shadow-sm">
+          <div class="card-header bg-body-tertiary">
+            <h3 class="h6 mb-0">Add Item</h3>
+          </div>
+          <div class="card-body">
+            <form method="post" action="{{ url_for('admin.process_add_item', template_id=template.id) }}" class="row g-3">
+              {{ item_form.hidden_tag() }}
+              <div class="col-md-6">{{ item_form.type.label(class='form-label small fw-semibold') }} {{ item_form.type(class='form-select') }}</div>
+              <div class="col-md-6">{{ item_form.position.label(class='form-label small fw-semibold') }} {{ item_form.position(class='form-control') }}</div>
+              <div class="col-12">{{ item_form.label.label(class='form-label small fw-semibold') }} {{ item_form.label(class='form-control') }}</div>
+              <div class="col-12">{{ item_form.assigned_tech_id.label(class='form-label small fw-semibold') }} {{ item_form.assigned_tech_id(class='form-select') }}</div>
+              <div class="col-12 d-flex flex-wrap gap-2 justify-content-end">{{ item_form.submit(class='btn btn-outline-primary') }}</div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  (function(){
+    const list = document.getElementById('ptItems');
+    if (!list) return;
+    let dragEl = null;
+    const url = list.dataset.reorderUrl;
+    list.addEventListener('dragstart', (e) => {
+      dragEl = e.target.closest('li.list-group-item');
+      if (!dragEl) return;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', dragEl.dataset.id);
+      dragEl.classList.add('opacity-50');
+    });
+    list.addEventListener('dragend', () => { if (dragEl) dragEl.classList.remove('opacity-50'); dragEl = null; });
+    list.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      const item = e.target.closest('li.list-group-item');
+      if (!item || item === dragEl) return;
+      const rect = item.getBoundingClientRect();
+      const before = (e.clientY - rect.top) < rect.height / 2;
+      if (before) list.insertBefore(dragEl, item); else list.insertBefore(dragEl, item.nextSibling);
+    });
+    list.addEventListener('drop', () => {
+      const ids = Array.from(list.querySelectorAll('li.list-group-item[data-id]')).map(li => li.dataset.id);
+      fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': '{{ csrf_token() }}'
+        },
+        body: JSON.stringify(ids)
+      }).catch(() => {});
+    });
+    // Toggle inline edit on click (avoid when clicking buttons/inputs)
+    list.addEventListener('click', (e) => {
+      const li = e.target.closest('li.list-group-item');
+      if (!li) return;
+      if (e.target.closest('form, button, input, select, textarea, a')) return;
+      const view = li.querySelector('.item-view');
+      const edit = li.querySelector('.item-edit');
+      if (view && edit) { view.classList.toggle('d-none'); edit.classList.toggle('d-none'); }
+    });
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,158 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard · HelpDesk{% endblock %}
+{% block head %}
+<script>
+  // Reload every 30s, only if tab is visible
+  setInterval(function(){
+    if (document.visibilityState === 'visible') {
+      location.reload();
+    }
+  }, 30000);
+</script>
+{% endblock %}
+{% block content %}
+<!-- Dashboard Header -->
+<div class="card shadow-sm mb-3">
+  <div class="card-header bg-body-tertiary">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <div class="d-flex align-items-center">
+        <i class="bi bi-speedometer2 text-primary me-2 fs-4"></i>
+        <div>
+          <h1 class="h5 mb-0">Dashboard</h1>
+          <small class="text-muted">System overview and recent activity</small>
+        </div>
+      </div>
+      <div class="d-flex gap-2">
+        <a href="{{ url_for('tickets.list_tickets', status='open') }}" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-list me-1"></i>All Open Tickets
+        </a>
+        <a href="{{ url_for('dashboard.index', show_snoozed=(0 if show_snoozed else 1)) }}" class="btn btn-outline-secondary btn-sm" title="Toggle snoozed">
+          <i class="bi bi-moon"></i>
+          {% if stats.snoozed_count %}
+            <span class="badge rounded-pill text-bg-secondary ms-1">{{ stats.snoozed_count }}</span>
+          {% endif %}
+        </a>
+        <a href="{{ url_for('tickets.new_ticket') }}" class="btn btn-primary btn-sm">
+          <i class="bi bi-plus-lg me-1"></i>New Ticket
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Statistics Cards -->
+<div class="row g-3 mb-3">
+  <div class="col-md-3">
+    <div class="card shadow-sm h-100">
+      <div class="card-body text-center">
+        <i class="bi bi-ticket-perforated text-primary fs-1 mb-2"></i>
+        <div class="h2 mb-1">{{ stats.open_total }}</div>
+        <div class="text-muted small">Total Open Tickets</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card shadow-sm h-100">
+      <div class="card-body text-center">
+        <i class="bi bi-person-check text-success fs-1 mb-2"></i>
+        <div class="h2 mb-1">{{ stats.my_open }}</div>
+        <div class="text-muted small">My Open Tickets</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card shadow-sm h-100">
+      <div class="card-body text-center">
+        <i class="bi bi-person-x text-warning fs-1 mb-2"></i>
+        <div class="h2 mb-1">{{ stats.unassigned }}</div>
+        <div class="text-muted small">Unassigned Tickets</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card shadow-sm h-100">
+      <div class="card-body text-center">
+        <i class="bi bi-kanban text-info fs-1 mb-2"></i>
+        <div class="h2 mb-1">{{ stats.active_projects }}</div>
+        <div class="text-muted small">Active Projects</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Recent Open Tickets -->
+<div class="card shadow-sm">
+  <div class="card-header bg-body-tertiary">
+    <div class="d-flex align-items-center justify-content-between">
+      <h6 class="mb-0"><i class="bi bi-list-task me-1"></i>Recent Open Tickets</h6>
+      <a href="{{ url_for('tickets.list_tickets', status='open') }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-right me-1"></i>View All Open
+      </a>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    {% if tickets %}
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th class="border-0">Ticket</th>
+              <th class="border-0">Requester</th>
+              <th class="border-0">Assignee</th>
+              <th class="border-0">Status</th>
+              <th class="border-0">Priority</th>
+              <th class="border-0">Age</th>
+              <th class="border-0"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in tickets %}
+              <tr class="clickable-row {% if t.priority == 'high' %}table-danger{% endif %}" data-href="{{ url_for('tickets.show_ticket', ticket_id=t.id) }}">
+                <td>
+                  <div class="fw-semibold">#{{ t.id }}</div>
+                  <div class="text-muted small text-truncate" style="max-width: 250px;">{{ t.subject }}
+                    {% if show_snoozed and t.is_snoozed %}
+                      <span class="ms-1"><i class="bi bi-moon"></i> {{ t.snoozed_until|cst_datetime('%m/%d/%Y') }}</span>
+                    {% endif %}
+                  </div>
+                </td>
+                <td class="small">{{ t.requester_name or t.requester_email or '—' }}</td>
+                <td class="small">{{ t.assignee.name if t.assignee else '—' }}</td>
+                <td>
+                  {% set status_class = 'secondary' %}
+                  {% if t.status == 'open' %}{% set status_class = 'primary' %}{% endif %}
+                  {% if t.status == 'in_progress' %}{% set status_class = 'warning' %}{% endif %}
+                  {% if t.status == 'resolved' %}{% set status_class = 'success' %}{% endif %}
+                  <span class="badge text-bg-{{ status_class }}">{{ t.status.replace('_', ' ').title() }}</span>
+                </td>
+                <td>
+                  {% if t.priority == 'high' %}
+                    <span class="badge text-bg-danger">High</span>
+                  {% elif t.priority == 'medium' %}
+                    <span class="badge text-bg-warning">Medium</span>
+                  {% else %}
+                    <span class="badge text-bg-secondary">Low</span>
+                  {% endif %}
+                </td>
+                <td class="small">{{ t.age_days }}d</td>
+                <td>
+                  <i class="bi bi-chevron-right text-muted"></i>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="text-center py-5">
+        <i class="bi bi-check-circle display-1 text-success opacity-25"></i>
+        <h5 class="mt-3 mb-2">All Caught Up!</h5>
+        <p class="text-muted mb-3">No open tickets at this time.</p>
+        <a href="{{ url_for('tickets.new_ticket') }}" class="btn btn-primary">
+          <i class="bi bi-plus-lg me-1"></i>Create New Ticket
+        </a>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

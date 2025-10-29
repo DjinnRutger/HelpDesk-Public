@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% block title %}Sign in · HelpfulDjinn{% endblock %}
+{% block content %}
+<div class="row justify-content-center align-items-center">
+  <div class="col-md-4 col-lg-3 text-center mb-4 mb-md-0">
+    <img src="/images/HelpfulDjinnMd.png" alt="HelpfulDjinn Logo" class="img-fluid" style="max-width: 250px;">
+  </div>
+  <div class="col-md-5 col-lg-4">
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        <h1 class="h4 mb-3">Sign in</h1>
+        <form method="post">
+          {{ form.hidden_tag() }}
+          <div class="mb-3">
+            {{ form.email.label(class='form-label') }}
+            {{ form.email(class='form-control', placeholder='you@example.com') }}
+            {% for e in form.email.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="mb-3">
+            {{ form.password.label(class='form-label') }}
+            {{ form.password(class='form-control', placeholder='••••••••') }}
+            {% for e in form.password.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="form-check mb-3">
+            {{ form.remember(class='form-check-input') }}
+            {{ form.remember.label(class='form-check-label') }}
+          </div>
+          <div class="d-grid">
+            {{ form.submit(class='btn btn-primary') }}
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-1"></div>
+</div>
+{% endblock %}

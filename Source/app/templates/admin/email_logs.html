@@ -1,0 +1,167 @@
+{% extends 'base.html' %}
+{% block title %}Email Logs · HelpfulDjinn{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h1 class="h5 mb-0"><i class="bi bi-journal-text me-2"></i>Email Logs (last {{ days or 7 }} days)</h1>
+  <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>Back to Admin</a>
+</div>
+
+<form method="get" class="card shadow-sm mb-3">
+  <div class="card-body row g-2 align-items-end">
+    <div class="col-sm-6 col-md-5 col-lg-6">
+      <label class="form-label small">Search</label>
+      <input type="text" class="form-control form-control-sm" name="q" placeholder="Sender or subject" value="{{ q or '' }}">
+    </div>
+    <div class="col-sm-3 col-md-3 col-lg-2">
+      <label class="form-label small">Action</label>
+      <select name="action" class="form-select form-select-sm">
+        {% set act = (action or '') %}
+        <option value="" {{ 'selected' if not act else '' }}>All</option>
+        <option value="new_ticket" {{ 'selected' if act=='new_ticket' else '' }}>New ticket</option>
+        <option value="append_ticket" {{ 'selected' if act=='append_ticket' else '' }}>Appended</option>
+        <option value="filtered_deny" {{ 'selected' if act=='filtered_deny' else '' }}>Filtered (deny)</option>
+        <option value="filtered_domain" {{ 'selected' if act=='filtered_domain' else '' }}>Filtered (domain)</option>
+        <option value="duplicate" {{ 'selected' if act=='duplicate' else '' }}>Duplicate</option>
+        <option value="none" {{ 'selected' if act=='none' else '' }}>No new messages</option>
+      </select>
+    </div>
+    <div class="col-sm-3 col-md-2 col-lg-2">
+      <label class="form-label small">Days</label>
+      <select name="days" class="form-select form-select-sm">
+        {% set d = days or 7 %}
+        <option value="1" {{ 'selected' if d==1 else '' }}>1</option>
+        <option value="3" {{ 'selected' if d==3 else '' }}>3</option>
+        <option value="7" {{ 'selected' if d==7 else '' }}>7</option>
+      </select>
+    </div>
+    <div class="col-sm-12 col-md-2 col-lg-2 text-end">
+      <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-funnel me-1"></i>Filter</button>
+      <a href="{{ url_for('admin.email_logs') }}" class="btn btn-outline-secondary btn-sm ms-2">Clear</a>
+    </div>
+  </div>
+  {% if q or action %}
+  <div class="card-footer small text-muted">
+    Showing results filtered by
+    {% if q %}query "{{ q }}"{% endif %}
+    {% if q and action %} and {% endif %}
+    {% if action %}action "{{ action }}"{% endif %}.
+  </div>
+  {% endif %}
+</form>
+
+{% if not entries %}
+  <div class="alert alert-info"><i class="bi bi-info-circle me-2"></i>No email log entries match your filters for the selected time range.</div>
+{% else %}
+  <div class="card shadow-sm">
+    <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+      <span class="small">
+        Showing {{ ((pagination.page - 1) * pagination.per_page) + 1 }} - {{ ((pagination.page - 1) * pagination.per_page) + entries|length }} of {{ pagination.total }} entries
+      </span>
+      <div>
+        <label class="small me-2">Per page:</label>
+        <a href="{{ url_for('admin.email_logs', q=q, action=action, days=days, per_page=20, page=1) }}" 
+           class="btn btn-sm {{ 'btn-primary' if per_page == 20 else 'btn-outline-secondary' }}">20</a>
+        <a href="{{ url_for('admin.email_logs', q=q, action=action, days=days, per_page=100, page=1) }}" 
+           class="btn btn-sm {{ 'btn-primary' if per_page == 100 else 'btn-outline-secondary' }} ms-1">100</a>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th style="width: 14%">Checked At (UTC)</th>
+            <th style="width: 26%">Sender</th>
+            <th>Subject</th>
+            <th style="width: 14%">Action</th>
+            <th style="width: 8%" class="text-end">Ticket</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in entries %}
+            <tr>
+              <td><span class="small text-muted">{{ e.check.checked_at.strftime('%Y-%m-%d %H:%M:%S') }}</span></td>
+              <td><span class="small">{{ e.sender or '—' }}</span></td>
+              <td><span class="small">{{ e.subject or '(no subject)' }}</span></td>
+              <td>
+                {% set action_lower = (e.action or '').lower() %}
+                {% if action_lower == 'new_ticket' %}
+                  <span class="badge text-bg-success"><i class="bi bi-plus-circle me-1"></i>New ticket</span>
+                {% elif action_lower == 'append_ticket' %}
+                  <span class="badge text-bg-secondary"><i class="bi bi-chat-left-text me-1"></i>Appended</span>
+                {% elif action_lower == 'filtered_deny' %}
+                  <span class="badge text-bg-warning"><i class="bi bi-shield-exclamation me-1"></i>Filtered (deny)</span>
+                {% elif action_lower == 'filtered_domain' %}
+                  <span class="badge text-bg-warning"><i class="bi bi-shield-exclamation me-1"></i>Filtered (domain)</span>
+                {% elif action_lower == 'duplicate' %}
+                  <span class="badge text-bg-info"><i class="bi bi-copy me-1"></i>Duplicate</span>
+                {% elif action_lower == 'none' %}
+                  <span class="badge text-bg-light text-dark"><i class="bi bi-dash-circle me-1"></i>No new messages</span>
+                {% else %}
+                  <span class="badge text-bg-light text-dark">{{ e.action or '—' }}</span>
+                {% endif %}
+                {% if e.note %}<div class="small text-muted mt-1">{{ e.note }}</div>{% endif %}
+              </td>
+              <td class="text-end">
+                {% if e.ticket_id %}
+                  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('tickets.show_ticket', ticket_id=e.ticket_id) }}">
+                    <i class="bi bi-box-arrow-up-right"></i>
+                  </a>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    
+    {% if pagination.pages > 1 %}
+    <div class="card-footer">
+      <nav aria-label="Email logs pagination">
+        <ul class="pagination pagination-sm mb-0 justify-content-center">
+          <li class="page-item {{ 'disabled' if not pagination.has_prev else '' }}">
+            <a class="page-link" href="{{ url_for('admin.email_logs', q=q, action=action, days=days, per_page=per_page, page=pagination.prev_num) if pagination.has_prev else '#' }}">
+              <i class="bi bi-chevron-left"></i> Previous
+            </a>
+          </li>
+          
+          {% set start_page = [1, pagination.page - 2]|max %}
+          {% set end_page = [pagination.pages, pagination.page + 2]|min %}
+          
+          {% if start_page > 1 %}
+            <li class="page-item">
+              <a class="page-link" href="{{ url_for('admin.email_logs', q=q, action=action, days=days, per_page=per_page, page=1) }}">1</a>
+            </li>
+            {% if start_page > 2 %}
+              <li class="page-item disabled"><span class="page-link">...</span></li>
+            {% endif %}
+          {% endif %}
+          
+          {% for p in range(start_page, end_page + 1) %}
+            <li class="page-item {{ 'active' if p == pagination.page else '' }}">
+              <a class="page-link" href="{{ url_for('admin.email_logs', q=q, action=action, days=days, per_page=per_page, page=p) }}">{{ p }}</a>
+            </li>
+          {% endfor %}
+          
+          {% if end_page < pagination.pages %}
+            {% if end_page < pagination.pages - 1 %}
+              <li class="page-item disabled"><span class="page-link">...</span></li>
+            {% endif %}
+            <li class="page-item">
+              <a class="page-link" href="{{ url_for('admin.email_logs', q=q, action=action, days=days, per_page=per_page, page=pagination.pages) }}">{{ pagination.pages }}</a>
+            </li>
+          {% endif %}
+          
+          <li class="page-item {{ 'disabled' if not pagination.has_next else '' }}">
+            <a class="page-link" href="{{ url_for('admin.email_logs', q=q, action=action, days=days, per_page=per_page, page=pagination.next_num) if pagination.has_next else '#' }}">
+              Next <i class="bi bi-chevron-right"></i>
+            </a>
+          </li>
+        </ul>
+      </nav>
+    </div>
+    {% endif %}
+  </div>
+{% endif %}
+{% endblock %}

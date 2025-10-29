@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% block title %}Scheduled Tickets · Admin{% endblock %}
+{% block content %}
+<div class="card shadow-sm mb-3">
+  <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+    <h1 class="h5 mb-0">Scheduled Tickets</h1>
+    <a class="btn btn-primary btn-sm" href="{{ url_for('admin.scheduled_new') }}"><i class="bi bi-plus-lg me-1"></i>New</a>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Name</th>
+            <th>Schedule</th>
+            <th>Assignee</th>
+            <th>Active</th>
+            <th>Last Run</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td>
+              <div class="fw-semibold">{{ r.name }}</div>
+              <div class="small text-muted text-truncate" style="max-width:420px;">{{ r.subject }}</div>
+            </td>
+            <td class="small">
+              {% if r.schedule_type == 'daily' %}Daily{% endif %}
+              {% if r.schedule_type == 'weekly' %}Weekly ({{ ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][r.day_of_week or 0] }}){% endif %}
+              {% if r.schedule_type == 'monthly' %}Monthly (day {{ r.day_of_month }}){% endif %}
+              {% if r.schedule_time %} @ {{ r.schedule_time }}{% endif %}
+            </td>
+            <td class="small">{{ r.assignee.name if r.assignee else '—' }}</td>
+            <td class="small">{% if r.active %}<span class="badge text-bg-success">Yes</span>{% else %}<span class="badge text-bg-secondary">No</span>{% endif %}</td>
+            <td class="small">{{ r.last_run_at|cst_datetime }}</td>
+            <td class="text-end">
+              <div class="btn-group btn-group-sm">
+                <a class="btn btn-outline-secondary" href="{{ url_for('admin.scheduled_edit', row_id=r.id) }}">Edit</a>
+                <form method="post" action="{{ url_for('admin.scheduled_delete', row_id=r.id) }}" onsubmit="return confirm('Delete this schedule?')">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="btn btn-outline-danger">Delete</button>
+                </form>
+                <form method="post" action="{{ url_for('admin.scheduled_run_now', row_id=r.id) }}" title="Run now">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="btn btn-outline-primary"><i class="bi bi-play"></i></button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="text-center text-muted py-4">No scheduled tickets yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

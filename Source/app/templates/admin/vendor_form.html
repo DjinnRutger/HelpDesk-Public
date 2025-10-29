@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% block title %}{{ action }} Vendor · Admin{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8 col-xl-7">
+    <div class="card shadow-sm">
+      <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+        <div class="d-flex align-items-center gap-2">
+          <i class="bi bi-buildings text-primary"></i>
+          <div>
+            <h1 class="h5 mb-0">{{ action }} Vendor</h1>
+            <small class="text-muted">Keep vendor contact and address details current</small>
+          </div>
+        </div>
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('admin.vendors') }}"><i class="bi bi-arrow-left"></i></a>
+      </div>
+      <div class="card-body">
+        <form method="post" class="row g-3">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="col-12">
+            <label class="form-label small fw-semibold">Company Name</label>
+            <input class="form-control" name="company_name" value="{{ vendor.company_name if vendor }}" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold">Contact Name</label>
+            <input class="form-control" name="contact_name" value="{{ vendor.contact_name if vendor }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold">Contact Email</label>
+            <input class="form-control" name="email" value="{{ vendor.email if vendor }}" type="email">
+          </div>
+          <div class="col-md-8">
+            <label class="form-label small fw-semibold">Address</label>
+            <textarea class="form-control" name="address" rows="3">{{ vendor.address if vendor }}</textarea>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold">Phone</label>
+            <input class="form-control" name="phone" value="{{ vendor.phone if vendor }}">
+          </div>
+          <div class="col-12 d-flex flex-wrap gap-2 justify-content-end">
+            <a class="btn btn-outline-secondary" href="{{ url_for('admin.vendors') }}">Cancel</a>
+            <button class="btn btn-primary" type="submit"><i class="bi bi-check-lg me-1"></i>Save Vendor</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

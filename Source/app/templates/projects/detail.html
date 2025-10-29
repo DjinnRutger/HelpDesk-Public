@@ -1,0 +1,293 @@
+{% extends 'base.html' %}
+{% block title %}{{ p.name }} · Projects · HelpDesk{% endblock %}
+{% block content %}
+<!-- Project Header -->
+<div class="card shadow-sm mb-3">
+  <div class="card-header bg-body-tertiary">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <div class="d-flex align-items-center">
+        <i class="bi bi-folder text-primary me-2 fs-4"></i>
+        <div>
+          <h1 class="h5 mb-0">{{ p.name }}</h1>
+          <small class="text-muted">
+            {% set total = p.tickets.count() %}
+            {% set closed = p.tickets.filter_by(status='closed').count() %}
+            {% set pct = (closed * 100 // total) if total else 0 %}
+            Project • {{ total }} ticket{{ 's' if total != 1 else '' }} • {{ pct }}% complete
+          </small>
+        </div>
+      </div>
+      <div class="d-flex gap-2">
+        <a href="{{ url_for('projects.list_projects') }}" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-arrow-left me-1"></i>Back to Projects
+        </a>
+        <a href="{{ url_for('projects.edit_project', project_id=p.id) }}" class="btn btn-outline-primary btn-sm">
+          <i class="bi bi-pencil me-1"></i>Edit
+        </a>
+        <a href="{{ url_for('projects.new_project_ticket', project_id=p.id) }}" class="btn btn-primary btn-sm">
+          <i class="bi bi-plus-lg me-1"></i>New Ticket
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-8">
+    {% if p.description %}
+    <!-- Project Description -->
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-body-tertiary">
+        <h6 class="mb-0"><i class="bi bi-info-circle me-1"></i>Project Description</h6>
+      </div>
+      <div class="card-body">
+        <div class="preserve-ws">{{ p.description }}</div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Project Tickets -->
+    <div class="card shadow-sm">
+      <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+        <h6 class="mb-0"><i class="bi bi-list-task me-1"></i>Project Tickets</h6>
+        {% set next_show = 'all' if (show or 'open') != 'all' else 'open' %}
+        {% set btn_variant = 'btn-outline-secondary' %}
+        {% if active_theme in ['dark','fallout'] %}{% set btn_variant = 'btn-outline-light' %}{% endif %}
+        <a class="btn btn-sm {{ btn_variant }}" title="Toggle {{ 'All' if next_show == 'all' else 'Open only' }}"
+           href="{{ url_for('projects.show_project', project_id=p.id, show=next_show) }}">
+          {% if (show or 'open') == 'all' %}
+            <i class="bi bi-eye-slash"></i>
+          {% else %}
+            <i class="bi bi-eye"></i>
+          {% endif %}
+        </a>
+      </div>
+      <div class="card-body p-0">
+        {% if tickets %}
+          <div class="table-responsive">
+            <table class="table table-hover mb-0 project-tickets">
+              <thead class="table-light">
+                <tr>
+                  <th style="width:32px;"><i class="bi bi-grip-vertical text-muted"></i></th>
+                  <th>Ticket</th>
+                  <th>Assignee</th>
+                  <th>Status</th>
+                  <th>Priority</th>
+                </tr>
+              </thead>
+              <tbody id="project-ticket-rows" data-reorder-url="{{ url_for('projects.reorder_project_tickets', project_id=p.id) }}">
+                {% for t in tickets %}
+                  <tr class="{% if t.priority == 'high' %}table-danger{% endif %}" draggable="true" data-id="{{ t.id }}">
+                    <td class="text-muted text-center">
+                      <i class="bi bi-grip-vertical" style="cursor: grab;"></i>
+                    </td>
+                    <td>
+                      <div class="d-flex align-items-center">
+                        <i class="bi bi-ticket-perforated text-muted me-2"></i>
+                        <a href="{{ url_for('tickets.show_ticket', ticket_id=t.id) }}" class="text-decoration-none {% if t.status == 'closed' %}text-muted opacity-75{% endif %}">
+                          #{{ t.id }} · {{ t.subject }}
+                        </a>
+                      </div>
+                    </td>
+                    <td>
+                      {% if t.assignee %}
+                        <div class="d-flex align-items-center">
+                          <i class="bi bi-person-circle text-muted me-1"></i>
+                          {{ t.assignee.name }}
+                        </div>
+                      {% else %}
+                        <span class="text-muted">Unassigned</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% set status_class = 'secondary' %}
+                      {% if t.status == 'open' %}{% set status_class = 'primary' %}{% endif %}
+                      {% if t.status == 'in_progress' %}{% set status_class = 'warning' %}{% endif %}
+                      {% if t.status == 'closed' %}{% set status_class = 'success' %}{% endif %}
+                      <span class="badge text-bg-{{ status_class }}">{{ t.status.replace('_', ' ')|title }}</span>
+                    </td>
+                    <td>
+                      {% set priority_class = 'secondary' %}
+                      {% if t.priority == 'high' %}{% set priority_class = 'danger' %}{% endif %}
+                      {% if t.priority == 'medium' %}{% set priority_class = 'warning' %}{% endif %}
+                      {% if t.priority == 'low' %}{% set priority_class = 'success' %}{% endif %}
+                      <span class="badge text-bg-{{ priority_class }} text-capitalize">{{ t.priority }}</span>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="card-footer bg-body-tertiary">
+            <p class="small text-muted mb-0">
+              <i class="bi bi-info-circle me-1"></i>
+              Drag the <i class="bi bi-grip-vertical"></i> handle to reorder tickets within this project.
+            </p>
+          </div>
+        {% else %}
+          <div class="text-center py-4">
+            <i class="bi bi-list-task display-6 text-muted opacity-25"></i>
+            <h6 class="mt-2 mb-1">No Tickets Yet</h6>
+            <p class="text-muted small mb-3">Get started by creating your first ticket for this project.</p>
+            <a href="{{ url_for('projects.new_project_ticket', project_id=p.id) }}" class="btn btn-primary btn-sm">
+              <i class="bi bi-plus-lg me-1"></i>Create First Ticket
+            </a>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div class="col-lg-4">
+    <!-- Project Stats -->
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-body-tertiary">
+        <h6 class="mb-0"><i class="bi bi-bar-chart me-1"></i>Project Statistics</h6>
+      </div>
+      <div class="card-body">
+        {% set total = p.tickets.count() %}
+        {% set open_count = p.tickets.filter_by(status='open').count() %}
+        {% set in_progress_count = p.tickets.filter_by(status='in_progress').count() %}
+        {% set closed_count = p.tickets.filter_by(status='closed').count() %}
+        {% set pct = (closed_count * 100 // total) if total else 0 %}
+        
+        <div class="mb-3">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <small class="fw-semibold">Progress</small>
+            <small class="text-muted">{{ pct }}%</small>
+          </div>
+          {% if total > 0 %}
+            <div class="progress" style="height: 8px;">
+              <div class="progress-bar bg-success" role="progressbar" style="width: {{ pct }}%"></div>
+            </div>
+          {% else %}
+            <div class="progress" style="height: 8px;">
+              <div class="progress-bar bg-light" role="progressbar" style="width: 100%"></div>
+            </div>
+          {% endif %}
+        </div>
+        
+        <table class="table table-sm table-borderless mb-0">
+          <tr>
+            <td class="text-muted small">Total Tickets:</td>
+            <td class="fw-semibold">{{ total }}</td>
+          </tr>
+          <tr>
+            <td class="text-muted small">Open:</td>
+            <td><span class="badge text-bg-primary">{{ open_count }}</span></td>
+          </tr>
+          <tr>
+            <td class="text-muted small">In Progress:</td>
+            <td><span class="badge text-bg-warning">{{ in_progress_count }}</span></td>
+          </tr>
+          <tr>
+            <td class="text-muted small">Completed:</td>
+            <td><span class="badge text-bg-success">{{ closed_count }}</span></td>
+          </tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- Project Status -->
+    <div class="card shadow-sm">
+      <div class="card-header bg-body-tertiary">
+        <h6 class="mb-0"><i class="bi bi-flag me-1"></i>Project Status</h6>
+      </div>
+      <div class="card-body">
+        {% set status_class = 'primary' %}
+        {% if p.status == 'closed' %}{% set status_class = 'success' %}{% endif %}
+        <div class="text-center">
+          <span class="badge text-bg-{{ status_class }} fs-6 mb-2">{{ p.status|default('open')|title }}</span>
+          {% if p.status == 'closed' %}
+            <p class="small text-muted mb-0">This project has been completed.</p>
+          {% else %}
+            <p class="small text-muted mb-0">This project is currently active.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+	// Simple drag-and-drop reorder without external libs
+	const list = document.getElementById('project-ticket-rows');
+	if (list) {
+		let dragEl = null;
+	const reorderUrl = list.dataset.reorderUrl;
+	const csrfToken = "{{ csrf_token() }}";
+		list.addEventListener('dragstart', (e) => {
+			dragEl = e.target.closest('tr');
+			if (!dragEl) return;
+			e.dataTransfer.effectAllowed = 'move';
+			e.dataTransfer.setData('text/plain', dragEl.dataset.id);
+			dragEl.classList.add('opacity-50');
+		});
+		list.addEventListener('dragend', () => {
+			if (dragEl) dragEl.classList.remove('opacity-50');
+			dragEl = null;
+		});
+		list.addEventListener('dragover', (e) => {
+			e.preventDefault();
+			const item = e.target.closest('tr');
+			if (!item || item === dragEl) return;
+			const rect = item.getBoundingClientRect();
+			const before = (e.clientY - rect.top) < rect.height / 2;
+			if (before) {
+				list.insertBefore(dragEl, item);
+			} else {
+				list.insertBefore(dragEl, item.nextSibling);
+			}
+		});
+		list.addEventListener('drop', async () => {
+			const ids = Array.from(list.querySelectorAll('tr[data-id]')).map(el => parseInt(el.dataset.id));
+			try {
+			await fetch(reorderUrl, {
+					method: 'POST',
+					headers: {
+				'Content-Type': 'application/json',
+				'X-CSRFToken': csrfToken
+					},
+					body: JSON.stringify(ids)
+				});
+			} catch (e) { console.error('Failed to save order', e); }
+		});
+	}
+</script>
+{% endblock %}
+
+{% block extra_styles %}
+<style>
+/* Dark theme selectors (adjust to your actual dark mode class / attribute) */
+body.dark .project-tickets thead th,
+[data-theme="dark"] .project-tickets thead th,
+[data-bs-theme="dark"] .project-tickets thead th {
+    background-color: #252a2f;      /* darker, less contrasty */
+    color: #d0d6dc;                  /* softer text color */
+    border-color: #32373c;
+}
+body.dark .project-tickets thead,
+[data-theme="dark"] .project-tickets thead,
+[data-bs-theme="dark"] .project-tickets thead {
+    background-color: #252a2f;
+}
+body.dark .project-tickets tbody tr,
+[data-theme="dark"] .project-tickets tbody tr,
+[data-bs-theme="dark"] .project-tickets tbody tr {
+    background-color: #1e2226;
+}
+body.dark .project-tickets tbody tr:nth-child(even),
+[data-theme="dark"] .project-tickets tbody tr:nth-child(even),
+[data-bs-theme="dark"] .project-tickets tbody tr:nth-child(even) {
+    background-color: #21262b;
+}
+body.dark .project-tickets tbody tr:hover,
+[data-theme="dark"] .project-tickets tbody tr:hover,
+[data-bs-theme="dark"] .project-tickets tbody tr:hover {
+    background-color: #2a3137;
+}
+</style>
+{% endblock %}

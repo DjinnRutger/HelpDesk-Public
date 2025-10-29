@@ -1,0 +1,21 @@
+/* Ocean theme: teal/blue gentle palette */
+:root {
+  --ocean-bg: #f2fbfc;
+  --ocean-accent: #0ea5a5;
+  --ocean-accent-2: #2563eb;
+  --ocean-text: #0f172a;
+  --bs-secondary-color: #64748b;
+}
+
+body { background: var(--ocean-bg); color: var(--ocean-text); }
+.navbar { background: white !important; border-bottom: 1px solid #dbeafe !important; }
+.navbar .navbar-brand { color: var(--ocean-accent-2) !important; }
+.card { border: 1px solid #c7f0f2; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+.bg-body-tertiary { background-color: #e2f6f8 !important; }
+.btn-primary { background-color: var(--ocean-accent); border-color: var(--ocean-accent); }
+.btn-primary:hover { background-color: #0c8f8f; border-color: #0c8f8f; }
+a { color: var(--ocean-accent-2); }
+a:hover { color: #1d4ed8; }
+
+.empty-state .empty-icon { color: rgba(14,165,165,0.45); }
+.empty-state .empty-title { color: var(--ocean-text); }

@@ -1,0 +1,491 @@
+{% extends 'base.html' %}
+{% block title %}{{ asset.name }} · Assets · HelpDesk{% endblock %}
+{% block content %}
+<!-- Asset Header -->
+<div class="card shadow-sm mb-3">
+  <div class="card-header bg-body-tertiary">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <div class="d-flex align-items-center">
+        {% if asset.category %}
+          {% if 'laptop' in asset.category.lower() %}
+            <i class="bi bi-laptop text-primary me-2"></i>
+          {% elif 'desktop' in asset.category.lower() %}
+            <i class="bi bi-pc-display text-success me-2"></i>
+          {% elif 'monitor' in asset.category.lower() %}
+            <i class="bi bi-display text-info me-2"></i>
+          {% elif 'phone' in asset.category.lower() %}
+            <i class="bi bi-phone text-warning me-2"></i>
+          {% elif 'tablet' in asset.category.lower() %}
+            <i class="bi bi-tablet text-secondary me-2"></i>
+          {% else %}
+            <i class="bi bi-device-hdd text-muted me-2"></i>
+          {% endif %}
+        {% else %}
+          <i class="bi bi-device-hdd text-muted me-2"></i>
+        {% endif %}
+        <div>
+          <h1 class="h5 mb-0">{{ asset.name }}</h1>
+          <small class="text-muted">
+            {% if asset.asset_tag %}Tag: {{ asset.asset_tag }}{% endif %}
+            {% if asset.asset_tag and asset.serial_number %} • {% endif %}
+            {% if asset.serial_number %}S/N: {{ asset.serial_number }}{% endif %}
+          </small>
+        </div>
+      </div>
+      <div class="d-flex gap-2">
+        <a href="{{ url_for('assets.index') }}" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-arrow-left me-1"></i>Back to Assets
+        </a>
+        {% if not is_new %}
+        <a href="{{ url_for('assets.edit', asset_id=asset.id) }}" class="btn btn-outline-primary btn-sm">
+          <i class="bi bi-{{ 'eye' if edit else 'pencil' }} me-1"></i>{{ 'View' if edit else 'Edit' }}
+        </a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <!-- Asset Details -->
+  <div class="col-lg-8">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        {% if edit %}
+  <form method="post" action="{{ url_for('assets.new') if is_new else url_for('assets.edit', asset_id=asset.id) }}" class="vstack gap-3">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Name</label>
+              <input name="name" class="form-control" value="{{ asset.name }}" required>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">Asset Tag</label>
+              <input name="asset_tag" class="form-control" value="{{ asset.asset_tag or '' }}">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">Serial</label>
+              <input name="serial_number" class="form-control" value="{{ asset.serial_number or '' }}">
+            </div>
+          </div>
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Category</label>
+              <select name="category" class="form-select">
+                <option value="">—</option>
+                {% for c in categories or [] %}
+                  <option value="{{ c.name }}" {% if asset.category==c.name %}selected{% endif %}>{{ c.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Manufacturer</label>
+              <select name="manufacturer" class="form-select">
+                <option value="">—</option>
+                {% for m in manufacturers or [] %}
+                  <option value="{{ m.name }}" {% if asset.manufacturer==m.name %}selected{% endif %}>{{ m.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Model Name</label>
+              <input name="model_name" class="form-control" value="{{ asset.model_name or '' }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Model No.</label>
+              <input name="model_no" class="form-control" value="{{ asset.model_no or '' }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Status</label>
+              <select name="status" class="form-select">
+                {% for s in ['available','deployed','maintenance','retired','archived'] %}
+                  <option value="{{ s }}" {% if asset.status==s %}selected{% endif %}>{{ s.title() }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Condition</label>
+              <select name="physical_condition" class="form-select">
+                <option value="">—</option>
+                {% for c in conditions or [] %}
+                  <option value="{{ c.name }}" {% if asset.physical_condition==c.name %}selected{% endif %}>{{ c.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Location</label>
+              <select name="location" class="form-select">
+                <option value="">—</option>
+                {% for l in locations or [] %}
+                  <option value="{{ l.name }}" {% if asset.location==l.name %}selected{% endif %}>{{ l.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Default Location</label>
+              <select name="default_location" class="form-select">
+                <option value="">—</option>
+                {% for l in locations or [] %}
+                  <option value="{{ l.name }}" {% if asset.default_location==l.name %}selected{% endif %}>{{ l.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Cost (USD)</label>
+              <input name="cost" class="form-control" value="{{ '%.2f'|format(asset.cost) if asset.cost is not none else '' }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Purchased</label>
+              <input type="date" name="purchased_at" class="form-control" value="{{ asset.purchased_at.strftime('%Y-%m-%d') if asset.purchased_at else '' }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Warranty Expires</label>
+              <input type="date" name="warranty_expires" class="form-control" value="{{ asset.warranty_expires.strftime('%Y-%m-%d') if asset.warranty_expires else '' }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">EOL Date</label>
+              <input type="date" name="eol_date" class="form-control" value="{{ asset.eol_date.strftime('%Y-%m-%d') if asset.eol_date else '' }}">
+            </div>
+          </div>
+          <div>
+            <label class="form-label small fw-semibold">Specs</label>
+            <textarea name="specs" class="form-control" rows="4">{{ asset.specs or '' }}</textarea>
+          </div>
+          <div>
+            <label class="form-label small fw-semibold">Notes</label>
+            <textarea name="notes" class="form-control" rows="4">{{ asset.notes or '' }}</textarea>
+          </div>
+          <div>
+            <label class="form-label small fw-semibold">Reference URL</label>
+            <input name="url" class="form-control" value="{{ asset.url or '' }}" placeholder="https://...">
+          </div>
+          <div class="d-flex justify-content-end gap-2">
+            <a href="{{ url_for('assets.index') if is_new else url_for('assets.detail', asset_id=asset.id) }}" class="btn btn-outline-secondary">Cancel</a>
+            <button class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Save Changes</button>
+          </div>
+        </form>
+        {% else %}
+          <!-- Status Badge -->
+          <div class="mb-3">
+            {% set status_class = 'secondary' %}
+            {% if asset.status == 'deployed' %}{% set status_class = 'success' %}{% endif %}
+            {% if asset.status == 'maintenance' %}{% set status_class = 'warning' %}{% endif %}
+            {% if asset.status in ['retired', 'archived'] %}{% set status_class = 'danger' %}{% endif %}
+            {% if asset.status == 'available' %}{% set status_class = 'primary' %}{% endif %}
+            <span class="badge text-bg-{{ status_class }} text-capitalize fs-6">{{ asset.status or 'Unknown' }}</span>
+          </div>
+          <!-- Basic Information -->
+          <div class="row g-3 mb-4">
+            <div class="col-md-6">
+              <h6 class="text-muted mb-2"><i class="bi bi-info-circle me-1"></i>Basic Information</h6>
+              <table class="table table-sm table-borderless">
+                <tr><td class="text-muted small">Category:</td><td>{{ asset.category or '—' }}</td></tr>
+                <tr><td class="text-muted small">Manufacturer:</td><td>{{ asset.manufacturer or '—' }}</td></tr>
+                <tr><td class="text-muted small">Model:</td><td>{{ asset.model_name or '—' }}</td></tr>
+                <tr><td class="text-muted small">Model No.:</td><td>{{ asset.model_no or '—' }}</td></tr>
+              </table>
+            </div>
+            <div class="col-md-6">
+              <h6 class="text-muted mb-2"><i class="bi bi-calendar-event me-1"></i>Financial & Dates</h6>
+              <table class="table table-sm table-borderless">
+                <tr><td class="text-muted small">Purchased:</td><td>{{ asset.purchased_at|cst_datetime if asset.purchased_at else '—' }}</td></tr>
+                <tr><td class="text-muted small">Cost:</td><td>{% if asset.cost is not none %}<strong>${{ '%.2f'|format(asset.cost) }}</strong>{% else %}—{% endif %}</td></tr>
+                <tr><td class="text-muted small">Warranty Expires:</td><td>{{ asset.warranty_expires|cst_datetime if asset.warranty_expires else '—' }}</td></tr>
+                <tr><td class="text-muted small">End of Life:</td><td>{{ asset.eol_date|cst_datetime if asset.eol_date else '—' }}</td></tr>
+              </table>
+            </div>
+          </div>
+          <!-- Location -->
+          <div class="mb-4">
+            <h6 class="text-muted mb-2"><i class="bi bi-geo-alt me-1"></i>Location</h6>
+            <p class="mb-0">{{ asset.location or asset.default_location or '—' }}</p>
+          </div>
+          <!-- Specifications -->
+          <div class="mb-4">
+            <h6 class="text-muted mb-2"><i class="bi bi-cpu me-1"></i>Specifications</h6>
+            <div class="border rounded p-3 bg-body-tertiary">
+              {% if asset.specs %}
+                <pre class="mb-0 small">{{ asset.specs }}</pre>
+              {% else %}
+                <span class="text-muted">No specifications recorded</span>
+              {% endif %}
+            </div>
+          </div>
+          <!-- Notes -->
+          <div>
+            <h6 class="text-muted mb-2"><i class="bi bi-chat-text me-1"></i>Notes</h6>
+            <div class="border rounded p-3 bg-body-tertiary">
+              {% if asset.notes %}
+                <div class="preserve-ws">{{ asset.notes }}</div>
+              {% else %}
+                <span class="text-muted">No notes recorded</span>
+              {% endif %}
+            </div>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+    {% if not edit %}
+    <!-- Related Tickets (moved from sidebar) -->
+    <div class="card shadow-sm mt-3">
+      <div class="card-header bg-body-tertiary">
+        <div class="d-flex align-items-center justify-content-between">
+          <h6 class="mb-0"><i class="bi bi-ticket-perforated me-1"></i>Related Tickets</h6>
+          {% if asset_tickets %}
+          <span class="text-muted small">{{ asset_tickets|length }}{{ '+' if asset_tickets|length == 10 else '' }} ticket{{ 's' if asset_tickets|length != 1 else '' }}</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="card-body p-0">
+        {% if asset_tickets %}
+          <div class="list-group list-group-flush">
+            {% for ticket in asset_tickets %}
+            <a href="{{ url_for('tickets.show_ticket', ticket_id=ticket.id) }}" class="list-group-item list-group-item-action">
+              <div class="d-flex justify-content-between align-items-start">
+                <div class="flex-grow-1 me-2">
+                  <div class="fw-semibold text-truncate" style="max-width: 400px;">
+                    #{{ ticket.id }} - {{ ticket.subject }}
+                  </div>
+                  <small class="text-muted">
+                    {% set status_class = 'secondary' %}
+                    {% if ticket.status == 'open' %}{% set status_class = 'primary' %}{% endif %}
+                    {% if ticket.status == 'in_progress' %}{% set status_class = 'warning' %}{% endif %}
+                    {% if ticket.status == 'resolved' %}{% set status_class = 'success' %}{% endif %}
+                    {% if ticket.status == 'closed' %}{% set status_class = 'secondary' %}{% endif %}
+                    <span class="badge text-bg-{{ status_class }} me-1">{{ ticket.status.replace('_', ' ').title() }}</span>
+                    {{ ticket.created_at|cst_datetime }}
+                  </small>
+                </div>
+                <i class="bi bi-chevron-right text-muted"></i>
+              </div>
+            </a>
+            {% endfor %}
+          </div>
+          {% if asset_tickets|length == 10 %}
+          <div class="card-footer bg-body-tertiary text-center">
+            <small class="text-muted">Showing latest 10 tickets</small>
+          </div>
+          {% endif %}
+        {% else %}
+          <div class="text-center py-4">
+            <i class="bi bi-ticket-perforated display-6 text-muted opacity-25"></i>
+            <p class="small text-muted mb-0 mt-2">No tickets associated with this asset</p>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Asset Log -->
+    <div class="card shadow-sm mt-3">
+      <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+        <h6 class="mb-0"><i class="bi bi-clipboard-data me-1"></i>Asset Log</h6>
+        <div class="d-flex gap-2">
+          {% if has_prev %}
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('assets.detail', asset_id=asset.id, audit_page=audit_page-1) }}#asset-log">Prev</a>
+          {% else %}
+            <button class="btn btn-outline-secondary btn-sm" disabled>Prev</button>
+          {% endif %}
+          {% if has_next %}
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('assets.detail', asset_id=asset.id, audit_page=audit_page+1) }}#asset-log">Next</a>
+          {% else %}
+            <button class="btn btn-outline-secondary btn-sm" disabled>Next</button>
+          {% endif %}
+        </div>
+      </div>
+      <div class="card-body p-0" id="asset-log">
+        {% if audit_logs %}
+          <div class="list-group list-group-flush">
+            {% for log in audit_logs %}
+            <div class="list-group-item small">
+              <div class="d-flex justify-content-between flex-wrap gap-2">
+                <div>
+                  <span class="badge text-bg-secondary text-capitalize me-1">{{ log.action }}</span>
+                  {% if log.field %}<code>{{ log.field }}</code>{% endif %}
+                  {% if log.old_value or log.new_value %}
+                    <span class="text-muted ms-1">{{ (log.old_value or '—')|truncate(30) }} → {{ (log.new_value or '—')|truncate(30) }}</span>
+                  {% endif %}
+                </div>
+                <div class="text-muted text-nowrap">{{ log.created_at|cst_datetime }}</div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          <div class="card-footer bg-body-tertiary d-flex justify-content-between align-items-center small">
+            <div>Page {{ audit_page }}{% if has_next %}<span class="text-muted"> (showing latest 20)</span>{% endif %}</div>
+            <div>
+              {% if has_prev %}<a href="{{ url_for('assets.detail', asset_id=asset.id, audit_page=audit_page-1) }}#asset-log" class="me-2">&laquo; Prev</a>{% endif %}
+              {% if has_next %}<a href="{{ url_for('assets.detail', asset_id=asset.id, audit_page=audit_page+1) }}#asset-log">Next &raquo;</a>{% endif %}
+            </div>
+          </div>
+        {% else %}
+          <div class="text-center py-4">
+            <i class="bi bi-clipboard-data display-6 text-muted opacity-25"></i>
+            <p class="small text-muted mb-0 mt-2">No log entries yet for this asset.</p>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Sidebar -->
+  {% if not is_new %}
+  <div class="col-lg-4">
+    <!-- Assignment Card -->
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-body-tertiary">
+        <h6 class="mb-0"><i class="bi bi-person-check me-1"></i>Assignment</h6>
+      </div>
+      <div class="card-body">
+        {% if asset.assigned_contact %}
+          <div class="d-flex align-items-center mb-3">
+            <i class="bi bi-person-circle text-success me-2 fs-4"></i>
+            <div>
+              <div class="fw-semibold">
+                <a href="{{ url_for('users.show_user', contact_id=asset.assigned_contact.id) }}" class="text-decoration-none">
+                  {{ asset.assigned_contact.name or asset.assigned_contact.email }}
+                </a>
+              </div>
+              <div class="small text-muted">
+                {% if asset.checkout_date %}Since {{ asset.checkout_date|cst_datetime }}{% endif %}
+              </div>
+            </div>
+          </div>
+          <button type="button" class="btn btn-outline-success w-100" data-bs-toggle="modal" data-bs-target="#checkinModal">
+            <i class="bi bi-box-arrow-in-left me-1"></i>Check In Asset
+          </button>
+        {% else %}
+          <div class="text-center text-muted mb-3">
+            <i class="bi bi-person-x display-6 opacity-25"></i>
+            <p class="small mb-0 mt-2">Asset is available for checkout</p>
+          </div>
+          <button type="button" class="btn btn-primary w-100" data-bs-toggle="modal" data-bs-target="#checkoutModal">
+            <i class="bi bi-box-arrow-right me-1"></i>Check Out Asset
+          </button>
+        {% endif %}
+      </div>
+    </div>
+
+
+    <!-- Audit Information -->
+    <div class="card shadow-sm">
+      <div class="card-header bg-body-tertiary">
+        <h6 class="mb-0"><i class="bi bi-clipboard-check me-1"></i>Audit Information</h6>
+      </div>
+      <div class="card-body">
+        <table class="table table-sm table-borderless mb-0">
+          <tr>
+            <td class="text-muted small">Last Audit:</td>
+            <td class="small">{{ asset.last_audit|cst_datetime if asset.last_audit else '—' }}</td>
+          </tr>
+          <tr>
+            <td class="text-muted small">Next Audit:</td>
+            <td class="small">{{ asset.next_audit_date|cst_datetime if asset.next_audit_date else '—' }}</td>
+          </tr>
+          <tr>
+            <td class="text-muted small">Condition:</td>
+            <td class="small">{{ asset.physical_condition or '—' }}</td>
+          </tr>
+        </table>
+      </div>
+    </div>
+
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_modals %}
+{{ super() }}
+<!-- Checkout Modal -->
+<div class="modal fade" id="checkoutModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Check Out Asset</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form method="post" action="{{ url_for('assets.checkout', asset_id=asset.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Assign to User</label>
+            <select name="contact_id" class="form-select" required>
+              <option value="">Select user...</option>
+              {% for c in contacts %}
+              <option value="{{ c.id }}">{{ c.name or c.email }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Status</label>
+            <select name="status" class="form-select">
+              {% set checkout_default = 'deployed' %}
+              {% for s in ['deployed','available','maintenance','retired','archived'] %}
+                <option value="{{ s }}" {% if s == checkout_default %}selected{% endif %}>{{ s.title() }}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Defaults to Deployed on checkout.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Location</label>
+            <select name="location" class="form-select">
+              <option value="">—</option>
+              {% for l in locations or [] %}
+                <option value="{{ l.name }}" {% if (asset.location or asset.default_location)==l.name %}selected{% endif %}>{{ l.name }}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Defaults to current location; change if it’s moving.</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save & Check Out</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<!-- Check In Modal -->
+<div class="modal fade" id="checkinModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Check In Asset</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form method="post" action="{{ url_for('assets.checkin', asset_id=asset.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Status</label>
+            <select name="status" class="form-select">
+              {% set checkin_default = 'available' %}
+              {% for s in ['available','deployed','maintenance','retired','archived'] %}
+                <option value="{{ s }}" {% if s == checkin_default %}selected{% endif %}>{{ s.title() }}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Default is Available.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Location</label>
+            <select name="location" class="form-select">
+              <option value="">—</option>
+              {% for l in locations or [] %}
+                <option value="{{ l.name }}" {% if (asset.location or asset.default_location)==l.name %}selected{% endif %}>{{ l.name }}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Defaults to current location; choose a new location if it moved.</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save & Check In</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,66 @@
+/* Dark Mode overrides built on top of Bootstrap variables */
+:root {
+  --bs-body-bg: #121212;
+  --bs-body-color: #e1e1e1;
+  --bs-card-bg: #1e1e1e;
+  --bs-card-border-color: #2a2a2a;
+  --bs-border-color: #2a2a2a;
+  --bs-link-color: #66b2ff;
+  --bs-navbar-color: #e1e1e1;
+  --bs-navbar-brand-color: #f5f5f5;
+  --bs-secondary-color: #a6acb3;
+}
+
+body { background-color: var(--bs-body-bg); color: var(--bs-body-color); }
+.navbar, .card { background-color: var(--bs-card-bg); }
+.card { border-color: var(--bs-card-border-color); }
+a { color: var(--bs-link-color); }
+
+.bg-body-tertiary {
+  background-color: #181818 !important;
+  color: var(--bs-body-color) !important;
+}
+
+/* Project tickets table header (darker, reduce brightness) */
+table.project-tickets thead th {
+  background: #161b1f !important; /* slightly darker */
+  color: #c2c9d0 !important;      /* muted text */
+  border-bottom: 1px solid #2a3034 !important;
+}
+table.project-tickets thead tr { background: #161b1f !important; }
+table.project-tickets tbody tr { background: #14181b; }
+table.project-tickets tbody tr:hover { background: #1d2327; }
+
+/* Darker red for high-priority table rows */
+.table-danger {
+  --bs-table-bg: #3a0f0f;          /* dark red background */
+  --bs-table-color: #ffd7d7;       /* light text for contrast */
+  --bs-table-border-color: #5a1a1a;
+  --bs-table-striped-bg: #401111;
+  --bs-table-hover-bg: #461313;
+}
+
+/* Project rows: grey outline (no blue), subtle lighter hover */
+.table-info {
+  --bs-table-bg: transparent;
+  --bs-table-color: var(--bs-body-color);
+  --bs-table-border-color: #3a3a3a;
+  --bs-table-hover-bg: rgba(255,255,255,0.12); /* light grey hover */
+  --bs-table-striped-bg: rgba(255,255,255,0.02);
+}
+.table-info > * { background-color: transparent !important; }
+.table tr.table-info { box-shadow: inset 0 0 0 1px #3a3a3a; }
+/* Explicitly neutralize Bootstrap's default hover fill */
+.table.table-hover > tbody > tr.table-info:hover { background-color: transparent !important; }
+.table.table-hover > tbody > tr.table-info:hover > * { background-color: var(--bs-table-hover-bg) !important; }
+/* Neutral link color inside project rows so hover doesn't look blue */
+.table tr.table-info a { color: var(--bs-body-color) !important; }
+.table tr.table-info a:hover { color: #f0f0f0 !important; }
+
+.empty-state .empty-title {
+  color: #f5f5f5;
+}
+.empty-state .empty-icon {
+  color: rgba(255,255,255,0.3);
+  opacity: 1;
+}

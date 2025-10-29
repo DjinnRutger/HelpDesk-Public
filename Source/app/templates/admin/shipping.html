@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+{% block title %}Shipping Locations · Admin{% endblock %}
+{% block content %}
+<div class="card shadow-sm">
+  <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div class="d-flex align-items-center gap-2">
+      <i class="bi bi-geo-alt text-primary fs-4"></i>
+      <div>
+        <h1 class="h5 mb-0">Shipping Locations</h1>
+        <small class="text-muted">Store delivery addresses and tax rates</small>
+      </div>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <a class="btn btn-primary" href="{{ url_for('admin.shipping_new') }}"><i class="bi bi-plus-lg me-1"></i>New Location</a>
+    </div>
+  </div>
+  <div class="card-body">
+    {% if locations %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead class="table-light"><tr><th>Name</th><th>Address</th><th>City</th><th>State</th><th>Zip</th><th>Tax Rate</th><th class="text-end">Actions</th></tr></thead>
+        <tbody>
+          {% for s in locations %}
+          <tr>
+            <td class="fw-semibold">{{ s.name }}</td>
+            <td>{{ s.address or '—' }}</td>
+            <td>{{ s.city or '—' }}</td>
+            <td>{{ s.state or '—' }}</td>
+            <td>{{ s.zip_code or '—' }}</td>
+            <td>{{ (((s.tax_rate or 0.0) * 100) | round(2)) }}%</td>
+            <td class="text-end">
+              <div class="d-inline-flex gap-2">
+                <a href="{{ url_for('admin.shipping_edit', loc_id=s.id) }}" class="btn btn-outline-secondary btn-sm">Edit</a>
+                <form method="post" action="{{ url_for('admin.shipping_delete', loc_id=s.id) }}" onsubmit="return confirm('Delete this location?');">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="btn btn-outline-danger btn-sm" type="submit">Delete</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <i class="bi bi-geo-alt empty-icon"></i>
+      <div class="empty-title">No shipping locations yet</div>
+      <div class="empty-body">Add where your orders should ship and include default tax rates.</div>
+      <a class="btn btn-primary" href="{{ url_for('admin.shipping_new') }}"><i class="bi bi-plus-lg me-1"></i>New Location</a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

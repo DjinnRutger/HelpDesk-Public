@@ -1,0 +1,2332 @@
+{% extends 'base.html' %}
+{% block title %}Admin · HelpfulDjinn{% endblock %}
+{% block content %}
+<!-- Admin Header -->
+<div class="card shadow-sm mb-4">
+  <div class="card-header bg-body-tertiary">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <div class="d-flex align-items-center">
+        <i class="bi bi-gear-fill text-primary me-2 fs-4"></i>
+        <div>
+          <h1 class="h5 mb-0">Administration</h1>
+          <small class="text-muted">System settings and configuration</small>
+        </div>
+      </div>
+      {% if version %}
+      <div class="d-flex align-items-center gap-2">
+        <span class="badge text-bg-primary">v{{ version }}</span>
+        {% if latest_version and latest_version != version %}
+          <a href="https://github.com/DjinnRutger/HelpDesk-Public" target="_blank" rel="noopener noreferrer" class="text-decoration-none">
+            <span class="badge text-bg-warning"><i class="bi bi-arrow-up-circle me-1"></i>v{{ latest_version }} available</span>
+          </a>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% if demo_mode %}
+<div class="alert alert-warning d-flex align-items-center justify-content-between" role="alert">
+  <div>
+    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+    <strong>Demo Mode is ON.</strong> Your data includes sample records. Turning Demo Mode OFF will reset the database and all changes will be lost.
+  </div>
+  <form method="post" action="{{ url_for('admin.demo_disable') }}" onsubmit="return confirm('This will RESET the database and ALL data will be lost. Continue?');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn-sm btn-outline-danger" type="submit"><i class="bi bi-x-octagon me-1"></i>Disable Demo Mode</button>
+  </form>
+ </div>
+{% endif %}
+
+<!-- Main Admin Layout -->
+<div class="row g-4">
+  <!-- Logo Column -->
+  <div class="col-lg-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-body d-flex align-items-center justify-content-center p-5">
+        <img src="/images/HelpfulDjinnMd.png" alt="HelpfulDjinn" class="img-fluid" style="max-width: 100%;">
+      </div>
+    </div>
+  </div>
+
+  <!-- Admin Cards Column -->
+  <div class="col-lg-8">
+    <div class="row g-3">
+      
+      <!-- System/Setup Card -->
+      <div class="col-12">
+        <div class="card shadow-sm">
+          <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="bi bi-gear-fill me-2"></i>System / Setup</h5>
+          </div>
+          <div class="card-body">
+            <div class="row g-2">
+              <div class="col-6 col-md-3">
+                <button class="btn btn-outline-primary w-100 h-100 py-3" data-bs-toggle="modal" data-bs-target="#emailModal">
+                  <i class="bi bi-envelope-at d-block fs-3 mb-2"></i>
+                  <span class="d-block">Email</span>
+                </button>
+              </div>
+              <div class="col-6 col-md-3">
+                <button class="btn btn-outline-primary w-100 h-100 py-3" data-bs-toggle="modal" data-bs-target="#attachmentsModal">
+                  <i class="bi bi-paperclip d-block fs-3 mb-2"></i>
+                  <span class="d-block">Attachments</span>
+                </button>
+              </div>
+              <div class="col-6 col-md-3">
+                <button class="btn btn-outline-primary w-100 h-100 py-3" data-bs-toggle="modal" data-bs-target="#techniciansModal">
+                  <i class="bi bi-people-fill d-block fs-3 mb-2"></i>
+                  <span class="d-block">Technicians</span>
+                </button>
+              </div>
+              <div class="col-6 col-md-3">
+                <button class="btn btn-outline-primary w-100 h-100 py-3" data-bs-toggle="modal" data-bs-target="#backupModal">
+                  <i class="bi bi-database d-block fs-3 mb-2"></i>
+                  <span class="d-block">Backup</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Manage Card -->
+      <div class="col-12">
+        <div class="card shadow-sm">
+          <div class="card-header bg-success text-white">
+            <h5 class="mb-0"><i class="bi bi-sliders me-2"></i>Manage</h5>
+          </div>
+          <div class="card-body">
+            <div class="row g-2">
+              <div class="col-6 col-md-4">
+                <button class="btn btn-outline-success w-100 h-100 py-3" data-bs-toggle="modal" data-bs-target="#purchasingModal">
+                  <i class="bi bi-cart-fill d-block fs-3 mb-2"></i>
+                  <span class="d-block">Purchasing</span>
+                </button>
+              </div>
+              <div class="col-6 col-md-4">
+                <button class="btn btn-outline-success w-100 h-100 py-3" data-bs-toggle="modal" data-bs-target="#processesModal">
+                  <i class="bi bi-list-check d-block fs-3 mb-2"></i>
+                  <span class="d-block">Process Templates</span>
+                </button>
+              </div>
+              <div class="col-6 col-md-4">
+                <button class="btn btn-outline-success w-100 h-100 py-3" data-bs-toggle="modal" data-bs-target="#documentsModal">
+                  <i class="bi bi-file-earmark-text d-block fs-3 mb-2"></i>
+                  <span class="d-block">Documents</span>
+                </button>
+              </div>
+              <div class="col-6 col-md-4">
+                <button class="btn btn-outline-success w-100 h-100 py-3" data-bs-toggle="modal" data-bs-target="#scheduledModal">
+                  <i class="bi bi-calendar-check d-block fs-3 mb-2"></i>
+                  <span class="d-block">Scheduled Tickets</span>
+                </button>
+              </div>
+              <div class="col-6 col-md-4">
+                <button class="btn btn-outline-success w-100 h-100 py-3" data-bs-toggle="modal" data-bs-target="#assetsModal">
+                  <i class="bi bi-laptop d-block fs-3 mb-2"></i>
+                  <span class="d-block">Assets</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Support / Contact Card -->
+      <div class="col-12">
+        <div class="card shadow-sm">
+          <div class="card-header bg-info text-white">
+            <h5 class="mb-0"><i class="bi bi-envelope-heart me-2"></i>Support / Contact</h5>
+          </div>
+          <div class="card-body">
+            <div class="row g-2">
+              <div class="col-6 col-md-3">
+                <button class="btn btn-outline-info w-100 h-100 py-3" data-bs-toggle="modal" data-bs-target="#supportEmailModal">
+                  <i class="bi bi-envelope d-block fs-3 mb-2"></i>
+                  <span class="d-block">Email Support</span>
+                </button>
+              </div>
+              <div class="col-6 col-md-3">
+                <a class="btn btn-outline-warning w-100 h-100 py-3" href="https://buymeacoffee.com/DjinnRutger" target="_blank" rel="noopener noreferrer">
+                  <i class="bi bi-cup-hot d-block fs-3 mb-2"></i>
+                  <span class="d-block">Buy Me a Coffee</span>
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_modals %}
+<!-- Email Configuration Modal -->
+<div class="modal fade" id="emailModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title"><i class="bi bi-envelope-at me-2"></i>Email Configuration</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <h6 class="fw-semibold">Microsoft Graph Settings</h6>
+          <div class="mb-2">
+            <div class="small text-muted">Client ID</div>
+            <code class="small">{{ settings.client_id or '—' }}</code>
+          </div>
+          <div class="mb-2">
+            <div class="small text-muted">Tenant ID</div>
+            <code class="small">{{ settings.tenant_id or '—' }}</code>
+          </div>
+          <div class="mb-3">
+            <div class="small text-muted">Mailbox</div>
+            <code class="small">{{ settings.user_email or '—' }}</code>
+          </div>
+          <div class="d-flex gap-2 flex-wrap">
+            <a class="btn btn-primary" href="{{ url_for('admin.msgraph') }}">
+              <i class="bi bi-pencil me-1"></i>Edit MS Graph Settings
+            </a>
+            <form method="post" action="{{ url_for('admin.msgraph') }}" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="action" value="check_now">
+              <button class="btn btn-outline-secondary" type="submit">
+                <i class="bi bi-arrow-clockwise me-1"></i>Check Now
+              </button>
+            </form>
+            <a class="btn btn-outline-info" href="{{ url_for('admin.email_logs') }}">
+              <i class="bi bi-journal-text me-1"></i>View Email Logs
+            </a>
+          </div>
+        </div>
+        <hr>
+        <div>
+          <h6 class="fw-semibold">Email Domain Settings</h6>
+          <a class="btn btn-outline-primary" href="{{ url_for('admin.email_settings') }}">
+            <i class="bi bi-gear me-1"></i>Manage Allowed Domains & Filters
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Attachments Modal -->
+<div class="modal fade" id="attachmentsModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title"><i class="bi bi-paperclip me-2"></i>Attachments Configuration</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="small text-muted mb-1">Current location</div>
+        <div class="mb-3"><code class="small">{{ attachments_abs }}</code></div>
+        <form method="post" action="{{ url_for('admin.attachments_settings') }}" onsubmit="return confirm('Change attachments folder? Existing files are not moved automatically. Continue?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label class="form-label fw-semibold">Base and relative folder</label>
+          <div class="input-group mb-2">
+            <select class="form-select" name="attachments_base">
+              <option value="instance" {{ 'selected' if attachments_base == 'instance' else '' }}>instance/</option>
+              <option value="static" {{ 'selected' if attachments_base == 'static' else '' }}>static/</option>
+            </select>
+            <input class="form-control" type="text" name="attachments_subdir" value="{{ attachments_subdir }}" placeholder="attachments">
+          </div>
+          <div class="form-text mb-3">Use a simple folder or path like <code>attachments</code>. No ".." allowed.</div>
+          <button class="btn btn-primary w-100" type="submit">
+            <i class="bi bi-check-lg me-1"></i>Save Configuration
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Technicians Modal -->
+<div class="modal fade" id="techniciansModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title"><i class="bi bi-people-fill me-2"></i>Technicians</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h6 class="mb-0">Manage technicians and their roles</h6>
+          <a class="btn btn-primary btn-sm" href="{{ url_for('admin.tech_new') }}">
+            <i class="bi bi-plus-lg me-1"></i>New Technician
+          </a>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle">
+            <thead class="table-light">
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th class="text-end">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for t in techs %}
+              <tr>
+                <td>
+                  <i class="bi bi-person-circle text-muted me-1"></i>
+                  {{ t.name }}
+                </td>
+                <td class="small">{{ t.email }}</td>
+                <td><span class="badge text-bg-secondary">{{ t.role }}</span></td>
+                <td class="text-end">
+                  <div class="d-flex gap-1 justify-content-end">
+                    <a href="{{ url_for('admin.tech_edit', user_id=t.id) }}" class="btn btn-sm btn-outline-secondary" title="Edit">
+                      <i class="bi bi-pencil"></i>
+                    </a>
+                    <form method="post" action="{{ url_for('admin.tech_delete', user_id=t.id) }}" class="d-inline" onsubmit="return confirm('Delete this tech?')">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <button class="btn btn-sm btn-outline-danger" title="Delete">
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="4" class="text-center text-muted py-3">No technicians yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Backup & Restore Modal -->
+<div class="modal fade" id="backupModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title"><i class="bi bi-database me-2"></i>Backup & Restore</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <!-- Manual Backup/Restore -->
+        <div class="mb-4">
+          <h6 class="fw-semibold mb-3"><i class="bi bi-hand-index me-1"></i>Manual Actions</h6>
+          <div class="row g-2">
+            <div class="col-md-6">
+              <form method="post" action="{{ url_for('admin.backup_db') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-outline-primary w-100" type="submit">
+                  <i class="bi bi-download me-2"></i>Download Backup
+                </button>
+              </form>
+              <div class="small text-muted mt-1">Creates a SQLite backup file</div>
+            </div>
+            <div class="col-md-6">
+              <form method="post" action="{{ url_for('admin.restore_db') }}" enctype="multipart/form-data" onsubmit="return confirm('This will replace the current database with the uploaded backup. Continue?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="mb-1">
+                  <input class="form-control form-control-sm" type="file" name="backup_file" accept=".db,application/octet-stream" required>
+                </div>
+                <button class="btn btn-danger w-100" type="submit">
+                  <i class="bi bi-upload me-2"></i>Restore from File
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <hr>
+
+        <!-- Auto-backup Settings -->
+        <div>
+          <h6 class="fw-semibold mb-3">
+            <i class="bi bi-clock-history me-1"></i>Automatic Backup Schedule
+          </h6>
+          <form method="post" action="{{ url_for('admin.backup_settings') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            
+            <div class="row g-3 mb-3">
+              <div class="col-md-6">
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" id="autoEnabled" name="auto_enabled" {% if auto_enabled %}checked{% endif %}>
+                  <label class="form-check-label" for="autoEnabled">
+                    <i class="bi bi-check-circle me-1"></i>Enable nightly backup
+                  </label>
+                </div>
+              </div>
+              <div class="col-md-6">
+                <div class="input-group">
+                  <span class="input-group-text"><i class="bi bi-clock"></i></span>
+                  <input type="time" class="form-control" name="auto_time" value="{{ auto_time or '23:00' }}" title="Local time">
+                </div>
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label small">Backup Directory</label>
+              <input type="text" class="form-control" name="auto_dir" placeholder="instance/backups" value="{{ auto_dir or '' }}">
+              <div class="form-text">Leave blank for default: instance/backups</div>
+            </div>
+
+            <div class="row g-2 mb-3">
+              <div class="col-md-6">
+                <label class="form-label small">Retention</label>
+                <div class="input-group">
+                  <span class="input-group-text">Keep last</span>
+                  <input type="number" min="1" max="365" class="form-control" name="auto_keep" value="{{ auto_keep or 7 }}">
+                  <span class="input-group-text">files</span>
+                </div>
+              </div>
+            </div>
+
+            <button class="btn btn-primary w-100" type="submit">
+              <i class="bi bi-check-lg me-1"></i>Save Backup Settings
+            </button>
+          </form>
+          <div class="small text-muted mt-2">
+            <i class="bi bi-info-circle me-1"></i>Older backups beyond retention count are automatically deleted.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Purchasing Modal -->
+<div class="modal fade" id="purchasingModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title"><i class="bi bi-cart-fill me-2"></i>Purchasing Management</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <!-- Nav Tabs -->
+        <ul class="nav nav-tabs mb-3" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="vendors-tab" data-bs-toggle="tab" data-bs-target="#vendors-pane" type="button" role="tab">
+              <i class="bi bi-shop me-1"></i>Vendors
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="companies-tab" data-bs-toggle="tab" data-bs-target="#companies-pane" type="button" role="tab">
+              <i class="bi bi-building me-1"></i>Companies
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="shipping-tab" data-bs-toggle="tab" data-bs-target="#shipping-pane" type="button" role="tab">
+              <i class="bi bi-box-seam me-1"></i>Shipping
+            </button>
+          </li>
+        </ul>
+
+        <!-- Tab Content -->
+        <div class="tab-content">
+          <!-- Vendors Tab -->
+          <div class="tab-pane fade show active" id="vendors-pane" role="tabpanel">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <h6 class="mb-0">Manage vendors and contacts</h6>
+              <button class="btn btn-success btn-sm" onclick="showVendorForm()">
+                <i class="bi bi-plus-lg me-1"></i>New Vendor
+              </button>
+            </div>
+            
+            <div id="vendor-form-container" style="display: none;" class="mb-3">
+              <div class="card bg-body-tertiary border-success">
+                <div class="card-body">
+                  <form id="vendor-form" onsubmit="return submitVendorForm(event)">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="vendor_id" id="vendor_id">
+                    <div class="row g-3">
+                      <div class="col-12">
+                        <label class="form-label small fw-semibold">Company Name</label>
+                        <input class="form-control" name="company_name" id="vendor_company_name" required>
+                      </div>
+                      <div class="col-md-6">
+                        <label class="form-label small fw-semibold">Contact Name</label>
+                        <input class="form-control" name="contact_name" id="vendor_contact_name">
+                      </div>
+                      <div class="col-md-6">
+                        <label class="form-label small fw-semibold">Contact Email</label>
+                        <input class="form-control" name="email" id="vendor_email" type="email">
+                      </div>
+                      <div class="col-md-8">
+                        <label class="form-label small fw-semibold">Address</label>
+                        <textarea class="form-control" name="address" id="vendor_address" rows="2"></textarea>
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label small fw-semibold">Phone</label>
+                        <input class="form-control" name="phone" id="vendor_phone">
+                      </div>
+                      <div class="col-12 d-flex gap-2 justify-content-end">
+                        <button type="button" class="btn btn-outline-secondary" onclick="hideVendorForm()">Cancel</button>
+                        <button type="submit" class="btn btn-success">
+                          <i class="bi bi-check-lg me-1"></i>Save Vendor
+                        </button>
+                      </div>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            <div id="vendors-list">
+              <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle">
+                  <thead class="table-light">
+                    <tr>
+                      <th>Company</th>
+                      <th>Contact</th>
+                      <th>Email</th>
+                      <th>Phone</th>
+                      <th class="text-end">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="vendors-tbody">
+                    <tr><td colspan="5" class="text-center text-muted">Loading...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Companies Tab -->
+          <div class="tab-pane fade" id="companies-pane" role="tabpanel">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <h6 class="mb-0">Manage companies you purchase for</h6>
+              <button class="btn btn-success btn-sm" onclick="showCompanyForm()">
+                <i class="bi bi-plus-lg me-1"></i>New Company
+              </button>
+            </div>
+            
+            <div id="company-form-container" style="display: none;" class="mb-3">
+              <div class="card bg-body-tertiary border-success">
+                <div class="card-body">
+                  <form id="company-form" onsubmit="return submitCompanyForm(event)">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="company_id" id="company_id">
+                    <div class="row g-3">
+                      <div class="col-12">
+                        <label class="form-label small fw-semibold">Company Name</label>
+                        <input class="form-control" name="name" id="company_name" required>
+                      </div>
+                      <div class="col-md-8">
+                        <label class="form-label small fw-semibold">Address</label>
+                        <input class="form-control" name="address" id="company_address">
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label small fw-semibold">City</label>
+                        <input class="form-control" name="city" id="company_city">
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label small fw-semibold">State</label>
+                        <input class="form-control" name="state" id="company_state" maxlength="2">
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label small fw-semibold">Zip Code</label>
+                        <input class="form-control" name="zip_code" id="company_zip">
+                      </div>
+                      <div class="col-12 d-flex gap-2 justify-content-end">
+                        <button type="button" class="btn btn-outline-secondary" onclick="hideCompanyForm()">Cancel</button>
+                        <button type="submit" class="btn btn-success">
+                          <i class="bi bi-check-lg me-1"></i>Save Company
+                        </button>
+                      </div>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            <div id="companies-list">
+              <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle">
+                  <thead class="table-light">
+                    <tr>
+                      <th>Name</th>
+                      <th>Address</th>
+                      <th>City</th>
+                      <th>State</th>
+                      <th>Zip</th>
+                      <th class="text-end">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="companies-tbody">
+                    <tr><td colspan="6" class="text-center text-muted">Loading...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Shipping Tab -->
+          <div class="tab-pane fade" id="shipping-pane" role="tabpanel">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <h6 class="mb-0">Manage delivery addresses and tax rates</h6>
+              <button class="btn btn-success btn-sm" onclick="showShippingForm()">
+                <i class="bi bi-plus-lg me-1"></i>New Location
+              </button>
+            </div>
+            
+            <div id="shipping-form-container" style="display: none;" class="mb-3">
+              <div class="card bg-body-tertiary border-success">
+                <div class="card-body">
+                  <form id="shipping-form" onsubmit="return submitShippingForm(event)">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="location_id" id="location_id">
+                    <div class="row g-3">
+                      <div class="col-12">
+                        <label class="form-label small fw-semibold">Location Name</label>
+                        <input class="form-control" name="name" id="shipping_name" required>
+                      </div>
+                      <div class="col-md-8">
+                        <label class="form-label small fw-semibold">Address</label>
+                        <input class="form-control" name="address" id="shipping_address">
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label small fw-semibold">City</label>
+                        <input class="form-control" name="city" id="shipping_city">
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label small fw-semibold">State</label>
+                        <input class="form-control" name="state" id="shipping_state" maxlength="2">
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label small fw-semibold">Zip Code</label>
+                        <input class="form-control" name="zip_code" id="shipping_zip">
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label small fw-semibold">Tax Rate (%)</label>
+                        <input class="form-control" name="tax_rate" id="shipping_tax" type="number" step="0.01" min="0" max="100">
+                      </div>
+                      <div class="col-12 d-flex gap-2 justify-content-end">
+                        <button type="button" class="btn btn-outline-secondary" onclick="hideShippingForm()">Cancel</button>
+                        <button type="submit" class="btn btn-success">
+                          <i class="bi bi-check-lg me-1"></i>Save Location
+                        </button>
+                      </div>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            <div id="shipping-list">
+              <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle">
+                  <thead class="table-light">
+                    <tr>
+                      <th>Name</th>
+                      <th>Address</th>
+                      <th>City</th>
+                      <th>State</th>
+                      <th>Zip</th>
+                      <th>Tax Rate</th>
+                      <th class="text-end">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="shipping-tbody">
+                    <tr><td colspan="7" class="text-center text-muted">Loading...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Process Templates Modal -->
+<div class="modal fade" id="processesModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title"><i class="bi bi-list-check me-2"></i>Process Templates</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h6 class="mb-0">Workflow templates for tickets</h6>
+          <button class="btn btn-success btn-sm" onclick="showProcessForm()">
+            <i class="bi bi-plus-lg me-1"></i>New Process
+          </button>
+        </div>
+        
+        <div id="process-form-container" style="display: none;" class="mb-3">
+          <div class="card bg-body-tertiary border-success">
+            <div class="card-body">
+              <form id="process-form" onsubmit="return submitProcessForm(event)">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="process_id" id="process_id">
+                <div class="mb-3">
+                  <label class="form-label small fw-semibold">Process Name</label>
+                  <input class="form-control" name="name" id="process_name" required>
+                </div>
+                <div class="d-flex gap-2 justify-content-end">
+                  <button type="button" class="btn btn-outline-secondary" onclick="hideProcessForm()">Cancel</button>
+                  <button type="submit" class="btn btn-success">
+                    <i class="bi bi-check-lg me-1"></i>Save Process
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <div id="processes-list">
+          <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th>Name</th>
+                  <th>Items</th>
+                  <th class="text-end">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="processes-tbody">
+                <tr><td colspan="3" class="text-center text-muted">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Documents Modal -->
+<div class="modal fade" id="documentsModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title"><i class="bi bi-file-earmark-text me-2"></i>Document Categories</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h6 class="mb-0">Organize documents by category</h6>
+          <button class="btn btn-success btn-sm" onclick="showDocCategoryForm()">
+            <i class="bi bi-plus-lg me-1"></i>New Category
+          </button>
+        </div>
+        
+        <div id="doccategory-form-container" style="display: none;" class="mb-3">
+          <div class="card bg-body-tertiary border-success">
+            <div class="card-body">
+              <form id="doccategory-form" onsubmit="return submitDocCategoryForm(event)">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="mb-3">
+                  <label class="form-label small fw-semibold">Category Name</label>
+                  <input class="form-control" name="name" id="doccategory_name" placeholder="e.g., SOPs" required>
+                </div>
+                <div class="d-flex gap-2 justify-content-end">
+                  <button type="button" class="btn btn-outline-secondary" onclick="hideDocCategoryForm()">Cancel</button>
+                  <button type="submit" class="btn btn-success">
+                    <i class="bi bi-check-lg me-1"></i>Create Category
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <div id="doccategories-list">
+          <ul class="list-group" id="doccategories-ul">
+            <li class="list-group-item text-center text-muted">Loading...</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Scheduled Tickets Modal -->
+<div class="modal fade" id="scheduledModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title"><i class="bi bi-calendar-check me-2"></i>Scheduled Tickets</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <div>
+            <h6 class="mb-0">Recurring ticket automation</h6>
+            <p class="text-muted small mb-0">Create tickets automatically on a daily, weekly, or monthly schedule</p>
+          </div>
+          <button class="btn btn-success btn-sm" onclick="showScheduledForm()">
+            <i class="bi bi-plus-lg me-1"></i>New Schedule
+          </button>
+        </div>
+
+        <div id="scheduled-form-container" style="display: none;" class="mb-3">
+          <div class="card bg-body-tertiary border-success">
+            <div class="card-body">
+              <form id="scheduled-form" onsubmit="return submitScheduledForm(event)">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="scheduled_id" id="scheduled_id">
+                <div class="row g-3">
+                  <div class="col-md-6">
+                    <label class="form-label small fw-semibold">Name</label>
+                    <input class="form-control" name="name" id="scheduled_name" required>
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label small fw-semibold">Subject</label>
+                    <input class="form-control" name="subject" id="scheduled_subject" required>
+                  </div>
+                  <div class="col-12">
+                    <label class="form-label small fw-semibold">Body</label>
+                    <textarea class="form-control" name="body" id="scheduled_body" rows="3"></textarea>
+                  </div>
+                  <div class="col-md-3">
+                    <label class="form-label small fw-semibold">Status</label>
+                    <select class="form-select" name="status" id="scheduled_status">
+                      <option value="open">Open</option>
+                      <option value="in_progress">In Progress</option>
+                      <option value="closed">Closed</option>
+                    </select>
+                  </div>
+                  <div class="col-md-3">
+                    <label class="form-label small fw-semibold">Priority</label>
+                    <select class="form-select" name="priority" id="scheduled_priority">
+                      <option value="low">Low</option>
+                      <option value="medium" selected>Medium</option>
+                      <option value="high">High</option>
+                    </select>
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label small fw-semibold">Assignee</label>
+                    <select class="form-select" name="assignee_id" id="scheduled_assignee">
+                      <option value="">— Unassigned —</option>
+                    </select>
+                  </div>
+                  <div class="col-12">
+                    <label class="form-label small fw-semibold">Tasks (one per line)</label>
+                    <textarea class="form-control" name="tasks_text" id="scheduled_tasks" rows="3" placeholder="Check backups\nRestart service\nVerify logs"></textarea>
+                  </div>
+                  <div class="col-md-3">
+                    <label class="form-label small fw-semibold">Schedule Type</label>
+                    <select class="form-select" name="schedule_type" id="scheduled_type" onchange="updateScheduleFieldsVisibility()">
+                      <option value="daily">Daily</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="monthly">Monthly</option>
+                    </select>
+                  </div>
+                  <div class="col-md-3" id="scheduled_dow_group" style="display: none;">
+                    <label class="form-label small fw-semibold">Day of Week</label>
+                    <select class="form-select" name="day_of_week" id="scheduled_dow">
+                      <option value="">—</option>
+                      <option value="0">Monday</option>
+                      <option value="1">Tuesday</option>
+                      <option value="2">Wednesday</option>
+                      <option value="3">Thursday</option>
+                      <option value="4">Friday</option>
+                      <option value="5">Saturday</option>
+                      <option value="6">Sunday</option>
+                    </select>
+                  </div>
+                  <div class="col-md-3" id="scheduled_dom_group" style="display: none;">
+                    <label class="form-label small fw-semibold">Day of Month</label>
+                    <input class="form-control" type="number" min="1" max="31" name="day_of_month" id="scheduled_dom" placeholder="1-31">
+                  </div>
+                  <div class="col-md-3">
+                    <label class="form-label small fw-semibold">Time</label>
+                    <input class="form-control" type="time" name="schedule_time" id="scheduled_time" value="00:00">
+                  </div>
+                  <div class="col-md-3 d-flex align-items-center">
+                    <div class="form-check mt-3">
+                      <input class="form-check-input" type="checkbox" id="scheduled_active" name="active" checked>
+                      <label class="form-check-label" for="scheduled_active">Active</label>
+                    </div>
+                  </div>
+                  <div class="col-12 d-flex gap-2 justify-content-end">
+                    <button type="button" class="btn btn-outline-secondary" onclick="hideScheduledForm()">Cancel</button>
+                    <button type="submit" class="btn btn-success">
+                      <i class="bi bi-check-lg me-1"></i>Save Schedule
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <div id="scheduled-list">
+          <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th>Name</th>
+                  <th>Schedule</th>
+                  <th>Assignee</th>
+                  <th>Active</th>
+                  <th>Last Run</th>
+                  <th class="text-end">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="scheduled-tbody">
+                <tr><td colspan="6" class="text-center text-muted">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Assets Modal -->
+<div class="modal fade" id="assetsModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title"><i class="bi bi-laptop me-2"></i>Assets Management</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <!-- Manage Picklists at Top -->
+        <div class="mb-4">
+          <h6 class="fw-semibold mb-2">Manage Picklists</h6>
+          <p class="small text-muted mb-3">Configure categories, manufacturers, conditions, and locations used in asset forms.</p>
+          <ul class="nav nav-tabs mb-3" role="tablist">
+            <li class="nav-item" role="presentation">
+              <button class="nav-link active" id="asset-cats-tab" data-bs-toggle="tab" data-bs-target="#asset-cats-pane" type="button" role="tab">Categories</button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link" id="asset-mfgs-tab" data-bs-toggle="tab" data-bs-target="#asset-mfgs-pane" type="button" role="tab">Manufacturers</button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link" id="asset-conds-tab" data-bs-toggle="tab" data-bs-target="#asset-conds-pane" type="button" role="tab">Conditions</button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link" id="asset-locs-tab" data-bs-toggle="tab" data-bs-target="#asset-locs-pane" type="button" role="tab">Locations</button>
+            </li>
+          </ul>
+          <div class="tab-content">
+            <!-- Categories -->
+            <div class="tab-pane fade show active" id="asset-cats-pane" role="tabpanel">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="small text-muted">Add, rename, or delete categories</span>
+                <button class="btn btn-success btn-sm" onclick="showPickForm('categories')"><i class="bi bi-plus-lg me-1"></i>New Category</button>
+              </div>
+              <div id="pick-form-categories" style="display:none" class="mb-2">
+                <div class="card bg-body-tertiary border-success"><div class="card-body py-2">
+                  <form class="row g-2 align-items-end" onsubmit="return submitPickForm(event, 'categories')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="id" id="pick-id-categories">
+                    <div class="col">
+                      <label class="form-label small">Name</label>
+                      <input class="form-control form-control-sm" name="name" id="pick-name-categories" required>
+                    </div>
+                    <div class="col-auto d-flex gap-2">
+                      <button class="btn btn-success btn-sm" type="submit">Save</button>
+                      <button class="btn btn-outline-secondary btn-sm" type="button" onclick="hidePickForm('categories')">Cancel</button>
+                    </div>
+                  </form>
+                </div></div>
+              </div>
+              <ul class="list-group list-group-flush" id="pick-list-categories">
+                <li class="list-group-item small text-muted">Loading…</li>
+              </ul>
+            </div>
+            <!-- Manufacturers -->
+            <div class="tab-pane fade" id="asset-mfgs-pane" role="tabpanel">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="small text-muted">Add, rename, or delete manufacturers</span>
+                <button class="btn btn-success btn-sm" onclick="showPickForm('manufacturers')"><i class="bi bi-plus-lg me-1"></i>New Manufacturer</button>
+              </div>
+              <div id="pick-form-manufacturers" style="display:none" class="mb-2">
+                <div class="card bg-body-tertiary border-success"><div class="card-body py-2">
+                  <form class="row g-2 align-items-end" onsubmit="return submitPickForm(event, 'manufacturers')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="id" id="pick-id-manufacturers">
+                    <div class="col">
+                      <label class="form-label small">Name</label>
+                      <input class="form-control form-control-sm" name="name" id="pick-name-manufacturers" required>
+                    </div>
+                    <div class="col-auto d-flex gap-2">
+                      <button class="btn btn-success btn-sm" type="submit">Save</button>
+                      <button class="btn btn-outline-secondary btn-sm" type="button" onclick="hidePickForm('manufacturers')">Cancel</button>
+                    </div>
+                  </form>
+                </div></div>
+              </div>
+              <ul class="list-group list-group-flush" id="pick-list-manufacturers">
+                <li class="list-group-item small text-muted">Loading…</li>
+              </ul>
+            </div>
+            <!-- Conditions -->
+            <div class="tab-pane fade" id="asset-conds-pane" role="tabpanel">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="small text-muted">Add, rename, or delete conditions</span>
+                <button class="btn btn-success btn-sm" onclick="showPickForm('conditions')"><i class="bi bi-plus-lg me-1"></i>New Condition</button>
+              </div>
+              <div id="pick-form-conditions" style="display:none" class="mb-2">
+                <div class="card bg-body-tertiary border-success"><div class="card-body py-2">
+                  <form class="row g-2 align-items-end" onsubmit="return submitPickForm(event, 'conditions')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="id" id="pick-id-conditions">
+                    <div class="col">
+                      <label class="form-label small">Name</label>
+                      <input class="form-control form-control-sm" name="name" id="pick-name-conditions" required>
+                    </div>
+                    <div class="col-auto d-flex gap-2">
+                      <button class="btn btn-success btn-sm" type="submit">Save</button>
+                      <button class="btn btn-outline-secondary btn-sm" type="button" onclick="hidePickForm('conditions')">Cancel</button>
+                    </div>
+                  </form>
+                </div></div>
+              </div>
+              <ul class="list-group list-group-flush" id="pick-list-conditions">
+                <li class="list-group-item small text-muted">Loading…</li>
+              </ul>
+            </div>
+            <!-- Locations -->
+            <div class="tab-pane fade" id="asset-locs-pane" role="tabpanel">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="small text-muted">Add, rename, or delete locations</span>
+                <button class="btn btn-success btn-sm" onclick="showPickForm('locations')"><i class="bi bi-plus-lg me-1"></i>New Location</button>
+              </div>
+              <div id="pick-form-locations" style="display:none" class="mb-2">
+                <div class="card bg-body-tertiary border-success"><div class="card-body py-2">
+                  <form class="row g-2 align-items-end" onsubmit="return submitPickForm(event, 'locations')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="id" id="pick-id-locations">
+                    <div class="col">
+                      <label class="form-label small">Name</label>
+                      <input class="form-control form-control-sm" name="name" id="pick-name-locations" required>
+                    </div>
+                    <div class="col-auto d-flex gap-2">
+                      <button class="btn btn-success btn-sm" type="submit">Save</button>
+                      <button class="btn btn-outline-secondary btn-sm" type="button" onclick="hidePickForm('locations')">Cancel</button>
+                    </div>
+                  </form>
+                </div></div>
+              </div>
+              <ul class="list-group list-group-flush" id="pick-list-locations">
+                <li class="list-group-item small text-muted">Loading…</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <hr>
+
+        <div class="mb-4">
+          <h6 class="fw-semibold mb-2">Quick Actions</h6>
+          <div class="d-flex gap-2">
+            <a class="btn btn-outline-success" href="{{ url_for('assets.index') }}">
+              <i class="bi bi-list me-1"></i>View All Assets
+            </a>
+            <a class="btn btn-outline-success" href="{{ url_for('assets.new') }}">
+              <i class="bi bi-plus-lg me-1"></i>New Asset
+            </a>
+            <a class="btn btn-outline-secondary" href="{{ url_for('admin.audits') }}">
+              <i class="bi bi-clock-history me-1"></i>Audit Log
+            </a>
+          </div>
+        </div>
+
+        <hr>
+
+        <div class="mb-4">
+          <h6 class="fw-semibold mb-2">Import / Export</h6>
+          <form class="mb-2" method="post" action="{{ url_for('assets.import_csv') }}" enctype="multipart/form-data" onsubmit="return confirm('Import assets from CSV? Existing assets with matching tag/serial will be updated.');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="input-group">
+              <input class="form-control" type="file" name="file" accept=".csv" required>
+              <button class="btn btn-primary" type="submit">
+                <i class="bi bi-upload me-1"></i>Import CSV
+              </button>
+            </div>
+          </form>
+          <div class="d-flex gap-2">
+            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('assets.export_csv') }}">
+              <i class="bi bi-download me-1"></i>Export CSV
+            </a>
+            <form method="post" action="{{ url_for('assets.purge') }}" class="d-inline" onsubmit="return confirm('THIS WILL DELETE ALL ASSETS. Type OK in the prompt to continue.') && (function(){var v=prompt('Type OK to confirm purge of ALL assets:'); if(v==='OK'){return true;} alert('Purge cancelled.'); return false;})()">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-outline-danger btn-sm" type="submit">
+                <i class="bi bi-trash me-1"></i>Purge All
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Purchasing Modal - Vendors Management
+let vendorsData = [];
+let companiesData = [];
+let shippingData = [];
+
+// Load vendors when modal is shown
+document.getElementById('purchasingModal').addEventListener('shown.bs.modal', function () {
+  loadVendors();
+});
+
+// Load vendors via AJAX
+function loadVendors() {
+  fetch('/admin/vendors-data')
+    .then(r => r.json())
+    .then(data => {
+      vendorsData = data.vendors || [];
+      renderVendors();
+    })
+    .catch(err => {
+      document.getElementById('vendors-tbody').innerHTML = '<tr><td colspan="5" class="text-center text-danger">Error loading vendors</td></tr>';
+    });
+}
+
+function renderVendors() {
+  const tbody = document.getElementById('vendors-tbody');
+  if (vendorsData.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">No vendors yet. Click "New Vendor" to add one.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = vendorsData.map(v => `
+    <tr>
+      <td class="fw-semibold">${escapeHtml(v.company_name)}</td>
+      <td>${escapeHtml(v.contact_name || '—')}</td>
+      <td>${escapeHtml(v.email || '—')}</td>
+      <td>${escapeHtml(v.phone || '—')}</td>
+      <td class="text-end">
+        <div class="d-inline-flex gap-1">
+          <button class="btn btn-sm btn-outline-secondary" onclick="editVendor(${v.id})" title="Edit">
+            <i class="bi bi-pencil"></i>
+          </button>
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteVendor(${v.id})" title="Delete">
+            <i class="bi bi-trash"></i>
+          </button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function showVendorForm() {
+  document.getElementById('vendor-form').reset();
+  document.getElementById('vendor_id').value = '';
+  document.getElementById('vendor-form-container').style.display = 'block';
+}
+
+function hideVendorForm() {
+  document.getElementById('vendor-form-container').style.display = 'none';
+  document.getElementById('vendor-form').reset();
+}
+
+function editVendor(id) {
+  const vendor = vendorsData.find(v => v.id === id);
+  if (!vendor) return;
+  
+  document.getElementById('vendor_id').value = vendor.id;
+  document.getElementById('vendor_company_name').value = vendor.company_name || '';
+  document.getElementById('vendor_contact_name').value = vendor.contact_name || '';
+  document.getElementById('vendor_email').value = vendor.email || '';
+  document.getElementById('vendor_address').value = vendor.address || '';
+  document.getElementById('vendor_phone').value = vendor.phone || '';
+  document.getElementById('vendor-form-container').style.display = 'block';
+}
+
+function submitVendorForm(event) {
+  event.preventDefault();
+  const form = event.target;
+  const formData = new FormData(form);
+  const vendorId = formData.get('vendor_id');
+  const url = vendorId ? `/admin/vendors/${vendorId}/edit` : '/admin/vendors/new';
+  
+  fetch(url, {
+    method: 'POST',
+    body: formData
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.success) {
+      hideVendorForm();
+      loadVendors();
+    } else {
+      alert(data.error || 'Error saving vendor');
+    }
+  })
+  .catch(err => {
+    alert('Error saving vendor');
+  });
+  
+  return false;
+}
+
+function deleteVendor(id) {
+  if (!confirm('Delete this vendor?')) return;
+  
+  const formData = new FormData();
+  formData.append('csrf_token', document.querySelector('[name=csrf_token]').value);
+  
+  fetch(`/admin/vendors/${id}/delete`, {
+    method: 'POST',
+    body: formData
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.success) {
+      loadVendors();
+    } else {
+      alert(data.error || 'Error deleting vendor');
+    }
+  })
+  .catch(err => {
+    alert('Error deleting vendor');
+  });
+}
+
+// Companies Tab
+document.getElementById('companies-tab').addEventListener('click', function() {
+  if (companiesData.length === 0) loadCompanies();
+});
+
+function loadCompanies() {
+  fetch('/admin/companies-data')
+    .then(r => r.json())
+    .then(data => {
+      companiesData = data.companies || [];
+      renderCompanies();
+    })
+    .catch(err => {
+      document.getElementById('companies-tbody').innerHTML = '<tr><td colspan="6" class="text-center text-danger">Error loading companies</td></tr>';
+    });
+}
+
+function renderCompanies() {
+  const tbody = document.getElementById('companies-tbody');
+  if (companiesData.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">No companies yet. Click "New Company" to add one.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = companiesData.map(c => `
+    <tr>
+      <td class="fw-semibold">${escapeHtml(c.name)}</td>
+      <td>${escapeHtml(c.address || '—')}</td>
+      <td>${escapeHtml(c.city || '—')}</td>
+      <td>${escapeHtml(c.state || '—')}</td>
+      <td>${escapeHtml(c.zip_code || '—')}</td>
+      <td class="text-end">
+        <div class="d-inline-flex gap-1">
+          <button class="btn btn-sm btn-outline-secondary" onclick="editCompany(${c.id})" title="Edit">
+            <i class="bi bi-pencil"></i>
+          </button>
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteCompany(${c.id})" title="Delete">
+            <i class="bi bi-trash"></i>
+          </button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function showCompanyForm() {
+  document.getElementById('company-form').reset();
+  document.getElementById('company_id').value = '';
+  document.getElementById('company-form-container').style.display = 'block';
+}
+
+function hideCompanyForm() {
+  document.getElementById('company-form-container').style.display = 'none';
+  document.getElementById('company-form').reset();
+}
+
+function editCompany(id) {
+  const company = companiesData.find(c => c.id === id);
+  if (!company) return;
+  
+  document.getElementById('company_id').value = company.id;
+  document.getElementById('company_name').value = company.name || '';
+  document.getElementById('company_address').value = company.address || '';
+  document.getElementById('company_city').value = company.city || '';
+  document.getElementById('company_state').value = company.state || '';
+  document.getElementById('company_zip').value = company.zip_code || '';
+  document.getElementById('company-form-container').style.display = 'block';
+}
+
+function submitCompanyForm(event) {
+  event.preventDefault();
+  const form = event.target;
+  const formData = new FormData(form);
+  const companyId = formData.get('company_id');
+  const url = companyId ? `/admin/companies/${companyId}/edit` : '/admin/companies/new';
+  
+  fetch(url, {
+    method: 'POST',
+    body: formData
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.success) {
+      hideCompanyForm();
+      loadCompanies();
+    } else {
+      alert(data.error || 'Error saving company');
+    }
+  })
+  .catch(err => {
+    alert('Error saving company');
+  });
+  
+  return false;
+}
+
+function deleteCompany(id) {
+  if (!confirm('Delete this company?')) return;
+  
+  const formData = new FormData();
+  formData.append('csrf_token', document.querySelector('[name=csrf_token]').value);
+  
+  fetch(`/admin/companies/${id}/delete`, {
+    method: 'POST',
+    body: formData
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.success) {
+      loadCompanies();
+    } else {
+      alert(data.error || 'Error deleting company');
+    }
+  })
+  .catch(err => {
+    alert('Error deleting company');
+  });
+}
+
+// Shipping Tab
+document.getElementById('shipping-tab').addEventListener('click', function() {
+  if (shippingData.length === 0) loadShipping();
+});
+
+function loadShipping() {
+  fetch('/admin/shipping-data')
+    .then(r => r.json())
+    .then(data => {
+      shippingData = data.locations || [];
+      renderShipping();
+    })
+    .catch(err => {
+      document.getElementById('shipping-tbody').innerHTML = '<tr><td colspan="7" class="text-center text-danger">Error loading shipping locations</td></tr>';
+    });
+}
+
+function renderShipping() {
+  const tbody = document.getElementById('shipping-tbody');
+  if (shippingData.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No shipping locations yet. Click "New Location" to add one.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = shippingData.map(s => `
+    <tr>
+      <td class="fw-semibold">${escapeHtml(s.name)}</td>
+      <td>${escapeHtml(s.address || '—')}</td>
+      <td>${escapeHtml(s.city || '—')}</td>
+      <td>${escapeHtml(s.state || '—')}</td>
+      <td>${escapeHtml(s.zip_code || '—')}</td>
+      <td>${((s.tax_rate || 0) * 100).toFixed(2)}%</td>
+      <td class="text-end">
+        <div class="d-inline-flex gap-1">
+          <button class="btn btn-sm btn-outline-secondary" onclick="editShipping(${s.id})" title="Edit">
+            <i class="bi bi-pencil"></i>
+          </button>
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteShipping(${s.id})" title="Delete">
+            <i class="bi bi-trash"></i>
+          </button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function showShippingForm() {
+  document.getElementById('shipping-form').reset();
+  document.getElementById('location_id').value = '';
+  document.getElementById('shipping-form-container').style.display = 'block';
+}
+
+function hideShippingForm() {
+  document.getElementById('shipping-form-container').style.display = 'none';
+  document.getElementById('shipping-form').reset();
+}
+
+function editShipping(id) {
+  const location = shippingData.find(s => s.id === id);
+  if (!location) return;
+  
+  document.getElementById('location_id').value = location.id;
+  document.getElementById('shipping_name').value = location.name || '';
+  document.getElementById('shipping_address').value = location.address || '';
+  document.getElementById('shipping_city').value = location.city || '';
+  document.getElementById('shipping_state').value = location.state || '';
+  document.getElementById('shipping_zip').value = location.zip_code || '';
+  document.getElementById('shipping_tax').value = location.tax_rate ? (location.tax_rate * 100).toFixed(2) : '';
+  document.getElementById('shipping-form-container').style.display = 'block';
+}
+
+function submitShippingForm(event) {
+  event.preventDefault();
+  const form = event.target;
+  const formData = new FormData(form);
+  const locationId = formData.get('location_id');
+  const url = locationId ? `/admin/shipping/${locationId}/edit` : '/admin/shipping/new';
+  
+  fetch(url, {
+    method: 'POST',
+    body: formData
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.success) {
+      hideShippingForm();
+      loadShipping();
+    } else {
+      alert(data.error || 'Error saving shipping location');
+    }
+  })
+  .catch(err => {
+    alert('Error saving shipping location');
+  });
+  
+  return false;
+}
+
+function deleteShipping(id) {
+  if (!confirm('Delete this shipping location?')) return;
+  
+  const formData = new FormData();
+  formData.append('csrf_token', document.querySelector('[name=csrf_token]').value);
+  
+  fetch(`/admin/shipping/${id}/delete`, {
+    method: 'POST',
+    body: formData
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.success) {
+      loadShipping();
+    } else {
+      alert(data.error || 'Error deleting shipping location');
+    }
+  })
+  .catch(err => {
+    alert('Error deleting shipping location');
+  });
+}
+
+// Utility function to escape HTML
+function escapeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ============================================
+// PROCESS TEMPLATES MODAL FUNCTIONALITY
+// ============================================
+let processesData = [];
+
+// Event listener for Process Templates modal
+document.getElementById('processesModal').addEventListener('shown.bs.modal', function() {
+  loadProcesses();
+});
+
+// Load processes from backend
+function loadProcesses() {
+  fetch('/admin/processes-data')
+    .then(response => response.json())
+    .then(data => {
+      processesData = data;
+      renderProcesses();
+    })
+    .catch(err => {
+      console.error('Error loading processes:', err);
+    });
+}
+
+// Render processes table
+function renderProcesses() {
+  const tbody = document.getElementById('processes-tbody');
+  if (!tbody) return;
+  
+  tbody.innerHTML = '';
+  processesData.forEach(process => {
+    const itemsCount = process.items_count || 0;
+    const mainRow = `
+      <tr id="process-row-${process.id}">
+        <td>
+          <button class="btn btn-sm btn-outline-secondary me-2" title="Preview items" onclick="toggleProcessPreview(${process.id})">
+            <i class="bi bi-chevron-down" id="process-chevron-${process.id}"></i>
+          </button>
+          ${escapeHtml(process.name)}
+        </td>
+        <td>${itemsCount}</td>
+        <td class="text-end">
+          <a class="btn btn-sm btn-outline-primary me-1" href="/admin/processes/${process.id}/edit" target="_blank">Items</a>
+          <button class=\"btn btn-sm btn-warning me-1\" onclick=\"editProcess(${process.id})\">Rename</button>
+          <button class=\"btn btn-sm btn-danger\" onclick=\"deleteProcess(${process.id})\">Delete</button>
+        </td>
+      </tr>
+      <tr id="process-details-${process.id}" class="d-none">
+        <td colspan="3">
+          <div class="p-3 rounded border bg-body-tertiary" id="process-items-container-${process.id}">
+            <div class="text-muted small">Loading items…</div>
+          </div>
+        </td>
+      </tr>
+    `;
+    tbody.innerHTML += mainRow;
+  });
+
+  // If a preview was open before reload, re-open it (optional: keep simple for now)
+}
+
+// Show process form for create/edit
+function showProcessForm() {
+  document.getElementById('process-form-container').style.display = 'block';
+  document.getElementById('process_name').focus();
+}
+
+// Hide process form
+function hideProcessForm() {
+  document.getElementById('process-form-container').style.display = 'none';
+  document.getElementById('process-form').reset();
+  document.getElementById('process_id').value = '';
+}
+
+// Submit process form (create or update)
+function submitProcessForm(event) {
+  event.preventDefault();
+  
+  const formData = new FormData(event.target);
+  const processId = document.getElementById('process_id').value;
+  const url = processId ? `/admin/processes/${processId}/edit` : '/admin/processes/new';
+  
+  fetch(url, {
+    method: 'POST',
+    headers: {
+      'X-Requested-With': 'XMLHttpRequest'
+    },
+    body: formData
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      hideProcessForm();
+      loadProcesses();
+    } else {
+      alert(data.error || 'Error saving process template');
+    }
+  })
+  .catch(err => {
+    alert('Error saving process template');
+  });
+}
+
+// Edit process - populate form with existing data
+function editProcess(id) {
+  const process = processesData.find(p => p.id === id);
+  if (!process) return;
+  
+  document.getElementById('process_id').value = process.id;
+  document.getElementById('process_name').value = process.name;
+  showProcessForm();
+}
+
+// Toggle preview of process items
+function toggleProcessPreview(id) {
+  const detailsRow = document.getElementById(`process-details-${id}`);
+  const chevron = document.getElementById(`process-chevron-${id}`);
+  if (!detailsRow) return;
+  const isHidden = detailsRow.classList.contains('d-none');
+  if (isHidden) {
+    detailsRow.classList.remove('d-none');
+    if (chevron) chevron.classList.replace('bi-chevron-down', 'bi-chevron-up');
+    // Load items if first time
+    const container = document.getElementById(`process-items-container-${id}`);
+    if (container && !container.dataset.loaded) {
+      // Load techs for dropdowns first (cached)
+      ensureTechsLoaded().then(() => {
+        fetch(`/admin/processes/${id}/items-data`)
+          .then(r => r.json())
+          .then(items => {
+            container.dataset.loaded = '1';
+            processItems[id] = (items || []).sort((a,b) => (a.position||0) - (b.position||0));
+            renderProcessItemsEditor(id);
+          })
+          .catch(() => {
+            if (container) container.innerHTML = '<div class="text-danger small">Failed to load items</div>';
+          });
+      });
+    }
+  } else {
+    detailsRow.classList.add('d-none');
+    if (chevron) chevron.classList.replace('bi-chevron-up', 'bi-chevron-down');
+  }
+}
+
+// Inline Process Items CRUD
+let techChoices = null; // [{id, name}]
+const processItems = {}; // { [processId]: [ {id,type,label,assigned_tech,position} ] }
+
+function ensureTechsLoaded() {
+  if (techChoices) return Promise.resolve();
+  return fetch('/admin/techs-data')
+    .then(r => r.json())
+    .then(data => { techChoices = data || []; })
+    .catch(() => { techChoices = []; });
+}
+
+function renderProcessItemsEditor(processId) {
+  const container = document.getElementById(`process-items-container-${processId}`);
+  if (!container) return;
+  const items = processItems[processId] || [];
+
+  // Build Add Item form
+  const techOptionsHtml = ['<option value="0">— None —</option>']
+    .concat((techChoices||[]).map(t => `<option value="${t.id}">${escapeHtml(t.name || '')}</option>`))
+    .join('');
+
+  let html = '';
+  html += '<div class="mb-3">';
+  html += '  <div class="card bg-body-tertiary border-success">';
+  html += '    <div class="card-body">';
+  html += `      <form class="row g-2 align-items-end" onsubmit="return submitNewProcessItem(event, ${processId})">`;
+  html += `        <input type="hidden" name="csrf_token" value="${document.querySelector('[name=csrf_token]').value}">`;
+  html += '        <div class="col-12 col-md-3">';
+  html += '          <label class="form-label small">Type</label>';
+  html += '          <select class="form-select form-select-sm" name="type">';
+  html += '            <option value="checkbox">Checkbox</option>';
+  html += '            <option value="text">Text</option>';
+  html += '          </select>';
+  html += '        </div>';
+  html += '        <div class="col-12 col-md-5">';
+  html += '          <label class="form-label small">Label</label>';
+  html += '          <input class="form-control form-control-sm" name="label" required>';
+  html += '        </div>';
+  html += '        <div class="col-12 col-md-3">';
+  html += '          <label class="form-label small">Assigned Tech</label>';
+  html += `          <select class="form-select form-select-sm" name="assigned_tech_id">${techOptionsHtml}</select>`;
+  html += '        </div>';
+  html += '        <div class="col-12 col-md-1 d-grid">';
+  html += '          <button class="btn btn-success btn-sm" type="submit">Add</button>';
+  html += '        </div>';
+  html += '      </form>';
+  html += '    </div>';
+  html += '  </div>';
+  html += '</div>';
+
+  // Build Items table
+  html += '<div class="table-responsive">';
+  html += '  <table class="table table-sm align-middle">';
+  html += '    <thead class="table-light">';
+  html += '      <tr><th style="width:40px"></th><th>Type</th><th>Label</th><th>Assigned</th><th class="text-end" style="width:220px">Actions</th></tr>';
+  html += '    </thead>';
+  html += '    <tbody>';
+
+  if (!items.length) {
+    html += '      <tr><td colspan="5" class="text-muted text-center">No items yet</td></tr>';
+  } else {
+    items.forEach((it, idx) => {
+      const assignedId = findTechIdByName(it.assigned_tech);
+      const opts = ['<option value="0">— None —</option>']
+        .concat((techChoices||[]).map(t => `<option value="${t.id}" ${assignedId===t.id?'selected':''}>${escapeHtml(t.name||'')}</option>`))
+        .join('');
+      html += `
+        <tr data-item-id="${it.id}">
+          <td class="text-muted">${idx+1}</td>
+          <td>
+            <select class="form-select form-select-sm" name="type">
+              <option value="checkbox" ${it.type==='checkbox'?'selected':''}>Checkbox</option>
+              <option value="text" ${it.type==='text'?'selected':''}>Text</option>
+            </select>
+          </td>
+          <td><input class="form-control form-control-sm" name="label" value="${escapeHtml(it.label||'')}" ></td>
+          <td>
+            <select class="form-select form-select-sm" name="assigned_tech_id">${opts}</select>
+          </td>
+          <td class="text-end">
+            <div class="btn-group btn-group-sm" role="group">
+              <button class="btn btn-outline-secondary" onclick="moveProcessItem(${processId}, ${it.id}, -1)" title="Up"><i class="bi bi-arrow-up"></i></button>
+              <button class="btn btn-outline-secondary" onclick="moveProcessItem(${processId}, ${it.id}, 1)" title="Down"><i class="bi bi-arrow-down"></i></button>
+              <button class="btn btn-outline-primary" onclick="saveProcessItem(${processId}, ${it.id}, this)" title="Save"><i class="bi bi-check"></i></button>
+              <button class="btn btn-outline-danger" onclick="deleteProcessItem(${processId}, ${it.id})" title="Delete"><i class="bi bi-trash"></i></button>
+            </div>
+          </td>
+        </tr>`;
+    });
+  }
+
+  html += '    </tbody>';
+  html += '  </table>';
+  html += '</div>';
+  if (items.length) {
+    html += '<div class="d-flex justify-content-end">';
+    html += `  <button class="btn btn-outline-secondary btn-sm" onclick="saveProcessOrder(${processId})"><i class="bi bi-save me-1"></i>Save Order</button>`;
+    html += '</div>';
+  }
+
+  container.innerHTML = html;
+}
+
+function findTechIdByName(name) {
+  if (!name || !techChoices) return null;
+  const t = techChoices.find(t => t.name === name);
+  return t ? t.id : null;
+}
+
+function submitNewProcessItem(e, processId) {
+  e.preventDefault();
+  const form = e.target;
+  const fd = new FormData(form);
+  fetch(`/admin/processes/${processId}/items/new`, {
+    method: 'POST',
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    body: fd
+  }).then(r => r.json()).then(data => {
+    if (data.success) {
+      form.reset();
+      // Reload items
+      fetch(`/admin/processes/${processId}/items-data`).then(r=>r.json()).then(items => {
+        processItems[processId] = (items||[]).sort((a,b)=>(a.position||0)-(b.position||0));
+        renderProcessItemsEditor(processId);
+        // Update count inline without collapsing
+        setProcessItemsCount(processId, processItems[processId].length);
+      });
+    } else {
+      alert(data.error || 'Error adding item');
+    }
+  }).catch(()=>alert('Error adding item'));
+  return false;
+}
+
+function getRowValues(tr) {
+  const type = tr.querySelector('select[name="type"]').value;
+  const label = tr.querySelector('input[name="label"]').value;
+  const assigned = tr.querySelector('select[name="assigned_tech_id"]').value || '0';
+  return {type, label, assigned_tech_id: assigned};
+}
+
+function saveProcessItem(processId, itemId, btn) {
+  const tr = btn.closest('tr');
+  const vals = getRowValues(tr);
+  const fd = new FormData();
+  fd.append('csrf_token', document.querySelector('[name=csrf_token]').value);
+  fd.append('type', vals.type);
+  fd.append('label', vals.label);
+  fd.append('assigned_tech_id', vals.assigned_tech_id);
+  fetch(`/admin/processes/${processId}/items/${itemId}/update-ajax`, {
+    method: 'POST',
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    body: fd
+  }).then(r=>r.json()).then(data=>{
+    if (data.success) {
+      // Refresh items
+      fetch(`/admin/processes/${processId}/items-data`).then(r=>r.json()).then(items => {
+        processItems[processId] = (items||[]).sort((a,b)=>(a.position||0)-(b.position||0));
+        renderProcessItemsEditor(processId);
+      });
+    } else {
+      alert(data.error || 'Error saving item');
+    }
+  }).catch(()=>alert('Error saving item'));
+}
+
+function deleteProcessItem(processId, itemId) {
+  if (!confirm('Delete this item?')) return;
+  const fd = new FormData();
+  fd.append('csrf_token', document.querySelector('[name=csrf_token]').value);
+  fetch(`/admin/processes/${processId}/items/${itemId}/delete-ajax`, {
+    method: 'POST',
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    body: fd
+  }).then(r=>r.json()).then(data=>{
+    if (data.success) {
+      // Remove from local and re-render
+      processItems[processId] = (processItems[processId]||[]).filter(it => it.id !== itemId);
+      renderProcessItemsEditor(processId);
+      setProcessItemsCount(processId, (processItems[processId]||[]).length);
+    } else {
+      alert(data.error || 'Error deleting item');
+    }
+  }).catch(()=>alert('Error deleting item'));
+}
+
+function moveProcessItem(processId, itemId, delta) {
+  const items = processItems[processId] || [];
+  const idx = items.findIndex(it => it.id === itemId);
+  if (idx < 0) return;
+  const newIdx = idx + delta;
+  if (newIdx < 0 || newIdx >= items.length) return;
+  const [moved] = items.splice(idx, 1);
+  items.splice(newIdx, 0, moved);
+  // Re-number positions locally for UI
+  items.forEach((it, i) => it.position = i+1);
+  renderProcessItemsEditor(processId);
+}
+
+function saveProcessOrder(processId) {
+  const items = processItems[processId] || [];
+  const order = items.map(it => it.id);
+  fetch(`/admin/processes/${processId}/items/reorder-ajax`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+    body: JSON.stringify(order)
+  }).then(r=>r.json().catch(()=>({success: r.status===204}))).then(data=>{
+    // Our endpoint returns {success:true}; handle 204 fallback too
+    if (!data || data.success) {
+      // Reload items to confirm order
+      fetch(`/admin/processes/${processId}/items-data`).then(r=>r.json()).then(items => {
+        processItems[processId] = (items||[]).sort((a,b)=>(a.position||0)-(b.position||0));
+        renderProcessItemsEditor(processId);
+      });
+    } else {
+      alert(data.error || 'Error saving order');
+    }
+  }).catch(()=>alert('Error saving order'));
+}
+
+function setProcessItemsCount(processId, count) {
+  const row = document.getElementById(`process-row-${processId}`);
+  if (row) {
+    const countCell = row.querySelector('td:nth-child(2)');
+    if (countCell) countCell.textContent = String(count);
+  }
+  const p = processesData.find(p => p.id === processId);
+  if (p) p.items_count = count;
+}
+
+// Delete process with confirmation
+function deleteProcess(id) {
+  const process = processesData.find(p => p.id === id);
+  if (!process) return;
+  
+  if (!confirm(`Are you sure you want to delete the process template "${process.name}"?`)) {
+    return;
+  }
+  
+  const formData = new FormData();
+  formData.append('csrf_token', '{{ csrf_token() }}');
+  
+  fetch(`/admin/processes/${id}/delete`, {
+    method: 'POST',
+    headers: {
+      'X-Requested-With': 'XMLHttpRequest'
+    },
+    body: formData
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      loadProcesses();
+    } else {
+      alert(data.error || 'Error deleting process template');
+    }
+  })
+  .catch(err => {
+    alert('Error deleting process template');
+  });
+}
+
+// ============================================
+// DOCUMENT CATEGORIES MODAL FUNCTIONALITY
+// ============================================
+let docCategoriesData = [];
+
+// Event listener for Documents modal
+document.getElementById('documentsModal').addEventListener('shown.bs.modal', function() {
+  loadDocCategories();
+});
+
+// Load document categories from backend
+function loadDocCategories() {
+  fetch('/admin/doccategories-data')
+    .then(response => response.json())
+    .then(data => {
+      docCategoriesData = data;
+      renderDocCategories();
+    })
+    .catch(err => {
+      console.error('Error loading document categories:', err);
+    });
+}
+
+// Render document categories list
+function renderDocCategories() {
+  const ul = document.getElementById('doccategories-ul');
+  if (!ul) return;
+  
+  ul.innerHTML = '';
+  docCategoriesData.forEach(category => {
+    const docsCount = category.documents_count || 0;
+    const item = `
+      <li class="list-group-item d-flex justify-content-between align-items-center">
+        <div>
+          <strong>${escapeHtml(category.name)}</strong>
+          <span class="text-muted ms-2">(${docsCount} documents)</span>
+        </div>
+        <button class="btn btn-sm btn-danger" onclick="deleteDocCategory(${category.id})">Delete</button>
+      </li>
+    `;
+    ul.innerHTML += item;
+  });
+}
+
+// Show document category form
+function showDocCategoryForm() {
+  document.getElementById('doccategory-form-container').style.display = 'block';
+  document.getElementById('doccategory_name').focus();
+}
+
+// Hide document category form
+function hideDocCategoryForm() {
+  document.getElementById('doccategory-form-container').style.display = 'none';
+  document.getElementById('doccategory-form').reset();
+}
+
+// Submit document category form
+function submitDocCategoryForm(event) {
+  event.preventDefault();
+  
+  const formData = new FormData(event.target);
+  
+  fetch('/admin/documents/categories', {
+    method: 'POST',
+    headers: {
+      'X-Requested-With': 'XMLHttpRequest'
+    },
+    body: formData
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      hideDocCategoryForm();
+      loadDocCategories();
+    } else {
+      alert(data.error || 'Error creating document category');
+    }
+  })
+  .catch(err => {
+    alert('Error creating document category');
+  });
+}
+
+// Delete document category with confirmation
+function deleteDocCategory(id) {
+  const category = docCategoriesData.find(c => c.id === id);
+  if (!category) return;
+  
+  if (!confirm(`Are you sure you want to delete the category "${category.name}"?`)) {
+    return;
+  }
+  
+  const formData = new FormData();
+  formData.append('csrf_token', '{{ csrf_token() }}');
+  
+  fetch(`/admin/documents/categories/${id}/delete`, {
+    method: 'POST',
+    headers: {
+      'X-Requested-With': 'XMLHttpRequest'
+    },
+    body: formData
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      loadDocCategories();
+    } else {
+      alert(data.error || 'Error deleting document category');
+    }
+  })
+  .catch(err => {
+    alert('Error deleting document category');
+  });
+}
+
+// ============================================
+// SCHEDULED TICKETS MODAL FUNCTIONALITY
+// ============================================
+let scheduledTicketsData = [];
+
+// Event listener for Scheduled Tickets modal
+document.getElementById('scheduledModal').addEventListener('shown.bs.modal', function() {
+  // Ensure we have techs for assignee dropdown
+  ensureTechsLoaded().then(() => {
+    populateScheduledAssigneeOptions();
+    loadScheduledTickets();
+  }).catch(() => loadScheduledTickets());
+});
+
+// Load scheduled tickets from backend
+function loadScheduledTickets() {
+  fetch('/admin/scheduled-data')
+    .then(response => response.json())
+    .then(data => {
+      scheduledTicketsData = data;
+      renderScheduledTickets();
+    })
+    .catch(err => {
+      console.error('Error loading scheduled tickets:', err);
+    });
+}
+
+// ============================================
+// ASSETS PICKLISTS INLINE CRUD
+// ============================================
+let assetsPicklists = { categories: [], manufacturers: [], conditions: [], locations: [] };
+
+document.getElementById('assetsModal').addEventListener('shown.bs.modal', function() {
+  loadAssetsPicklists();
+});
+
+function loadAssetsPicklists() {
+  fetch('/admin/assets/picklists-data')
+    .then(r=>r.json())
+    .then(data => {
+      assetsPicklists = data || assetsPicklists;
+      // Re-render all tabs so the active one updates immediately
+      ['categories','manufacturers','conditions','locations'].forEach(kind => renderPicklists(kind));
+    })
+    .catch(()=>{
+      ['categories','manufacturers','conditions','locations'].forEach(kind => {
+        const ul = document.getElementById(`pick-list-${kind}`);
+        if (ul) ul.innerHTML = '<li class="list-group-item text-danger small">Failed to load</li>';
+      });
+    });
+}
+
+// Lazy-load on tab click
+['asset-cats-tab','asset-mfgs-tab','asset-conds-tab','asset-locs-tab'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('click', () => {
+    const map = { 'asset-cats-tab':'categories','asset-mfgs-tab':'manufacturers','asset-conds-tab':'conditions','asset-locs-tab':'locations' };
+    renderPicklists(map[id]);
+  });
+});
+
+function renderPicklists(kind) {
+  const ul = document.getElementById(`pick-list-${kind}`);
+  if (!ul) return;
+  const rows = assetsPicklists[kind] || [];
+  if (!rows.length) {
+    ul.innerHTML = '<li class="list-group-item small text-muted">No items yet</li>';
+    return;
+  }
+  ul.innerHTML = rows.map(r => `
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+      <div class="d-flex align-items-center gap-2">
+        <input class="form-control form-control-sm" style="min-width:240px" value="${escapeHtml(r.name)}" oninput="this.dataset.dirty='1'" id="pick-input-${kind}-${r.id}">
+      </div>
+      <div class="btn-group btn-group-sm" role="group">
+        <button class="btn btn-outline-primary" onclick="savePick('${kind}', ${r.id})">Save</button>
+        <button class="btn btn-outline-danger" onclick="deletePick('${kind}', ${r.id})">Delete</button>
+      </div>
+    </li>
+  `).join('');
+}
+
+function showPickForm(kind) {
+  document.getElementById(`pick-id-${kind}`).value = '';
+  document.getElementById(`pick-name-${kind}`).value = '';
+  document.getElementById(`pick-form-${kind}`).style.display = '';
+  document.getElementById(`pick-name-${kind}`).focus();
+}
+function hidePickForm(kind) {
+  document.getElementById(`pick-form-${kind}`).style.display = 'none';
+}
+
+function submitPickForm(e, kind) {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const id = fd.get('id');
+  const url = id ? `/admin/assets/picklists/${kind}/${id}/edit` : `/admin/assets/picklists/${kind}`;
+  fetch(url, { method: 'POST', headers: { 'X-Requested-With':'XMLHttpRequest' }, body: fd })
+    .then(r=>r.json())
+    .then(data => {
+      if (data.success) {
+        hidePickForm(kind);
+        loadAssetsPicklists();
+        // Update counts shown on Manage Picklists buttons elsewhere if needed (optional)
+      } else {
+        alert(data.error || 'Error saving');
+      }
+    })
+    .catch(()=>alert('Error saving'));
+  return false;
+}
+
+function savePick(kind, id) {
+  const input = document.getElementById(`pick-input-${kind}-${id}`);
+  if (!input) return; 
+  if (!input.dataset.dirty) return; // no change
+  const fd = new FormData();
+  fd.append('csrf_token', document.querySelector('[name=csrf_token]').value);
+  fd.append('name', input.value);
+  fetch(`/admin/assets/picklists/${kind}/${id}/edit`, { method: 'POST', headers:{'X-Requested-With':'XMLHttpRequest'}, body: fd })
+    .then(r=>r.json()).then(data =>{
+      if (data.success) {
+        input.dataset.dirty = '';
+        loadAssetsPicklists();
+      } else {
+        alert(data.error || 'Error updating');
+      }
+    }).catch(()=>alert('Error updating'));
+}
+
+function deletePick(kind, id) {
+  if (!confirm('Delete this item?')) return;
+  const fd = new FormData();
+  fd.append('csrf_token', document.querySelector('[name=csrf_token]').value);
+  fetch(`/admin/assets/picklists/${kind}/${id}/delete`, { method: 'POST', headers:{'X-Requested-With':'XMLHttpRequest'}, body: fd })
+    .then(r=>r.json())
+    .then(data => {
+      if (data.success) {
+        // update local cache and re-render to avoid full reload flicker
+        assetsPicklists[kind] = (assetsPicklists[kind]||[]).filter(x => x.id !== id);
+        renderPicklists(kind);
+      } else {
+        alert(data.error || 'Error deleting');
+      }
+    })
+    .catch(()=>alert('Error deleting'));
+}
+
+// Render scheduled tickets table
+function renderScheduledTickets() {
+  const tbody = document.getElementById('scheduled-tbody');
+  if (!tbody) return;
+  
+  tbody.innerHTML = '';
+  scheduledTicketsData.forEach(ticket => {
+    const activeBadge = ticket.is_active 
+      ? '<span class="badge bg-success">Active</span>' 
+      : '<span class="badge bg-secondary">Inactive</span>';
+    
+    let scheduleText = '';
+    if (ticket.schedule_type === 'daily') {
+      scheduleText = `Daily at ${ticket.schedule_time || 'N/A'}`;
+    } else if (ticket.schedule_type === 'weekly') {
+      scheduleText = `Weekly on ${ticket.day_of_week || 'N/A'} at ${ticket.schedule_time || 'N/A'}`;
+    } else if (ticket.schedule_type === 'monthly') {
+      scheduleText = `Monthly on day ${ticket.day_of_month || 'N/A'} at ${ticket.schedule_time || 'N/A'}`;
+    } else {
+      scheduleText = ticket.schedule_type || 'N/A';
+    }
+    
+    const assigneeName = ticket.assignee_name || 'Unassigned';
+    const lastRun = ticket.last_run || 'Never';
+    
+    const row = `
+      <tr>
+        <td>${escapeHtml(ticket.name)}</td>
+        <td>${escapeHtml(scheduleText)}</td>
+        <td>${escapeHtml(assigneeName)}</td>
+        <td>${activeBadge}</td>
+        <td>${escapeHtml(lastRun)}</td>
+        <td class="text-end">
+          <div class="btn-group btn-group-sm" role="group">
+            <button class="btn btn-outline-primary" onclick="editScheduledTicket(${ticket.id})">Edit</button>
+            <button class="btn btn-outline-secondary" onclick="runScheduledTicket(${ticket.id})">Run Now</button>
+            <button class="btn btn-outline-danger" onclick="deleteScheduledTicket(${ticket.id})">Delete</button>
+          </div>
+        </td>
+      </tr>
+    `;
+    tbody.innerHTML += row;
+  });
+}
+
+// Show Scheduled form
+function showScheduledForm() {
+  document.getElementById('scheduled-form').reset();
+  document.getElementById('scheduled_id').value = '';
+  populateScheduledAssigneeOptions();
+  updateScheduleFieldsVisibility();
+  document.getElementById('scheduled-form-container').style.display = 'block';
+  document.getElementById('scheduled_name').focus();
+}
+
+function hideScheduledForm() {
+  document.getElementById('scheduled-form-container').style.display = 'none';
+  document.getElementById('scheduled-form').reset();
+  document.getElementById('scheduled_id').value = '';
+}
+
+function populateScheduledAssigneeOptions(selectedId) {
+  const sel = document.getElementById('scheduled_assignee');
+  if (!sel) return;
+  const opts = ['<option value="">— Unassigned —</option>']
+    .concat((techChoices||[]).map(t => `<option value="${t.id}" ${selectedId && Number(selectedId)===Number(t.id) ? 'selected' : ''}>${escapeHtml(t.name||'')}</option>`))
+    .join('');
+  sel.innerHTML = opts;
+}
+
+function updateScheduleFieldsVisibility() {
+  const type = document.getElementById('scheduled_type').value;
+  const dowGroup = document.getElementById('scheduled_dow_group');
+  const domGroup = document.getElementById('scheduled_dom_group');
+  if (type === 'weekly') {
+    dowGroup.style.display = '';
+    domGroup.style.display = 'none';
+  } else if (type === 'monthly') {
+    dowGroup.style.display = 'none';
+    domGroup.style.display = '';
+  } else {
+    dowGroup.style.display = 'none';
+    domGroup.style.display = 'none';
+  }
+}
+
+function submitScheduledForm(e) {
+  e.preventDefault();
+  const form = e.target;
+  const fd = new FormData(form);
+  const id = fd.get('scheduled_id');
+  // If active is unchecked, FormData has no key; backend treats missing as False only if we avoid appending it. Keep as-is.
+  const url = id ? `/admin/scheduled/${id}/edit` : '/admin/scheduled/new';
+  fetch(url, {
+    method: 'POST',
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    body: fd
+  }).then(r=>r.json())
+    .then(data => {
+      if (data.success) {
+        hideScheduledForm();
+        loadScheduledTickets();
+      } else {
+        alert(data.error || 'Error saving scheduled ticket');
+      }
+    })
+    .catch(()=>alert('Error saving scheduled ticket'));
+  return false;
+}
+
+function editScheduledTicket(id) {
+  const row = scheduledTicketsData.find(x => x.id === id);
+  if (!row) return;
+  document.getElementById('scheduled_id').value = row.id;
+  document.getElementById('scheduled_name').value = row.name || '';
+  document.getElementById('scheduled_subject').value = row.subject || '';
+  document.getElementById('scheduled_body').value = row.body || '';
+  document.getElementById('scheduled_status').value = row.status || 'open';
+  document.getElementById('scheduled_priority').value = row.priority || 'medium';
+  populateScheduledAssigneeOptions(row.assignee_id || '');
+  document.getElementById('scheduled_tasks').value = row.tasks_text || '';
+  document.getElementById('scheduled_type').value = row.schedule_type || 'daily';
+  updateScheduleFieldsVisibility();
+  document.getElementById('scheduled_dow').value = (row.day_of_week ?? '').toString();
+  document.getElementById('scheduled_dom').value = row.day_of_month || '';
+  document.getElementById('scheduled_time').value = row.schedule_time || '00:00';
+  document.getElementById('scheduled_active').checked = !!row.active;
+  document.getElementById('scheduled-form-container').style.display = 'block';
+  document.getElementById('scheduled_name').focus();
+}
+
+// Run scheduled ticket immediately
+function runScheduledTicket(id) {
+  const ticket = scheduledTicketsData.find(t => t.id === id);
+  if (!ticket) return;
+  
+  if (!confirm(`Run scheduled ticket "${ticket.name}" now?`)) {
+    return;
+  }
+  
+  const formData = new FormData();
+  formData.append('csrf_token', '{{ csrf_token() }}');
+  
+  fetch(`/admin/scheduled/${id}/run_now`, {
+    method: 'POST',
+    headers: {
+      'X-Requested-With': 'XMLHttpRequest'
+    },
+    body: formData
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      alert('Scheduled ticket executed successfully');
+      loadScheduledTickets();
+    } else {
+      alert(data.error || 'Error running scheduled ticket');
+    }
+  })
+  .catch(err => {
+    alert('Error running scheduled ticket');
+  });
+}
+
+// Delete scheduled ticket with confirmation
+function deleteScheduledTicket(id) {
+  const ticket = scheduledTicketsData.find(t => t.id === id);
+  if (!ticket) return;
+  
+  if (!confirm(`Are you sure you want to delete the scheduled ticket "${ticket.name}"?`)) {
+    return;
+  }
+  
+  const formData = new FormData();
+  formData.append('csrf_token', '{{ csrf_token() }}');
+  
+  fetch(`/admin/scheduled/${id}/delete`, {
+    method: 'POST',
+    headers: {
+      'X-Requested-With': 'XMLHttpRequest'
+    },
+    body: formData
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      loadScheduledTickets();
+    } else {
+      alert(data.error || 'Error deleting scheduled ticket');
+    }
+  })
+  .catch(err => {
+    alert('Error deleting scheduled ticket');
+  });
+}
+</script>
+
+<!-- Support Email Modal -->
+<div class="modal fade" id="supportEmailModal" tabindex="-1" aria-labelledby="supportEmailModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-info text-white">
+        <h5 class="modal-title" id="supportEmailModalLabel">
+          <i class="bi bi-envelope me-2"></i>Support Contact
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body text-center py-4">
+        <p class="mb-3">For support, please email:</p>
+        <h5 class="mb-0">
+          <a href="mailto:helpfuldjinn@outlook.com" class="text-decoration-none text-primary">
+            <i class="bi bi-envelope-fill me-2"></i>helpfuldjinn@outlook.com
+          </a>
+        </h5>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

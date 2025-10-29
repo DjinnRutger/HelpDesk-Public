@@ -1,0 +1,225 @@
+{% extends 'base.html' %}
+{% block title %}Welcome to HelpfulDjinn{% endblock %}
+
+{% block content %}
+<div class="container-fluid vh-100 d-flex align-items-center justify-content-center">
+  <div class="row w-100">
+    <div class="col-12 col-xl-11 mx-auto">
+      
+      <!-- Welcome Card -->
+      <div class="card shadow-lg border-0">
+        <div class="card-body p-0">
+          
+          <div class="row g-0">
+            
+            <!-- Left Side: Logo and Welcome -->
+            <div class="col-lg-5 d-flex align-items-center justify-content-center bg-body-tertiary p-5">
+              <div class="text-center">
+                <img src="/images/HelpfulDjinnMd.png" alt="HelpfulDjinn" class="img-fluid mb-4" style="max-width: 250px;">
+                <h1 class="display-6 fw-bold text-primary mb-3">Welcome to HelpfulDjinn</h1>
+                <p class="lead mb-3">
+                  A simple and easy to use IT Helpdesk system for your team.
+                </p>
+                <p class="">
+                  HelpfulDjinn streamlines ticket management, asset tracking, and team collaboration 
+                  with an intuitive interface.
+                </p>
+                <hr class="my-4 opacity-50">
+                <p class="small">
+                  Manage tickets, track assets, automate workflows, and keep your team organized—all in one platform.
+                </p>
+              </div>
+            </div>
+
+            <!-- Right Side: Setup Forms -->
+            <div class="col-lg-7 p-5">
+              
+              <!-- Setup Options Tabs -->
+          <ul class="nav nav-pills nav-fill mb-4" role="tablist">
+            <li class="nav-item" role="presentation">
+              <button class="nav-link active" id="fresh-tab" data-bs-toggle="pill" data-bs-target="#fresh-setup" type="button" role="tab">
+                <i class="bi bi-stars me-2"></i>Fresh Setup
+              </button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link" id="restore-tab" data-bs-toggle="pill" data-bs-target="#restore-setup" type="button" role="tab">
+                <i class="bi bi-cloud-upload me-2"></i>Restore Backup
+              </button>
+            </li>
+          </ul>
+
+          <!-- Tab Content -->
+          <div class="tab-content">
+            
+            <!-- Fresh Setup Tab -->
+            <div class="tab-pane fade show active" id="fresh-setup" role="tabpanel">
+              <div class="card bg-body-tertiary border-primary">
+                <div class="card-body p-4">
+                  <h5 class="card-title mb-3">
+                    <i class="bi bi-person-plus-fill text-primary me-2"></i>Create Your Admin Account
+                  </h5>
+                  
+                  <form method="post" action="{{ url_for('setup.create_initial_user') }}" id="setup-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    
+                    <div class="row g-3 mb-3">
+                      <div class="col-md-6">
+                        <label class="form-label fw-semibold">Your Name</label>
+                        <input type="text" class="form-control" name="name" placeholder="John Doe" required>
+                      </div>
+                      <div class="col-md-6">
+                        <label class="form-label fw-semibold">Email Address</label>
+                        <input type="email" class="form-control" name="email" placeholder="admin@example.com" required>
+                      </div>
+                    </div>
+
+                    <div class="mb-3">
+                      <label class="form-label fw-semibold">Password</label>
+                      <input type="password" class="form-control" name="password" id="password" placeholder="At least 8 characters" required minlength="8">
+                      <div class="form-text">Choose a strong password with at least 8 characters.</div>
+                    </div>
+
+                    <div class="mb-4">
+                      <label class="form-label fw-semibold">Choose Your Theme</label>
+                      <div class="row g-2">
+                        {% for theme in themes %}
+                        <div class="col-6 col-md-3">
+                          <input type="radio" class="btn-check" name="theme" id="theme-{{ theme.key }}" value="{{ theme.key }}" {% if loop.first %}checked{% endif %} onchange="previewTheme('{{ theme.key }}')">
+                          <label class="btn btn-outline-primary w-100 d-flex flex-column align-items-center py-3" for="theme-{{ theme.key }}">
+                            <i class="bi bi-palette-fill fs-4 mb-2"></i>
+                            <strong class="d-block">{{ theme.name }}</strong>
+                            <small class="text-muted">{{ theme.description }}</small>
+                          </label>
+                        </div>
+                        {% endfor %}
+                      </div>
+                      <div class="form-text mt-2">
+                        <i class="bi bi-info-circle me-1"></i>You can change your theme anytime from your profile.
+                      </div>
+                    </div>
+
+                    <div class="form-check form-switch mb-4">
+                      <input class="form-check-input" type="checkbox" id="load_demo" name="load_demo" value="1">
+                      <label class="form-check-label" for="load_demo">
+                        Load demo data (20 tickets, users, assets, and POs with realistic links)
+                      </label>
+                      <div class="form-text">If not restoring a backup, this helps you explore the app right away. Your admin account is kept as-is.</div>
+                    </div>
+
+                    <div class="d-grid">
+                      <button type="submit" class="btn btn-primary btn-lg">
+                        <i class="bi bi-check-circle me-2"></i>Complete Setup
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            <!-- Restore Backup Tab -->
+            <div class="tab-pane fade" id="restore-setup" role="tabpanel">
+              <div class="card bg-body-tertiary border-info">
+                <div class="card-body p-4">
+                  <h5 class="card-title mb-3">
+                    <i class="bi bi-database-fill-up text-info me-2"></i>Restore from Backup
+                  </h5>
+                  <p class="text-muted mb-3">
+                    If you have an existing HelpfulDjinn database backup, you can restore it here to continue 
+                    with your previous data, users, and settings.
+                  </p>
+                  
+                  <form method="post" action="{{ url_for('setup.restore_database') }}" enctype="multipart/form-data" onsubmit="return confirm('This will replace the current database with your backup. Continue?');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    
+                    <div class="mb-3">
+                      <label class="form-label fw-semibold">Select Backup File</label>
+                      <input type="file" class="form-control" name="backup_file" accept=".db,application/octet-stream" required>
+                      <div class="form-text">Upload a valid SQLite database backup file (.db)</div>
+                    </div>
+
+                    <div class="alert alert-warning d-flex align-items-center" role="alert">
+                      <i class="bi bi-exclamation-triangle-fill me-2 fs-5"></i>
+                      <div class="small">
+                        <strong>Important:</strong> Restoring will replace any existing data. Make sure you're uploading 
+                        a valid HelpfulDjinn backup file.
+                      </div>
+                    </div>
+
+                    <div class="d-grid">
+                      <button type="submit" class="btn btn-info btn-lg">
+                        <i class="bi bi-upload me-2"></i>Restore Database
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+            </div><!-- End Right Side -->
+            
+          </div><!-- End Row -->
+
+        </div><!-- End Card Body -->
+      </div><!-- End Card -->
+
+      <!-- Footer Info -->
+      <div class="text-center mt-4">
+        <p class="text-muted small">
+          <i class="bi bi-shield-check me-1"></i>
+          HelpfulDjinn • Secure • Efficient • Powerful
+        </p>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+// Theme preview functionality
+function previewTheme(themeKey) {
+  // Remove any existing theme links
+  const existingThemeLinks = document.querySelectorAll('link[data-theme-preview]');
+  existingThemeLinks.forEach(link => link.remove());
+  
+  // If not light theme, add the theme CSS
+  if (themeKey !== 'light') {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = `/static/themes/${themeKey}.css`;
+    link.setAttribute('data-theme-preview', 'true');
+    document.head.appendChild(link);
+  }
+}
+
+// Load initial theme preview on page load
+document.addEventListener('DOMContentLoaded', function() {
+  const checkedTheme = document.querySelector('input[name="theme"]:checked');
+  if (checkedTheme && checkedTheme.value !== 'light') {
+    previewTheme(checkedTheme.value);
+  }
+  const demoChk = document.getElementById('load_demo');
+  demoChk && demoChk.addEventListener('change', function() {
+    if (this.checked) {
+      alert('Demo Mode will load sample data. Turning Demo Mode OFF later will RESET the database and ALL data will be lost.');
+    }
+  });
+});
+
+// Form validation
+document.getElementById('setup-form').addEventListener('submit', function(e) {
+  const password = document.getElementById('password').value;
+  if (password.length < 8) {
+    e.preventDefault();
+    alert('Password must be at least 8 characters long.');
+    return false;
+  }
+  const demo = document.getElementById('load_demo');
+  if (demo && demo.checked) {
+    const ok = confirm('Proceed with Demo Mode? Note: Disabling Demo Mode later will wipe ALL data to reset the database.');
+    if (!ok) { e.preventDefault(); return false; }
+  }
+});
+</script>
+{% endblock %}

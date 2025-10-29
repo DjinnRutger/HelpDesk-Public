@@ -1,0 +1,131 @@
+{% extends 'base.html' %}
+{% block title %}Edit Project · {{ p.name }} · Projects · HelpDesk{% endblock %}
+{% block content %}
+<!-- Edit Project Header -->
+<div class="card shadow-sm mb-3">
+  <div class="card-header bg-body-tertiary">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <div class="d-flex align-items-center">
+        <i class="bi bi-folder-check text-primary me-2 fs-4"></i>
+        <div>
+          <h1 class="h5 mb-0">Edit Project</h1>
+          <small class="text-muted">{{ p.name }}</small>
+        </div>
+      </div>
+      <div class="d-flex gap-2">
+        <a href="{{ url_for('projects.show_project', project_id=p.id) }}" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-arrow-left me-1"></i>Back to Project
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <!-- Edit Form -->
+  <div class="col-lg-8">
+    <div class="card shadow-sm">
+      <div class="card-header bg-body-tertiary">
+        <h6 class="mb-0"><i class="bi bi-pencil me-1"></i>Project Details</h6>
+      </div>
+      <div class="card-body">
+        <form method="post">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Project Name <span class="text-danger">*</span></label>
+            <input class="form-control" name="name" maxlength="200" value="{{ p.name }}" required>
+          </div>
+          
+          <div class="mb-4">
+            <label class="form-label small fw-semibold">Description</label>
+            <textarea class="form-control" name="description" rows="4" placeholder="Describe the project goals and objectives...">{{ p.description or '' }}</textarea>
+          </div>
+
+          <div class="d-flex justify-content-end gap-2 pt-3 border-top">
+            <a href="{{ url_for('projects.show_project', project_id=p.id) }}" class="btn btn-outline-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-check-lg me-1"></i>Save Changes
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div class="col-lg-4">
+    <!-- Project Status -->
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-body-tertiary">
+        <h6 class="mb-0"><i class="bi bi-flag me-1"></i>Project Status</h6>
+      </div>
+      <div class="card-body">
+        {% set status_class = 'primary' %}
+        {% if p.status == 'closed' %}{% set status_class = 'success' %}{% endif %}
+        <div class="text-center mb-3">
+          <span class="badge text-bg-{{ status_class }} fs-6">{{ p.status|default('open')|title }}</span>
+        </div>
+        
+        {% set total = p.tickets.count() %}
+        {% set open_count = p.tickets.filter_by(status='open').count() %}
+        {% set in_progress_count = p.tickets.filter_by(status='in_progress').count() %}
+        {% set closed_count = p.tickets.filter_by(status='closed').count() %}
+        
+        <table class="table table-sm table-borderless mb-0">
+          <tr>
+            <td class="text-muted small">Total Tickets:</td>
+            <td class="fw-semibold">{{ total }}</td>
+          </tr>
+          <tr>
+            <td class="text-muted small">Open:</td>
+            <td><span class="badge text-bg-primary">{{ open_count }}</span></td>
+          </tr>
+          <tr>
+            <td class="text-muted small">In Progress:</td>
+            <td><span class="badge text-bg-warning">{{ in_progress_count }}</span></td>
+          </tr>
+          <tr>
+            <td class="text-muted small">Completed:</td>
+            <td><span class="badge text-bg-success">{{ closed_count }}</span></td>
+          </tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- Project Actions -->
+    <div class="card shadow-sm">
+      <div class="card-header bg-body-tertiary">
+        <h6 class="mb-0"><i class="bi bi-gear me-1"></i>Project Actions</h6>
+      </div>
+      <div class="card-body">
+        <div class="d-grid gap-2">
+          <form method="post" action="{{ url_for('projects.close_project', project_id=p.id) }}" onsubmit="return confirm('Close this project? All its tickets must be closed.');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-outline-warning w-100" type="submit" {% if open_count > 0 %}disabled{% endif %}>
+              <i class="bi bi-check-circle me-1"></i>Close Project
+            </button>
+          </form>
+          
+          <form method="post" action="{{ url_for('projects.delete_project', project_id=p.id) }}" onsubmit="return confirm('Delete this project and all its tickets? This cannot be undone.');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-outline-danger w-100" type="submit">
+              <i class="bi bi-trash me-1"></i>Delete Project
+            </button>
+          </form>
+        </div>
+        
+        <div class="mt-3 pt-3 border-top">
+          <div class="small text-muted">
+            <p class="mb-2"><strong>Note:</strong></p>
+            <ul class="mb-0 ps-3">
+              <li>To close a project, all tickets must be closed first.</li>
+              <li>Deleting a project will permanently remove all associated tickets.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

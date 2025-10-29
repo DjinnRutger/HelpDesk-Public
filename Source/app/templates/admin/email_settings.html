@@ -1,0 +1,93 @@
+{% extends 'base.html' %}
+{% block title %}Email Settings · HelpDesk{% endblock %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+        <div class="d-flex align-items-center gap-2">
+          <i class="bi bi-patch-check text-primary"></i>
+          <div>
+            <h2 class="h6 mb-0">Valid Domains</h2>
+            <small class="text-muted">Incoming email must match these domains</small>
+          </div>
+        </div>
+      </div>
+      <div class="card-body">
+        <form method="post" class="row g-2 align-items-end">
+          {{ form.hidden_tag() }}
+          <div class="col">
+            {{ form.domain.label('Domain', class='form-label small fw-semibold') }}
+            {{ form.domain(class='form-control', placeholder='example.com') }}
+          </div>
+          <div class="col-auto align-self-end">
+            {{ form.submit(class='btn btn-primary') }}
+          </div>
+        </form>
+        {% if domains %}
+        <ul class="list-group list-group-flush mt-3">
+          {% for d in domains %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span class="fw-semibold">{{ d.domain }}</span>
+            <form method="post" action="{{ url_for('admin.email_delete_domain', domain_id=d.id) }}" onsubmit="return confirm('Delete this domain?')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-outline-danger btn-sm">Delete</button>
+            </form>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="empty-state">
+          <i class="bi bi-patch-check empty-icon"></i>
+          <div class="empty-title">No domains configured</div>
+          <div class="empty-body">Allowlist domains so only trusted senders create tickets.</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header bg-body-tertiary d-flex align-items-start gap-2">
+        <i class="bi bi-shield-exclamation text-primary"></i>
+        <div>
+          <h2 class="h6 mb-0">Deny Filter</h2>
+          <small class="text-muted">Ignore replies with these subject phrases</small>
+        </div>
+      </div>
+      <div class="card-body">
+        <p class="small text-muted">Emails with a subject containing any phrase below will be ignored and marked as read. Example: <em>Automatic reply</em>.</p>
+        <form method="post" class="row g-2 align-items-end">
+          {{ deny_form.hidden_tag() }}
+          <div class="col">
+            {{ deny_form.phrase.label('Subject contains', class='form-label small fw-semibold') }}
+            {{ deny_form.phrase(class='form-control', placeholder='Automatic reply') }}
+          </div>
+          <div class="col-auto align-self-end">
+            {{ deny_form.submit(class='btn btn-primary') }}
+          </div>
+        </form>
+        {% if denies %}
+        <ul class="list-group list-group-flush mt-3">
+          {% for d in denies %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span class="fw-semibold">{{ d.phrase }}</span>
+            <form method="post" action="{{ url_for('admin.email_delete_deny', deny_id=d.id) }}" onsubmit="return confirm('Delete this deny phrase?')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-outline-danger btn-sm">Delete</button>
+            </form>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="empty-state">
+          <i class="bi bi-shield-exclamation empty-icon"></i>
+          <div class="empty-title">No deny phrases yet</div>
+          <div class="empty-body">Add autoresponder phrases so they don’t generate new tickets.</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

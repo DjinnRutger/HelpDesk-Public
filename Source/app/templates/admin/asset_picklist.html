@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block title %}{{ title }} · Admin · HelpDesk{% endblock %}
+{% block content %}
+<div class="card shadow-sm">
+  <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+    <h1 class="h5 mb-0">{{ title }}</h1>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('admin.index') }}#assets-card"><i class="bi bi-arrow-left me-1"></i>Back</a>
+  </div>
+  <div class="card-body">
+    <form class="row g-2 align-items-end mb-3" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-sm-8 col-md-6 col-lg-4">
+        <label class="form-label small fw-semibold">Name</label>
+        <input class="form-control" name="name" placeholder="Add {{ title[:-1]|lower }}..." required>
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>Add</button>
+      </div>
+    </form>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead class="table-light"><tr><th>Name</th><th class="text-end">Actions</th></tr></thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td>{{ r.name }}</td>
+            <td class="text-end">
+              <form method="post" action="{{ url_for('admin.asset_picklist_delete', kind=kind, row_id=r.id) }}" onsubmit="return confirm('Delete this item?');" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm btn-outline-danger">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="2" class="text-muted">No items yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,246 @@
+{% extends 'base.html' %}
+{% block title %}Admin · HelpDesk{% endblock %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-6" id="assets-card">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h2 class="h5">Microsoft Graph</h2>
+        <p class="text-muted mb-2">Client ID: <code>{{ settings.client_id }}</code></p>
+        <p class="text-muted mb-2">Tenant ID: <code>{{ settings.tenant_id }}</code></p>
+        <p class="text-muted">Mailbox: <code>{{ settings.user_email }}</code></p>
+        <div class="d-flex gap-2 flex-wrap">
+          <a class="btn btn-outline-primary" href="{{ url_for('admin.msgraph') }}">Edit Settings</a>
+          <a class="btn btn-outline-secondary" href="{{ url_for('admin.email_settings') }}">Email Settings</a>
+          <form method="post" action="{{ url_for('admin.msgraph') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="check_now">
+            <button class="btn btn-outline-secondary" type="submit">Check now</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+          <h2 class="h5 mb-0">Attachments</h2>
+        </div>
+        <div class="small text-muted mt-2">Incoming email attachments location:</div>
+        <div class="mt-1"><code>{{ attachments_abs }}</code></div>
+        <form class="mt-3" method="post" action="{{ url_for('admin.attachments_settings') }}" onsubmit="return confirm('Change attachments folder? Existing files are not moved automatically. Continue?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label class="form-label">Base and relative folder</label>
+          <div class="input-group">
+            <select class="form-select" name="attachments_base">
+              <option value="instance" {{ 'selected' if attachments_base == 'instance' else '' }}>instance/</option>
+              <option value="static" {{ 'selected' if attachments_base == 'static' else '' }}>static/</option>
+            </select>
+            <input class="form-control" type="text" name="attachments_subdir" value="{{ attachments_subdir }}" placeholder="attachments">
+            <button class="btn btn-outline-primary" type="submit">Save</button>
+          </div>
+          <div class="form-text">Use a simple folder or nested path (e.g., <code>attachments</code> or <code>files/attachments</code>). No “..” allowed. Existing files are not moved.</div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+          <h2 class="h5 mb-0">Technicians</h2>
+          <a class="btn btn-primary" href="{{ url_for('admin.tech_new') }}"><i class="bi bi-plus-lg"></i> New</a>
+        </div>
+        <div class="table-responsive mt-3">
+          <table class="table table-sm align-middle">
+            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr></thead>
+            <tbody>
+              {% for t in techs %}
+              <tr>
+                <td>{{ t.name }}</td>
+                <td>{{ t.email }}</td>
+                <td>{{ t.role }}</td>
+                <td class="text-end">
+                  <a href="{{ url_for('admin.tech_edit', user_id=t.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+                  <form method="post" action="{{ url_for('admin.tech_delete', user_id=t.id) }}" class="d-inline" onsubmit="return confirm('Delete this tech?')">
+                    <button class="btn btn-sm btn-outline-danger">Delete</button>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="4" class="text-muted">No technicians yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+          <h2 class="h5 mb-0">Purchasing</h2>
+        </div>
+        <div class="d-flex gap-2 flex-wrap mt-2">
+          <a class="btn btn-outline-primary" href="{{ url_for('admin.vendors') }}">Vendors</a>
+          <a class="btn btn-outline-primary" href="{{ url_for('admin.companies') }}">Companies</a>
+          <a class="btn btn-outline-primary" href="{{ url_for('admin.shipping_locations') }}">Shipping</a>
+        </div>
+        <div class="text-muted small mt-2">Manage purchasing entities: vendors you buy from, companies you order for, and shipping locations.</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+          <h2 class="h5 mb-0">Process Templates</h2>
+          <a class="btn btn-outline-primary" href="{{ url_for('admin.processes') }}">Process Templates</a>
+        </div>
+        <ul class="list-group list-group-flush mt-3">
+          {% for p in templates[:5] %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span>{{ p.name }}</span>
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin.process_edit', template_id=p.id) }}">Edit</a>
+          </li>
+          {% else %}
+          <li class="list-group-item text-muted">No process templates yet.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+          <h2 class="h5 mb-0">Documents</h2>
+          <a class="btn btn-outline-primary" href="{{ url_for('admin.documents_categories') }}">Manage</a>
+        </div>
+        <ul class="list-group list-group-flush mt-3">
+          {% for c in doc_cats[:5] %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span>{{ c.name }}</span>
+            <span class="badge text-bg-secondary">{{ c.documents.count() if c.documents else 0 }}</span>
+          </li>
+          {% else %}
+          <li class="list-group-item text-muted">No categories yet.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+          <h2 class="h5 mb-0">Scheduled Tickets</h2>
+          <a class="btn btn-outline-primary" href="{{ url_for('admin.scheduled_list') }}">Manage</a>
+        </div>
+        <p class="small text-muted mt-2">Create recurring tickets (daily/weekly/monthly), optionally assign a tech and include a task checklist. Tickets are created automatically on schedule.</p>
+      </div>
+    </div>
+  </div>
+    
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h2 class="h5">Backup & Restore</h2>
+        <p class="text-muted">Create a full SQLite backup of all settings, tickets, and related data, or restore from a previous backup.</p>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+          <form method="post" action="{{ url_for('admin.backup_db') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-outline-primary" type="submit">Download backup</button>
+          </form>
+          <form method="post" action="{{ url_for('admin.restore_db') }}" enctype="multipart/form-data" onsubmit="return confirm('This will replace the current database with the uploaded backup. Continue?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="input-group">
+              <input class="form-control" type="file" name="backup_file" accept=".db,application/octet-stream" required>
+              <button class="btn btn-danger" type="submit">Restore</button>
+            </div>
+          </form>
+        </div>
+        <div class="small text-muted mt-2">Note: Only SQLite is supported for backup/restore in this version.</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h2 class="h5 mb-0">Assets</h2>
+          <a class="btn btn-outline-primary" href="{{ url_for('assets.index') }}">View</a>
+        </div>
+        <p class="small text-muted mb-3">Import or export assets using the standardized CSV format.</p>
+        <form class="mb-2" method="post" action="{{ url_for('assets.import_csv') }}" enctype="multipart/form-data" onsubmit="return confirm('Import assets from CSV? Existing assets with matching tag/serial will be updated.');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="input-group">
+            <input class="form-control" type="file" name="file" accept=".csv" required>
+            <button class="btn btn-primary" type="submit">Import CSV</button>
+          </div>
+        </form>
+        <div class="d-flex gap-2 flex-wrap">
+          <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('assets.export_csv') }}">Download CSV Export</a>
+          <form method="post" action="{{ url_for('assets.purge') }}" onsubmit="return confirm('THIS WILL DELETE ALL ASSETS. Type OK in the prompt to continue.') && (function(){var v=prompt('Type OK to confirm purge of ALL assets:'); if(v==='OK'){return true;} alert('Purge cancelled.'); return false;})()">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-outline-danger btn-sm" type="submit">Purge All</button>
+          </form>
+        </div>
+        <hr class="my-3">
+        <div class="d-flex flex-wrap gap-2">
+          <a class="btn btn-outline-primary btn-sm" href="{{ url_for('admin.asset_picklist', kind='categories') }}">Categories ({{ cat_count }})</a>
+          <a class="btn btn-outline-primary btn-sm" href="{{ url_for('admin.asset_picklist', kind='manufacturers') }}">Manufacturers ({{ mfg_count }})</a>
+          <a class="btn btn-outline-primary btn-sm" href="{{ url_for('admin.asset_picklist', kind='conditions') }}">Conditions ({{ cond_count }})</a>
+          <a class="btn btn-outline-primary btn-sm" href="{{ url_for('admin.asset_picklist', kind='locations') }}">Locations ({{ loc_count }})</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h2 class="h5 mb-0">Asset Audit</h2>
+          <a class="btn btn-outline-primary" href="{{ url_for('admin.audits') }}">View</a>
+        </div>
+        <p class="small text-muted mb-3">Recent changes to assets (edits, assignments, status updates).</p>
+        <ul class="list-group list-group-flush">
+          {% for a in recent_audits %}
+          <li class="list-group-item small">
+            <div class="d-flex justify-content-between">
+              <div>
+                <strong>#{{ a.asset_id }}</strong>
+                {% if a.asset and a.asset.asset_tag %}<span class="text-muted">(Tag: {{ a.asset.asset_tag }})</span>{% endif %}
+                {{ a.action }}{% if a.field %} <code>{{ a.field }}</code>{% endif %}
+                {% if a.old_value or a.new_value %}
+                  <span class="text-muted">&raquo; {{ (a.old_value or '—')[:18] }} → {{ (a.new_value or '—')[:18] }}</span>
+                {% endif %}
+              </div>
+              <span class="text-muted">{{ a.created_at|cst_datetime }}</span>
+            </div>
+          </li>
+          {% else %}
+          <li class="list-group-item text-muted small">No audit entries yet.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="row g-3 mt-0">
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-body d-flex justify-content-between align-items-center">
+        <div>
+          <h2 class="h5 mb-1">Version</h2>
+          <div class="text-muted small">Current application version</div>
+          <div class="text-muted small">Latest Version: <span class="fw-semibold">{{ latest_version or '—' }}</span></div>
+        </div>
+        <div class="display-6 mb-0" style="font-size:1.5rem;">{{ version or '—' }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

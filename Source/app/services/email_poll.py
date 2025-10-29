@@ -1,0 +1,501 @@
+import os
+import time
+from datetime import datetime, timezone
+from flask import current_app
+from .. import db
+from ..models import Ticket, Setting, AllowedDomain, TicketAttachment, Contact, DenyFilter, TicketNote, User, EmailCheck, EmailCheckEntry
+from .ms_graph import (
+    get_msal_app,
+    get_access_token,
+    get_unread_messages,
+    get_message_html,
+    list_attachments,
+    download_file_attachment,
+    mark_message_read,
+    send_mail,
+)
+from pathlib import Path
+import re
+import html as _html
+import bleach
+
+
+def _html_to_text_lite(html: str) -> str:
+    """Very light HTML to text: strip tags and unescape entities."""
+    if not html:
+        return ''
+    # Remove script/style content
+    html = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", html, flags=re.I | re.S)
+    # Replace <br> and </p> with newlines
+    html = re.sub(r"<br\s*/?>", "\n", html, flags=re.I)
+    html = re.sub(r"</p>", "\n", html, flags=re.I)
+    # Strip remaining tags
+    text = re.sub(r"<[^>]+>", "", html)
+    # Unescape entities
+    return _html.unescape(text).strip()
+
+
+def _extract_new_message_segment(text: str) -> str:
+    """Keep only the new reply text and stop when a line contains 'From: Help Desk'."""
+    if not text:
+        return ''
+    lines = text.splitlines()
+    out = []
+    for line in lines:
+        # Stop at quoted previous message marker (case-insensitive)
+        if 'from: help desk' in line.lower():
+            break
+        out.append(line)
+    # Trim trailing blank lines
+    while out and not out[-1].strip():
+        out.pop()
+    return "\n".join(out).strip()
+
+
+def poll_ms_graph(app=None):
+    """Poll Microsoft Graph for unread emails.
+
+    Enhancements:
+      - Persistent lock in Setting keys to avoid overlapping runs and detect stale locks.
+      - Detailed start/finish logging with duration and counts.
+      - Per-message timing (every few messages) and early abort if exceeding max runtime.
+      - Stale lock recovery: if previous run marked running but exceeded threshold, proceed and overwrite lock.
+    """
+    # Ensure app context exists
+    if app is not None:
+        ctx = app.app_context()
+        ctx.push()
+    else:
+        # Try to use current_app if available
+        try:
+            ctx = current_app.app_context()
+            ctx.push()
+        except Exception:
+            ctx = None
+
+    # ---------------- New lock + metrics section (clean) ----------------
+    logger = None
+    try:
+        logger = current_app.logger if current_app else None
+    except Exception:
+        logger = None
+
+    start_ts = time.time()
+    now_iso = datetime.utcnow().replace(tzinfo=timezone.utc).isoformat()
+    LOCK_FLAG_KEY = "EMAIL_POLL_RUNNING"
+    LOCK_STARTED_KEY = "EMAIL_POLL_STARTED_AT"
+    LAST_FINISHED_KEY = "EMAIL_POLL_LAST_FINISHED_AT"
+    LAST_DURATION_KEY = "EMAIL_POLL_LAST_DURATION_MS"
+    LAST_RESULT_KEY = "EMAIL_POLL_LAST_RESULT"
+
+    try:
+        interval_setting = int(Setting.get("POLL_INTERVAL_SECONDS", os.getenv("POLL_INTERVAL_SECONDS", "60")))
+    except Exception:
+        interval_setting = 60
+    stale_threshold = max(180, interval_setting * 5)
+    try:
+        max_sec_env = int(os.getenv("POLL_MAX_SECONDS", "0"))
+    except Exception:
+        max_sec_env = 0
+    max_runtime = max_sec_env or (50 if interval_setting <= 90 else int(interval_setting * 0.8))
+
+    # Acquire / check lock
+    skip_due_active = False
+    try:
+        running_flag = Setting.get(LOCK_FLAG_KEY, "0")
+        started_at_val = Setting.get(LOCK_STARTED_KEY, "")
+        stale = False
+        if running_flag == "1" and started_at_val:
+            try:
+                prev_dt = datetime.fromisoformat(started_at_val)
+                age = (datetime.utcnow().replace(tzinfo=timezone.utc) - prev_dt).total_seconds()
+                if age > stale_threshold:
+                    stale = True
+                    if logger:
+                        logger.warning("email_poll: stale lock age=%ss > %s; overriding", int(age), stale_threshold)
+            except Exception:
+                stale = True
+        if running_flag == "1" and not stale:
+            if logger:
+                logger.info("email_poll: previous run still active; skipping")
+            skip_due_active = True
+        else:
+            Setting.set(LOCK_FLAG_KEY, "1")
+            Setting.set(LOCK_STARTED_KEY, now_iso)
+    except Exception:
+        if logger:
+            logger.warning("email_poll: lock acquisition failed; proceeding anyway")
+
+    result_status = "unknown"
+    if skip_due_active:
+        if ctx is not None:
+            ctx.pop()
+        return
+
+    try:
+        msal_app = get_msal_app()
+        user_email = Setting.get("MS_USER_EMAIL", None) or os.getenv("MS_USER_EMAIL")
+        if not msal_app or not user_email:
+            result_status = "missing_config"
+            if logger:
+                logger.info("email_poll: missing config (client or mailbox); aborting")
+            return
+        token = get_access_token(msal_app)
+        if not token:
+            result_status = "no_token"
+            if logger:
+                logger.warning("email_poll: could not acquire token")
+            return
+        messages = get_unread_messages(token, user_email)
+        # Start email check log
+        check = EmailCheck(checked_at=datetime.utcnow(), new_count=len(messages))
+        db.session.add(check)
+        db.session.commit()  # ensure ID for entries
+        # If no messages, add an informational entry for visibility
+        if not messages:
+            try:
+                db.session.add(EmailCheckEntry(check_id=check.id, sender='', subject='No New Messages', action='none', ticket_id=None, note=''))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+        tickets_created = 0
+        notes_created = 0
+        to_mark_read = []
+        allowed = set(d.domain.lower() for d in AllowedDomain.query.all())
+        deny_phrases = [d.phrase.lower() for d in DenyFilter.query.all()]
+
+        if logger:
+            logger.info("email_poll: start messages=%d interval=%ds max_runtime=%ds", len(messages), interval_setting, max_runtime)
+
+        for idx, m in enumerate(messages):
+            if (time.time() - start_ts) > max_runtime:
+                if logger:
+                    logger.error("email_poll: aborting run after %ss (max=%s) processed=%d", int(time.time()-start_ts), max_runtime, idx)
+                result_status = "timeout_abort"
+                break
+            msg_id = m.get("id")
+            subject = m.get("subject") or "(no subject)"
+            from_addr = None
+            from_name = None
+            try:
+                email_obj = m.get("from", {}).get("emailAddress", {})
+                from_addr = email_obj.get("address")
+                from_name = email_obj.get("name")
+            except Exception:
+                pass
+
+            # Prefer Reply-To over From for requester identity
+            reply_addr = None
+            reply_name = None
+            try:
+                rlist = m.get("replyTo") or []
+                if isinstance(rlist, list) and rlist:
+                    r_email = (rlist[0] or {}).get("emailAddress", {})
+                    reply_addr = r_email.get("address")
+                    reply_name = r_email.get("name")
+            except Exception:
+                pass
+
+            requester_addr = reply_addr or from_addr
+            requester_name = reply_name or from_name
+            # Prefer full HTML body
+            body_html = get_message_html(token, user_email, msg_id) or m.get("bodyPreview") or ""
+
+            # Deny filter: if any phrase appears in subject, mark read and skip
+            subj_lc = subject.lower()
+            if deny_phrases and any(p in subj_lc for p in deny_phrases):
+                try:
+                    mark_message_read(token, user_email, msg_id)
+                except Exception:
+                    pass
+                try:
+                    db.session.add(EmailCheckEntry(check_id=check.id, sender=(reply_addr or from_addr or ''), subject=subject or '', action='filtered_deny', ticket_id=None, note='Matched deny filter'))
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+                continue
+
+            # If subject includes Ticket #<id> (with or without space), treat as a reply note instead of a new ticket
+            ticket_match = re.search(r"Ticket\s*#\s*(\d+)", subject or "", flags=re.I)
+            if ticket_match:
+                try:
+                    tid = int(ticket_match.group(1))
+                except Exception:
+                    tid = None
+                if tid:
+                    existing = Ticket.query.get(tid)
+                    if existing:
+                        # Extract only the new portion of the message
+                        text_body = _html_to_text_lite(body_html)
+                        new_text = _extract_new_message_segment(text_body)
+                        note_content = new_text or text_body or (m.get("bodyPreview") or "")
+                        # Convert to safe HTML with links and line breaks
+                        def _set_target_rel(attrs, new=False):
+                            href = attrs.get('href')
+                            if href:
+                                attrs['target'] = '_blank'
+                                rel = attrs.get('rel', '') or ''
+                                rel_vals = set(rel.split()) if rel else set()
+                                rel_vals.update(['noopener', 'noreferrer'])
+                                attrs['rel'] = ' '.join(sorted(rel_vals))
+                            return attrs
+                        # If ticket was closed, move it back to in_progress on customer reply
+                        try:
+                            if (existing.status or '').lower() == 'closed':
+                                existing.status = 'in_progress'
+                                existing.closed_at = None
+                        except Exception:
+                            pass
+                        # Build sanitized HTML for note
+                        note_html = bleach.linkify(_html.escape(note_content).replace('\n','<br>'), callbacks=[_set_target_rel])
+                        # Notes created from replies are system-received; leave is_private as None/False
+                        note = TicketNote(ticket_id=existing.id, author_id=None, content=note_html, is_private=False)
+                        db.session.add(note)
+                        # Save attachments for replies as well (PDFs and images)
+                        try:
+                            atts = list_attachments(token, user_email, msg_id)
+                            subdir = (Setting.get('ATTACHMENTS_DIR_REL', 'attachments') or 'attachments').strip()
+                            subdir = subdir.replace('\\','/').lstrip('/') or 'attachments'
+                            base = (Setting.get('ATTACHMENTS_BASE', 'instance') or 'instance').strip().lower()
+                            root = current_app.static_folder if base == 'static' else current_app.instance_path
+                            save_dir = Path(root) / subdir / str(existing.id)
+                            save_dir.mkdir(parents=True, exist_ok=True)
+                            for a in atts:
+                                if a.get('@odata.type') != '#microsoft.graph.fileAttachment':
+                                    continue
+                                name = a.get('name') or 'attachment'
+                                ctype = a.get('contentType') or ''
+                                if not (ctype.startswith('image/') or ctype == 'application/pdf' or name.lower().endswith(('.png','.jpg','.jpeg','.gif','.pdf'))):
+                                    continue
+                                content = a.get('contentBytes')
+                                if content is None:
+                                    full = download_file_attachment(token, user_email, a.get('id'))
+                                    if full:
+                                        content = full.get('contentBytes')
+                                if not content:
+                                    continue
+                                import base64
+                                data = base64.b64decode(content)
+                                target = save_dir / name
+                                i = 1
+                                while target.exists():
+                                    stem = Path(name).stem
+                                    suffix = Path(name).suffix
+                                    target = save_dir / f"{stem}_{i}{suffix}"
+                                    i += 1
+                                target.write_bytes(data)
+                                rel_path = f"{subdir}/{existing.id}/{target.name}"
+                                db.session.add(TicketAttachment(ticket_id=existing.id, filename=target.name, content_type=ctype, static_path=rel_path, size_bytes=len(data)))
+                        except Exception:
+                            pass
+                        notes_created += 1
+                        try:
+                            db.session.add(EmailCheckEntry(check_id=check.id, sender=(reply_addr or from_addr or ''), subject=subject or '', action='append_ticket', ticket_id=existing.id, note=f'Reply to Ticket #{existing.id}'))
+                            db.session.commit()
+                        except Exception:
+                            db.session.rollback()
+                        to_mark_read.append(msg_id)
+                        # Notify assigned tech, if any
+                        try:
+                            if existing.assignee_id:
+                                tech = User.query.get(existing.assignee_id)
+                                if tech and tech.email:
+                                    subj = f"Ticket#{existing.id} - New reply"
+                                    html_body = f"<p>{_html.escape(note_content).replace('\n','<br>')}</p>"
+                                    send_mail(tech.email, subj, html_body, to_name=getattr(tech, 'name', None))
+                        except Exception:
+                            pass
+                        # Continue to next message (do not create a new ticket)
+                        continue
+
+            # Domain filter: use actual From address for allowlist checks (only for new tickets)
+            if allowed and from_addr:
+                domain = (from_addr.split('@')[-1] or '').lower()
+                if domain not in allowed:
+                    # Not allowed: mark as read and skip importing
+                    try:
+                        mark_message_read(token, user_email, msg_id)
+                    except Exception:
+                        pass
+                    try:
+                        db.session.add(EmailCheckEntry(check_id=check.id, sender=(reply_addr or from_addr or ''), subject=subject or '', action='filtered_domain', ticket_id=None, note=f'Domain not allowed: {domain}'))
+                        db.session.commit()
+                    except Exception:
+                        db.session.rollback()
+                    continue
+
+            # Deduplicate by external_id (skip importing duplicates) for new tickets
+            if Ticket.query.filter_by(external_id=msg_id).first():
+                try:
+                    db.session.add(EmailCheckEntry(check_id=check.id, sender=(reply_addr or from_addr or ''), subject=subject or '', action='duplicate', ticket_id=None, note='Duplicate external_id'))
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+                continue
+
+            # Upsert contact by email
+            contact = None
+            if requester_addr:
+                contact = Contact.query.filter_by(email=(requester_addr or '').lower()).first()
+                if not contact:
+                    contact = Contact(email=requester_addr.lower(), name=requester_name)
+                    db.session.add(contact)
+                else:
+                    # Update name if we have one and it changed
+                    if requester_name and contact.name != requester_name:
+                        contact.name = requester_name
+
+            t = Ticket(
+                external_id=msg_id,
+                subject=subject,
+                requester=requester_addr,  # legacy
+                requester_name=requester_name,
+                requester_email=requester_addr,
+                body=body_html,
+                status="open",
+                priority="medium",
+            )
+            db.session.add(t)
+            tickets_created += 1
+            db.session.flush()  # ensure t.id
+            try:
+                db.session.add(EmailCheckEntry(check_id=check.id, sender=(reply_addr or from_addr or ''), subject=subject or '', action='new_ticket', ticket_id=t.id, note='Created new ticket'))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+            to_mark_read.append(msg_id)
+            # Save attachments (PDFs and images)
+            try:
+                atts = list_attachments(token, user_email, msg_id)
+                subdir = (Setting.get('ATTACHMENTS_DIR_REL', 'attachments') or 'attachments').strip()
+                subdir = subdir.replace('\\','/').lstrip('/') or 'attachments'
+                base = (Setting.get('ATTACHMENTS_BASE', 'instance') or 'instance').strip().lower()
+                root = current_app.static_folder if base == 'static' else current_app.instance_path
+                save_dir = Path(root) / subdir / str(t.id)
+                save_dir.mkdir(parents=True, exist_ok=True)
+                for a in atts:
+                    # Only file attachments (not item/refs)
+                    if a.get('@odata.type') != '#microsoft.graph.fileAttachment':
+                        continue
+                    name = a.get('name') or 'attachment'
+                    ctype = a.get('contentType') or ''
+                    # Filter to PDFs and images
+                    if not (ctype.startswith('image/') or ctype == 'application/pdf' or name.lower().endswith(('.png','.jpg','.jpeg','.gif','.pdf'))):
+                        continue
+                    # Download attachment content (base64 in contentBytes via attachments/{id} or inline in list)
+                    content = a.get('contentBytes')
+                    if content is None:
+                        full = download_file_attachment(token, user_email, a.get('id'))
+                        if full:
+                            content = full.get('contentBytes')
+                    if not content:
+                        continue
+                    import base64
+                    data = base64.b64decode(content)
+                    target = save_dir / name
+                    # Avoid overwriting with same name
+                    i = 1
+                    while target.exists():
+                        stem = Path(name).stem
+                        suffix = Path(name).suffix
+                        target = save_dir / f"{stem}_{i}{suffix}"
+                        i += 1
+                    target.write_bytes(data)
+                    # Build a URL path with forward slashes for static serving
+                    rel_path = f"{subdir}/{t.id}/{target.name}"
+                    db.session.add(TicketAttachment(ticket_id=t.id, filename=target.name, content_type=ctype, static_path=rel_path, size_bytes=len(data)))
+            except Exception:
+                # Don’t fail the whole cycle on attachment issues
+                pass
+
+        if tickets_created or notes_created:
+            db.session.commit()
+            # After successful save, mark those messages as read
+            for mid in to_mark_read:
+                try:
+                    mark_message_read(token, user_email, mid)
+                except Exception:
+                    pass
+        if result_status == "unknown":
+            result_status = "ok"
+        # Cleanup old email logs (>7 days)
+        try:
+            from datetime import timedelta as _td
+            cutoff = datetime.utcnow() - _td(days=7)
+            old = EmailCheck.query.filter(EmailCheck.checked_at < cutoff).all()
+            if old:
+                for c in old:
+                    try:
+                        db.session.delete(c)
+                    except Exception:
+                        pass
+                db.session.commit()
+        except Exception:
+            db.session.rollback()
+        if logger:
+            logger.info("email_poll: finished tickets_created=%d notes_created=%d duration_ms=%d status=%s", tickets_created, notes_created, int((time.time()-start_ts)*1000), result_status)
+    except Exception as e:
+        # Log to Flask logger if available
+        try:
+            current_app.logger.exception("Error polling MS Graph: %s", e)
+        except Exception:
+            pass
+        result_status = "exception"
+    finally:
+        # Release lock & persist metrics
+        try:
+            Setting.set(LOCK_FLAG_KEY, "0")
+            Setting.set(LAST_FINISHED_KEY, datetime.utcnow().replace(tzinfo=timezone.utc).isoformat())
+            Setting.set(LAST_DURATION_KEY, str(int((time.time()-start_ts)*1000)))
+            Setting.set(LAST_RESULT_KEY, result_status)
+        except Exception:
+            if logger:
+                logger.warning("email_poll: failed to record metrics / release lock")
+        if ctx is not None:
+            ctx.pop()
+
+
+def email_poll_watchdog(app=None):
+    """Watchdog to clear stale email poll locks and optionally trigger immediate re-run.
+
+    Runs periodically (e.g., every 5 minutes) to detect a stuck poll run that never cleared its lock.
+    """
+    if app is not None:
+        ctx = app.app_context()
+        ctx.push()
+    else:
+        try:
+            ctx = current_app.app_context()
+            ctx.push()
+        except Exception:
+            ctx = None
+    logger = None
+    try:
+        logger = current_app.logger if current_app else None
+    except Exception:
+        logger = None
+    try:
+        running_flag = Setting.get("EMAIL_POLL_RUNNING", "0")
+        started_at_val = Setting.get("EMAIL_POLL_STARTED_AT", "")
+        if running_flag == "1" and started_at_val:
+            try:
+                prev_dt = datetime.fromisoformat(started_at_val)
+                age = (datetime.utcnow().replace(tzinfo=timezone.utc) - prev_dt).total_seconds()
+                # Use 15 minutes as emergency stale threshold (independent of interval)
+                if age > 900:
+                    Setting.set("EMAIL_POLL_RUNNING", "0")
+                    Setting.set("EMAIL_POLL_LAST_RESULT", f"watchdog_cleared_stale_after_{int(age)}s")
+                    if logger:
+                        logger.error("email_poll_watchdog: cleared stale poll lock age=%ss", int(age))
+            except Exception:
+                # On parse failure just clear
+                Setting.set("EMAIL_POLL_RUNNING", "0")
+                Setting.set("EMAIL_POLL_LAST_RESULT", "watchdog_cleared_parse_error")
+                if logger:
+                    logger.error("email_poll_watchdog: cleared lock due to parse error")
+    except Exception:
+        if logger:
+            logger.warning("email_poll_watchdog: encountered exception")
+    finally:
+        if ctx is not None:
+            ctx.pop()

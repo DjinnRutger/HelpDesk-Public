@@ -1,0 +1,370 @@
+{% extends 'base.html' %}
+{% block title %}{{ contact.name or contact.email }} · Users · HelpDesk{% endblock %}
+{% block content %}
+<!-- User Header -->
+<div class="card shadow-sm mb-3">
+  <div class="card-header bg-body-tertiary">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <div class="d-flex align-items-center">
+        <i class="bi bi-person-circle text-primary me-2 fs-4"></i>
+        <div>
+          <h1 class="h5 mb-0">{{ contact.name or 'Unnamed User' }}</h1>
+          <small class="text-muted">{{ contact.email }}</small>
+        </div>
+      </div>
+      <div class="d-flex gap-2">
+        <a href="{{ url_for('users.list_users') }}" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-arrow-left me-1"></i>Back to Users
+        </a>
+        <a href="{{ url_for('users.show_user', contact_id=contact.id, edit=('0' if edit else '1')) }}" class="btn btn-outline-primary btn-sm">
+          <i class="bi bi-{{ 'eye' if edit else 'pencil' }} me-1"></i>{{ 'View' if edit else 'Edit' }}
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="card shadow-sm">
+      <div class="card-body">
+
+        {% if not edit %}
+          <!-- Basic Information -->
+          <div class="mb-4">
+            <h6 class="text-muted mb-3"><i class="bi bi-info-circle me-1"></i>Contact Information</h6>
+            <table class="table table-sm table-borderless">
+              <tr>
+                <td class="text-muted small" width="100">Name:</td>
+                <td>{{ contact.name or '—' }}</td>
+              </tr>
+              <tr>
+                <td class="text-muted small">Email:</td>
+                <td>
+                  <div class="d-flex align-items-center">
+                    <i class="bi bi-envelope text-muted me-2"></i>
+                    <a href="mailto:{{ contact.email }}" class="text-decoration-none">{{ contact.email }}</a>
+                  </div>
+                </td>
+              </tr>
+            </table>
+          </div>
+
+          <!-- External Links -->
+          <div class="mb-4">
+            <h6 class="text-muted mb-3"><i class="bi bi-link-45deg me-1"></i>External Links</h6>
+            <div class="row g-2">
+              <div class="col-md-6">
+                <div class="border rounded p-2 bg-body-tertiary">
+                  <div class="small fw-semibold mb-1">Inventory System</div>
+                  {% if contact.inventory_url %}
+                    <a href="{{ contact.inventory_url }}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm">
+                      <i class="bi bi-box-seam me-1"></i>Open Inventory
+                    </a>
+                  {% else %}
+                    <span class="text-muted small">Not configured</span>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="col-md-6">
+                <div class="border rounded p-2 bg-body-tertiary">
+                  <div class="small fw-semibold mb-1">Ninja RMM</div>
+                  {% if contact.ninja_url %}
+                    <a href="{{ contact.ninja_url }}" target="_blank" rel="noopener" class="btn btn-outline-success btn-sm">
+                      <i class="bi bi-shield-check me-1"></i>Open Ninja
+                    </a>
+                  {% else %}
+                    <span class="text-muted small">Not configured</span>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Notes -->
+          <div class="mb-3">
+            <h6 class="text-muted mb-2"><i class="bi bi-chat-text me-1"></i>Notes</h6>
+            <div class="border rounded p-3 bg-body-tertiary">
+              {% if contact.notes %}
+                <div class="preserve-ws">{{ contact.notes }}</div>
+              {% else %}
+                <span class="text-muted">No notes recorded</span>
+              {% endif %}
+            </div>
+          </div>
+        {% else %}
+          <h6 class="text-muted mb-3"><i class="bi bi-pencil me-1"></i>Edit User Information</h6>
+          <form method="post" id="edit-user-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            
+            <div class="row g-3 mb-4">
+              <div class="col-md-6">
+                <label class="form-label small fw-semibold">Name</label>
+                <input type="text" name="name" class="form-control" value="{{ contact.name or '' }}" placeholder="Optional">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label small fw-semibold">Email <span class="text-danger">*</span></label>
+                <input type="email" name="email" class="form-control" value="{{ contact.email }}" required>
+              </div>
+            </div>
+
+            <div class="row g-3 mb-4">
+              <div class="col-md-6">
+                <label class="form-label small fw-semibold">Inventory System URL</label>
+                <input type="url" name="inventory_url" class="form-control" value="{{ contact.inventory_url or '' }}" placeholder="https://...">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label small fw-semibold">Ninja RMM URL</label>
+                <input type="url" name="ninja_url" class="form-control" value="{{ contact.ninja_url or '' }}" placeholder="https://...">
+              </div>
+            </div>
+
+            <div class="mb-4">
+              <label class="form-label small fw-semibold">Notes</label>
+              <textarea name="notes" class="form-control" rows="4" placeholder="Additional notes about this user...">{{ contact.notes or '' }}</textarea>
+            </div>
+
+            <div class="d-flex justify-content-between align-items-center pt-3 border-top">
+              <button type="button" id="delete-user-btn" class="btn btn-outline-danger" data-has-assets="{{ '1' if assets|length > 0 else '0' }}">
+                <i class="bi bi-trash me-1"></i>Delete User
+              </button>
+              <div class="d-flex gap-2">
+                <a href="{{ url_for('users.show_user', contact_id=contact.id) }}" class="btn btn-outline-secondary">Cancel</a>
+                <button type="submit" class="btn btn-primary">
+                  <i class="bi bi-check-lg me-1"></i>Save Changes
+                </button>
+              </div>
+            </div>
+          </form>
+          <script>
+            (function(){
+              const delBtn = document.getElementById('delete-user-btn');
+              if(delBtn){
+                delBtn.addEventListener('click', function(){
+                  const hasAssets = delBtn.getAttribute('data-has-assets') === '1';
+                  if(hasAssets){
+                    alert('This user has assets checked out. Check them in first before deletion.');
+                    return;
+                  }
+                  if(!confirm('Delete this user? This cannot be undone.')) return;
+                  // Create and submit a form dynamically (separate from edit form)
+                  const f = document.createElement('form');
+                  f.method = 'POST';
+                  f.action = "{{ url_for('users.delete_user', contact_id=contact.id) }}";
+                  const csrf = document.createElement('input');
+                  csrf.type = 'hidden';
+                  csrf.name = 'csrf_token';
+                  csrf.value = '{{ csrf_token() }}';
+                  f.appendChild(csrf);
+                  document.body.appendChild(f);
+                  f.submit();
+                });
+              }
+            })();
+          </script>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div class="col-lg-4">
+    <!-- Assets Card -->
+    <div class="card shadow-sm" id="assets-card">
+      <div class="card-header bg-body-tertiary">
+        <div class="d-flex align-items-center justify-content-between">
+          <h6 class="mb-0"><i class="bi bi-laptop me-1"></i>Assigned Assets</h6>
+          {% if assets %}
+          <div class="dropdown">
+            <button type="button" id="enter-checkin-mode" class="btn btn-outline-primary btn-sm">
+              <i class="bi bi-box-arrow-in-left me-1"></i>Check In
+            </button>
+            <div class="d-none" id="checkin-actions">
+              <div class="btn-group btn-group-sm">
+                <button type="button" id="exit-checkin-mode" class="btn btn-outline-secondary">
+                  <i class="bi bi-x-lg me-1"></i>Close
+                </button>
+                <form method="post" action="{{ url_for('assets.bulk_checkin_contact', contact_id=contact.id) }}" class="d-inline" id="bulk-checkin-form">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="next" value="{{ url_for('users.show_user', contact_id=contact.id) }}">
+                  <button class="btn btn-danger btn-sm" type="submit">
+                    <i class="bi bi-box-arrow-in-left me-1"></i>Check In All
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      <div class="card-body p-0">
+        {% if assets %}
+          <div class="list-group list-group-flush" id="asset-list">
+            {% for a in assets %}
+            <div class="list-group-item d-flex justify-content-between align-items-start asset-row" data-asset-id="{{ a.id }}">
+              <div class="flex-grow-1 me-2">
+                <div class="d-flex align-items-center mb-1">
+                  {% if a.category %}
+                    {% if 'laptop' in a.category.lower() %}
+                      <i class="bi bi-laptop text-primary me-2"></i>
+                    {% elif 'desktop' in a.category.lower() %}
+                      <i class="bi bi-pc-display text-success me-2"></i>
+                    {% elif 'monitor' in a.category.lower() %}
+                      <i class="bi bi-display text-info me-2"></i>
+                    {% elif 'phone' in a.category.lower() %}
+                      <i class="bi bi-phone text-warning me-2"></i>
+                    {% elif 'tablet' in a.category.lower() %}
+                      <i class="bi bi-tablet text-secondary me-2"></i>
+                    {% else %}
+                      <i class="bi bi-device-hdd text-muted me-2"></i>
+                    {% endif %}
+                  {% else %}
+                    <i class="bi bi-device-hdd text-muted me-2"></i>
+                  {% endif %}
+                  <div class="flex-grow-1">
+                    <div class="d-flex justify-content-between align-items-start">
+                      <div>
+                        <a href="{{ url_for('assets.detail', asset_id=a.id) }}" class="asset-link fw-semibold text-decoration-none">{{ a.name }}</a>
+                        {% if a.asset_tag %}
+                          <span class="text-muted small">(#{{ a.asset_tag }})</span>
+                        {% endif %}
+                      </div>
+                      <div class="d-flex align-items-center ms-2">
+                        {% set status_class = 'secondary' %}
+                        {% if a.status == 'deployed' %}{% set status_class = 'success' %}{% endif %}
+                        {% if a.status == 'maintenance' %}{% set status_class = 'warning' %}{% endif %}
+                        {% if a.status in ['retired', 'archived'] %}{% set status_class = 'danger' %}{% endif %}
+                        {% if a.status == 'available' %}{% set status_class = 'primary' %}{% endif %}
+                        <span class="badge text-bg-{{ status_class }} text-capitalize">{{ a.status }}</span>
+                      </div>
+                    </div>
+                    {% if a.serial_number or a.location %}
+                      <div class="small text-muted mt-1">
+                        {% if a.serial_number %}<i class="bi bi-hash me-1"></i>{{ a.serial_number }}{% endif %}
+                        {% if a.serial_number and a.location %} • {% endif %}
+                        {% if a.location %}<i class="bi bi-geo-alt me-1"></i>{{ a.location }}{% endif %}
+                      </div>
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+              <form method="post" action="{{ url_for('assets.checkin', asset_id=a.id) }}" class="d-none asset-checkin-form align-self-center" data-inline-checkin>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="next" value="{{ url_for('users.show_user', contact_id=contact.id) }}">
+                <button class="btn btn-outline-success btn-sm" type="submit">
+                  <i class="bi bi-box-arrow-in-left me-1"></i>Check In
+                </button>
+              </form>
+            </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="text-center py-3">
+            <i class="bi bi-laptop display-6 text-muted opacity-25"></i>
+            <p class="small text-muted mb-0 mt-2">No assets assigned</p>
+          </div>
+        {% endif %}
+        </div>
+      </div>
+    </div>
+    <script>
+      (function(){
+        const enterBtn = document.getElementById('enter-checkin-mode');
+        if(!enterBtn) return;
+        const actions = document.getElementById('checkin-actions');
+        const exitBtn = document.getElementById('exit-checkin-mode');
+        const forms = document.querySelectorAll('.asset-checkin-form');
+        const assetLinks = document.querySelectorAll('#asset-list .asset-link');
+        function setMode(on){
+          if(on){
+            enterBtn.classList.add('d-none');
+            actions.classList.remove('d-none');
+            forms.forEach(f=>f.classList.remove('d-none'));
+            assetLinks.forEach(l=>{ l.dataset.href = l.getAttribute('href'); l.removeAttribute('href'); l.classList.add('text-muted'); });
+          } else {
+            enterBtn.classList.remove('d-none');
+            actions.classList.add('d-none');
+            forms.forEach(f=>f.classList.add('d-none'));
+            assetLinks.forEach(l=>{ if(l.dataset.href){ l.setAttribute('href', l.dataset.href); } });
+          }
+        }
+        enterBtn.addEventListener('click', ()=> setMode(true));
+        exitBtn.addEventListener('click', ()=> setMode(false));
+        // AJAX inline check-in
+        forms.forEach(f => {
+          f.addEventListener('submit', function(ev){
+            ev.preventDefault();
+            const btn = f.querySelector('button');
+            if(btn) { btn.disabled = true; btn.textContent = '...'; }
+            fetch(f.action, {
+              method: 'POST',
+              headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+              body: new FormData(f)
+            }).then(r => r.json()).then(data => {
+              if(data && data.success){
+                // Remove the asset row or visually mark it
+                const row = f.closest('.asset-row');
+                if(row){
+                  row.classList.add('opacity-50');
+                  row.querySelectorAll('button, a').forEach(el=> el.disabled = true);
+                  const badge = row.querySelector('.badge');
+                  if(badge){ badge.textContent = 'available'; }
+                  f.remove();
+                }
+              } else {
+                if(btn){ btn.disabled = false; btn.textContent = 'Check In'; }
+                alert('Failed to check in asset');
+              }
+            }).catch(() => {
+              if(btn){ btn.disabled = false; btn.textContent = 'Check In'; }
+              alert('Error checking in asset');
+            });
+          });
+        });
+      })();
+    </script>
+
+    <!-- Tickets Card -->
+    <div class="card shadow-sm mt-3">
+      <div class="card-header bg-body-tertiary">
+        <div class="d-flex align-items-center justify-content-between">
+          <h6 class="mb-0"><i class="bi bi-ticket-perforated me-1"></i>Recent Tickets</h6>
+          <a href="{{ url_for('tickets.new_ticket', contact_id=contact.id) }}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-plus-lg me-1"></i>New Ticket
+          </a>
+        </div>
+      </div>
+      <div class="card-body p-0">
+        {% if tickets %}
+          <div class="list-group list-group-flush">
+            {% for t in tickets %}
+            <a href="{{ url_for('tickets.show_ticket', ticket_id=t.id) }}" class="list-group-item list-group-item-action">
+              <div class="d-flex justify-content-between align-items-start">
+                <div class="flex-grow-1 me-2">
+                  <div class="fw-semibold">#{{ t.id }} · {{ t.subject }}</div>
+                  <div class="small text-muted">
+                    <i class="bi bi-calendar me-1"></i>{{ t.created_at|cst_datetime }}
+                  </div>
+                </div>
+                <div class="d-flex align-items-center">
+                  {% set status_class = 'secondary' %}
+                  {% if t.status == 'open' %}{% set status_class = 'success' %}{% endif %}
+                  {% if t.status == 'pending' %}{% set status_class = 'warning' %}{% endif %}
+                  {% if t.status == 'closed' %}{% set status_class = 'danger' %}{% endif %}
+                  <span class="badge text-bg-{{ status_class }} text-capitalize">{{ t.status }}</span>
+                </div>
+              </div>
+            </a>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="text-center py-3">
+            <i class="bi bi-ticket-perforated display-6 text-muted opacity-25"></i>
+            <p class="small text-muted mb-0 mt-2">No tickets found</p>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

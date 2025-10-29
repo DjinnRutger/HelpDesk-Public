@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+{% block title %}New Ticket · HelpDesk{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8 col-xl-6">
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        <h1 class="h5 mb-3">New Ticket</h1>
+  <form method="post" id="newTicketForm">
+          {{ form.hidden_tag() }}
+          <div class="row g-3">
+            <div class="col-12">{{ form.subject.label(class='form-label') }} {{ form.subject(class='form-control') }}</div>
+            <div class="col-md-8">
+              <label class="form-label">Requester</label>
+              <input class="form-control" name="requester" list="requesters" placeholder="Type name or email" value="{{ form.requester.data or '' }}">
+              <datalist id="requesters">
+                {% for c in contacts %}
+                  <option value="{{ c.email }}">{{ c.name or c.email }}</option>
+                {% endfor %}
+              </datalist>
+            </div>
+            <div class="col-md-4 d-flex align-items-end">
+              <a href="{{ url_for('users.new_user') }}" class="btn btn-outline-primary w-100">New User</a>
+            </div>
+            <div class="col-12">
+              {{ form.asset_id.label(class='form-label') }}
+              {{ form.asset_id(class='form-select', id='assetSelect') }}
+              <div class="form-text">Assets assigned to requester (auto-updates).</div>
+            </div>
+            <div class="col-12">{{ form.body.label(class='form-label') }} {{ form.body(class='form-control', rows=6) }}</div>
+            <div class="col-md-4">{{ form.status.label(class='form-label') }} {{ form.status(class='form-select') }}</div>
+            <div class="col-md-4">{{ form.priority.label(class='form-label') }} {{ form.priority(class='form-select') }}</div>
+            <div class="col-md-4">{{ form.source.label(class='form-label') }} {{ form.source(class='form-select') }}</div>
+          </div>
+          <div class="d-grid mt-3">{{ form.submit(class='btn btn-primary') }}</div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const reqInput = document.querySelector('input[name="requester"]');
+  const assetSelect = document.getElementById('assetSelect');
+  const originalOptions = Array.from(assetSelect.options).map(o => ({value:o.value, text:o.text}));
+
+  async function refreshAssets(){
+    const email = (reqInput.value||'').trim();
+    if(!email){
+      // restore original (likely just the None option)
+      assetSelect.innerHTML = '';
+      originalOptions.forEach(o=>{
+        const opt = document.createElement('option');
+        opt.value = o.value; opt.textContent = o.text; assetSelect.appendChild(opt);
+      });
+      return;
+    }
+    try {
+      const resp = await fetch(`{{ url_for('tickets.assets_for_requester') }}?email=` + encodeURIComponent(email));
+      if(!resp.ok) return;
+      const data = await resp.json();
+      const prev = assetSelect.value;
+      assetSelect.innerHTML='';
+      // Always include none option
+      const noneOpt = document.createElement('option');
+      noneOpt.value = '0';
+      noneOpt.textContent = '\u2014 None \u2014';
+      assetSelect.appendChild(noneOpt);
+      (data.assets||[]).forEach(a=>{
+        const opt = document.createElement('option');
+        opt.value = a.id; opt.textContent = a.label; assetSelect.appendChild(opt);
+      });
+      // Try to preserve selection if still present
+      if(Array.from(assetSelect.options).some(o=>o.value === prev)){
+        assetSelect.value = prev;
+      }
+    } catch(e){
+      console.warn('Asset refresh failed', e);
+    }
+  }
+
+  if(reqInput){
+    reqInput.addEventListener('change', refreshAssets);
+    reqInput.addEventListener('blur', refreshAssets);
+  }
+});
+</script>
+{% endblock %}

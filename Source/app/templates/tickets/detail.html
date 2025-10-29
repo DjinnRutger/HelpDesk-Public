@@ -1,0 +1,1481 @@
+{% extends 'base.html' %}
+{% block title %}Ticket #{{ t.id }} · HelpDesk{% endblock %}
+
+{% block content %}
+<!-- Ticket Header -->
+<div class="card shadow-sm mb-3">
+  <div class="card-header bg-body-tertiary">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <div class="d-flex align-items-center">
+        <i class="bi bi-ticket-perforated text-primary me-2 fs-4"></i>
+        <div>
+          <h1 class="h5 mb-0">#{{ t.id }} · {{ t.subject }}</h1>
+          <small class="text-muted">
+            From {{ t.requester_name or t.requester_email or t.requester or 'Unknown' }} · 
+            {% set priority_class = 'secondary' %}
+            {% if t.priority == 'high' %}{% set priority_class = 'danger' %}{% endif %}
+            {% if t.priority == 'medium' %}{% set priority_class = 'warning' %}{% endif %}
+            {% if t.priority == 'low' %}{% set priority_class = 'success' %}{% endif %}
+            <span class="badge text-bg-{{ priority_class }} text-capitalize">{{ t.priority }}</span> ·
+            {% set status_class = 'secondary' %}
+            {% if t.status == 'open' %}{% set status_class = 'success' %}{% endif %}
+            {% if t.status == 'in_progress' %}{% set status_class = 'warning' %}{% endif %}
+            {% if t.status == 'closed' %}{% set status_class = 'danger' %}{% endif %}
+            <span class="badge text-bg-{{ status_class }} text-capitalize">{{ t.status|replace('_', ' ') }}</span>
+            {% if t.project_id %}<span class="badge text-bg-dark ms-1">Project</span>{% endif %}
+          </small>
+        </div>
+      </div>
+      <div class="d-flex gap-2">
+        <a href="{{ url_for('projects.show_project', project_id=t.project_id) if t.project_id else url_for('tickets.list_tickets') }}" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-arrow-left me-1"></i>Back to Tickets
+        </a>
+        <button type="button" class="btn btn-outline-warning btn-sm" data-bs-toggle="modal" data-bs-target="#snoozeModal">
+          <i class="bi bi-moon"></i>
+        </button>
+        {% if t.is_snoozed %}
+        <form method="post" action="{{ url_for('tickets.unsnooze_ticket', ticket_id=t.id) }}" class="d-inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-outline-secondary btn-sm" title="Unsnooze"><i class="bi bi-bell"></i></button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-8">
+    <!-- Ticket Description -->
+    <div class="card shadow-sm">
+      <div class="card-header bg-body-tertiary">
+        <h6 class="mb-0"><i class="bi bi-chat-text me-1"></i>Description</h6>
+      </div>
+      <div class="card-body">
+        {# If the stored body looks like plain text (no angle brackets), preserve whitespace safely #}
+        {% set _body = t.body or 'No description provided' %}
+        {% if _body != 'No description provided' and ('<' not in _body and '>' not in _body) %}
+          <div class="preserve-ws">{{ _body }}</div>
+        {% else %}
+          <div>{{ _body|safe }}</div>
+        {% endif %}
+        
+        {% if t.attachments %}
+        <div class="mt-3 pt-3 border-top">
+          <div class="fw-semibold small mb-2"><i class="bi bi-paperclip me-1"></i>Attachments</div>
+          <div class="d-flex flex-wrap gap-2">
+            {% for a in t.attachments %}
+            <a href="{{ url_for('tickets.download_attachment', ticket_id=t.id, filename=a.filename) }}" target="_blank" rel="noopener" class="btn btn-outline-secondary btn-sm">
+              <i class="bi bi-download me-1"></i>{{ a.filename }}
+            </a>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Order Items -->
+    <div class="card shadow-sm mt-3" id="orderItemsWidget">
+      <div class="card-header bg-body-tertiary">
+        <div class="d-flex align-items-center justify-content-between">
+          <h6 class="mb-0"><i class="bi bi-cart me-1"></i>Order Items</h6>
+          <div class="d-flex gap-2 align-items-center">
+            <button id="toggleOrderItemsEdit" type="button" class="btn btn-sm btn-outline-secondary">Edit</button>
+            <a href="{{ url_for('orders.list_items') }}" class="small text-decoration-none">All Orders</a>
+          </div>
+        </div>
+      </div>
+      <div class="card-body">
+        <div id="ticketOrderItemsContainer" data-editing="0">
+          {% with items=order_items %}{% include 'orders/_ticket_items_list.html' %}{% endwith %}
+        </div>
+      </div>
+    </div>
+
+  {% if t.processes %}
+    <!-- Processes -->
+    <div class="card shadow-sm mt-3">
+      <div class="card-header bg-body-tertiary">
+        <h6 class="mb-0"><i class="bi bi-list-check me-1"></i>Processes</h6>
+      </div>
+      <div class="card-body">
+        {% for tp in t.processes %}
+        <div class="mb-3" id="processBlock{{ tp.id }}" data-editing="0">
+          <div class="d-flex align-items-center">
+            <div class="fw-semibold">{{ tp.name }}</div>
+            <div class="ms-auto d-flex gap-2">
+              <button type="button" class="btn btn-sm btn-outline-secondary process-edit-btn" data-tp-id="{{ tp.id }}" {% if t.status=='closed' %}disabled{% endif %}>Edit</button>
+              <form method="post" action="{{ url_for('tickets.delete_process', ticket_id=t.id, tp_id=tp.id) }}" class="m-0 process-delete-form d-none">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm btn-outline-danger" {% if t.status == 'closed' %}disabled{% endif %}
+                  onclick="return confirm('Remove this process and its items?');">Delete</button>
+              </form>
+            </div>
+          </div>
+          <ul class="list-group list-group-flush process-view" id="processView{{ tp.id }}">
+            {% for it in tp.items %}
+            <li class="list-group-item" {% if it.type=='checkbox' and it.checked and it.checked_by %} title="{{ it.checked_by.name }} - {{ it.checked_at|cst_datetime }}" data-bs-toggle="tooltip"{% endif %}>
+              <form method="post"
+                action="{{ url_for('tickets.update_process_item', ticket_id=t.id, tp_id=tp.id, item_id=it.id) }}"
+                class="d-flex align-items-center gap-2">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {% if it.type == 'checkbox' %}
+                <input class="form-check-input" type="checkbox" name="checked" value="1"
+                  {% if t.status == 'closed' %}disabled{% else %}onchange="submitProcessItem(this.form)"{% endif %}
+                  {% if it.checked %}checked{% endif %}>
+                <span>{{ it.label }}</span>
+                {% if it.assigned_tech %}<span class="badge text-bg-secondary ms-auto">{{ it.assigned_tech.name }}</span>{% endif %}
+                {% else %}
+                <span class="me-2">{{ it.label }}</span>
+                <input class="form-control" name="text_value" value="{{ it.text_value or '' }}"
+                  placeholder="Enter value" style="max-width: 320px;" {% if t.status == 'closed' %}disabled{% endif %}>
+                {% if t.status != 'closed' %}
+                <button type="button" class="btn btn-sm btn-outline-primary" onclick="submitProcessItem(this.form)">Save</button>
+                {% endif %}
+                {% if it.assigned_tech %}<span class="badge text-bg-secondary ms-auto">{{ it.assigned_tech.name }}</span>{% endif %}
+                {% endif %}
+              </form>
+            </li>
+            {% endfor %}
+          </ul>
+          <form method="post" action="{{ url_for('tickets.edit_process', ticket_id=t.id, tp_id=tp.id) }}" class="process-edit d-none" id="processEdit{{ tp.id }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <ul class="list-group list-group-flush">
+              {% for it in tp.items %}
+              <li class="list-group-item">
+                <div class="row g-2 align-items-center">
+                  <div class="col-md-6">
+                    <input class="form-control form-control-sm" name="label_item_{{ it.id }}" value="{{ it.label }}" {% if t.status=='closed' %}disabled{% endif %}>
+                  </div>
+                  <div class="col-md-3">
+                    <select class="form-select form-select-sm" name="type_item_{{ it.id }}" {% if t.status=='closed' %}disabled{% endif %}>
+                      <option value="checkbox" {% if it.type == 'checkbox' %}selected{% endif %}>Checkbox</option>
+                      <option value="text" {% if it.type == 'text' %}selected{% endif %}>Text</option>
+                    </select>
+                  </div>
+                  <div class="col-md-2">
+                    <select class="form-select form-select-sm" name="assigned_item_{{ it.id }}" {% if t.status=='closed' %}disabled{% endif %}>
+                      <option value="0">Unassigned</option>
+                      {% for tech in techs %}
+                        <option value="{{ tech.id }}" {% if it.assigned_tech_id == tech.id %}selected{% endif %}>{{ tech.name }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div class="col-md-1 text-end">
+                    <button type="button" class="btn btn-sm btn-outline-danger process-delete-line" data-delete-url="{{ url_for('tickets.delete_process_line', ticket_id=t.id, tp_id=tp.id, item_id=it.id) }}" title="Delete line" aria-label="Delete line">&times;</button>
+                  </div>
+                </div>
+              </li>
+              {% endfor %}
+            </ul>
+            <div class="d-flex justify-content-end gap-2 mt-2">
+              <button type="button" class="btn btn-secondary btn-sm process-cancel-btn" data-tp-id="{{ tp.id }}">Cancel</button>
+              <button class="btn btn-primary btn-sm" {% if t.status=='closed' %}disabled{% endif %}>Save</button>
+            </div>
+          </form>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Tasks -->
+    <div class="card shadow-sm mt-3" id="tasksCard">
+      <div class="card-header bg-body-tertiary">
+        <div class="d-flex align-items-center justify-content-between">
+          <h6 class="mb-0"><i class="bi bi-check2-square me-1"></i>Tasks</h6>
+          <div class="d-flex gap-2 align-items-center">
+            <form method="post" action="{{ url_for('tickets.delete_all_tasks', ticket_id=t.id) }}" class="m-0 task-delete-all-form d-none">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-sm btn-outline-danger" {% if t.status=='closed' %}disabled{% endif %}
+                onclick="return confirm('Delete all tasks on this ticket?');">Delete All</button>
+            </form>
+            <button id="toggleTasksEdit" type="button" class="btn btn-sm btn-outline-secondary">Edit</button>
+          </div>
+        </div>
+      </div>
+      <div class="card-body">
+        {% if tasks and tasks|length > 0 %}
+          {% for list_name, lst in tasks_by_list.items() %}
+            <div class="task-list-group mb-2">
+              {% if list_name %}<div class="fw-semibold small mb-1 task-list-title">{{ list_name }}</div>{% endif %}
+              <ul class="list-group list-group-flush">
+                {% for tk in lst %}
+                <li class="list-group-item">
+                  <form method="post" action="{{ url_for('tickets.toggle_task', ticket_id=t.id, task_id=tk.id) }}" class="d-flex align-items-center gap-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input class="form-check-input" type="checkbox" {% if tk.checked %}checked{% endif %}
+                      {% if t.status == 'closed' %}disabled{% else %}onchange="submitTask(this.form)"{% endif %}>
+                    <span class="flex-grow-1">{{ tk.label }}</span>
+                    <button type="button" class="btn btn-sm btn-outline-danger task-delete-line d-none" data-delete-url="{{ url_for('tickets.delete_task', ticket_id=t.id, task_id=tk.id) }}" title="Delete task" aria-label="Delete task" {% if t.status=='closed' %}disabled{% endif %}>&times;</button>
+                    {% if tk.assigned_tech %}<span class="badge text-bg-secondary ms-auto">{{ tk.assigned_tech.name }}</span>{% endif %}
+                  </form>
+                </li>
+                {% endfor %}
+              </ul>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="text-muted">No tasks yet.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Notes -->
+    <div class="card shadow-sm mt-3">
+      <div class="card-header bg-body-tertiary">
+        <h6 class="mb-0"><i class="bi bi-chat-dots me-1"></i>Notes</h6>
+      </div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush" id="notes">
+          {% for n in notes %}
+          <li class="list-group-item">
+            <div class="small text-muted d-flex align-items-start">
+              {{ n.created_at|cst_datetime }}
+              {% if n.author_id %}
+                · {{ n.author.name if n.author else 'Unknown User' }} ·
+                {# Treat legacy NULL (no flag) as private to be safe #}
+                {% if n.is_private is none or n.is_private %}(private){% else %}(public){% endif %}
+                {% if current_user and (current_user.role == 'admin' or n.author_id == current_user.id) and t.status != 'closed' %}
+                <button type="button" class="btn btn-sm btn-outline-secondary ms-auto note-edit-btn" title="Edit note"
+                        data-note-id="{{ n.id }}" data-note-private="{{ 1 if (n.is_private is none or n.is_private) else 0 }}">
+                  <i class="bi bi-pencil"></i>
+                </button>
+                {% endif %}
+              {% else %}
+                (received)
+                {% if current_user and current_user.role == 'admin' and t.status != 'closed' %}
+                <button type="button" class="btn btn-sm btn-outline-secondary ms-auto note-edit-btn" title="Edit note"
+                        data-note-id="{{ n.id }}" data-note-private="{{ 1 if (n.is_private is none or n.is_private) else 0 }}">
+                  <i class="bi bi-pencil"></i>
+                </button>
+                {% endif %}
+              {% endif %}
+            </div>
+            <div class="border rounded p-2 bg-body-tertiary note-content" data-note-id="{{ n.id }}">{{ n.content|safe }}</div>
+          </li>
+          {% else %}
+          <li class="list-group-item text-muted">No notes yet.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+
+    <!-- Add Note -->
+    <div class="card shadow-sm mt-3">
+      <div class="card-header bg-body-tertiary">
+        <div class="d-flex align-items-center justify-content-between">
+          <h6 class="mb-0"><i class="bi bi-plus-circle me-1"></i>Add Note</h6>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="openDocInsert" title="Insert from document" data-bs-toggle="modal" data-bs-target="#insertDocModal">
+            <i class="bi bi-journal-text"></i>
+          </button>
+        </div>
+      </div>
+      <div class="card-body position-relative">
+        <form method="post" id="noteForm">
+          {{ note_form.hidden_tag() }}
+          <div class="btn-toolbar mb-2" role="toolbar" aria-label="Editor toolbar">
+            <div class="btn-group btn-group-sm me-1" role="group">
+              <button type="button" class="btn btn-outline-secondary" data-cmd="bold" title="Bold"><i class="bi bi-type-bold"></i></button>
+              <button type="button" class="btn btn-outline-secondary" data-cmd="italic" title="Italic"><i class="bi bi-type-italic"></i></button>
+              <button type="button" class="btn btn-outline-secondary" data-cmd="underline" title="Underline"><i class="bi bi-type-underline"></i></button>
+            </div>
+            <div class="btn-group btn-group-sm me-1" role="group">
+              <button type="button" class="btn btn-outline-secondary" data-cmd="insertUnorderedList" title="Bulleted list"><i class="bi bi-list-ul"></i></button>
+              <button type="button" class="btn btn-outline-secondary" data-cmd="insertOrderedList" title="Numbered list"><i class="bi bi-list-ol"></i></button>
+            </div>
+            <div class="btn-group btn-group-sm me-1" role="group">
+              <button type="button" class="btn btn-outline-secondary" data-cmd="formatBlock" data-value="h3" title="Heading">H3</button>
+              <button type="button" class="btn btn-outline-secondary" data-cmd="formatBlock" data-value="p" title="Paragraph">P</button>
+            </div>
+            <div class="btn-group btn-group-sm me-1" role="group">
+              <button type="button" class="btn btn-outline-secondary" id="noteLinkBtn" title="Insert link"><i class="bi bi-link-45deg"></i></button>
+              <button type="button" class="btn btn-outline-secondary" data-cmd="removeFormat" title="Clear formatting"><i class="bi bi-eraser"></i></button>
+            </div>
+            <div class="btn-group btn-group-sm" role="group" aria-label="Table tools">
+              <button type="button" class="btn btn-outline-secondary" id="ntblInsert" title="Insert 3x3 table"><i class="bi bi-table"></i></button>
+              <button type="button" class="btn btn-outline-secondary" id="ntblAddRow" title="Add row below"><i class="bi bi-plus-lg"></i> Row</button>
+              <button type="button" class="btn btn-outline-secondary" id="ntblAddCol" title="Add column right"><i class="bi bi-plus-lg"></i> Col</button>
+              <button type="button" class="btn btn-outline-secondary" id="ntblDelRow" title="Delete row"><i class="bi bi-x-lg"></i> Row</button>
+              <button type="button" class="btn btn-outline-secondary" id="ntblDelCol" title="Delete column"><i class="bi bi-x-lg"></i> Col</button>
+              <button type="button" class="btn btn-outline-secondary" id="ntblDelTable" title="Delete table"><i class="bi bi-trash"></i></button>
+            </div>
+          </div>
+          <div id="noteEditor" class="form-control" contenteditable="true" style="min-height: 140px;">{{ note_form.content.data or '' }}</div>
+          {{ note_form.content(class='d-none', rows=4, placeholder='Type your note...') }}
+          <div class="form-check mt-2">
+            {{ note_form.private(class='form-check-input', id='notePrivate') }}
+            <label class="form-check-label" for="notePrivate">{{ note_form.private.label.text }}</label>
+          </div>
+          <div class="d-grid mt-2 gap-2">
+            <div class="d-flex flex-column flex-md-row gap-2">
+              {{ note_form.submit(class='btn btn-outline-primary flex-fill') }}
+              <button type="button" class="btn btn-outline-primary flex-fill" id="forwardNoteBtn">Forward</button>
+              <button name="add_note_close" value="1" class="btn btn-outline-danger flex-fill" {% if t.status=='closed' %}disabled{% endif %}>Add Note &amp; Close Ticket</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-4">
+    <!-- User Info -->
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+        <h6 class="mb-0"><i class="bi bi-person-circle me-1"></i>User Info</h6>
+  <button type="button" class="btn btn-sm btn-outline-secondary" title="Change Requester" data-bs-toggle="modal" data-bs-target="#changeRequesterModal"><i class="bi bi-pencil"></i></button>
+      </div>
+      <div class="card-body">
+        <div class="mb-3">
+          <div class="fw-semibold">
+            {% if contact %}
+              <a href="{{ url_for('users.show_user', contact_id=contact.id) }}" class="text-decoration-none">
+                <i class="bi bi-person-circle me-1"></i>{{ contact.name or contact.email }}
+              </a>
+            {% else %}
+              <i class="bi bi-person-circle me-1 text-muted"></i>{{ t.requester_name or t.requester_email or t.requester or 'Unknown' }}
+            {% endif %}
+          </div>
+          <div class="small text-muted">{{ t.requester_email or '—' }}</div>
+        </div>
+        
+        <div class="row g-2">
+          <div class="col-6">
+            <div class="fw-semibold small text-muted">Inventory</div>
+            {% if contact and contact.inventory_url %}
+              <a href="{{ contact.inventory_url }}" target="_blank" rel="noopener" class="btn btn-outline-secondary btn-sm w-100">
+                <i class="bi bi-box-seam me-1"></i>Open
+              </a>
+            {% else %}
+              <span class="text-muted small">Not configured</span>
+            {% endif %}
+          </div>
+          <div class="col-6">
+            <div class="fw-semibold small text-muted">Ninja</div>
+            {% if contact and contact.ninja_url %}
+              <a href="{{ contact.ninja_url }}" target="_blank" rel="noopener" class="btn btn-outline-secondary btn-sm w-100">
+                <i class="bi bi-shield-check me-1"></i>Open
+              </a>
+            {% else %}
+              <span class="text-muted small">Not configured</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Asset -->
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-body-tertiary">
+        <h6 class="mb-0"><i class="bi bi-link-45deg me-1"></i>Asset</h6>
+      </div>
+      <div class="card-body">
+        {% if t.asset_id %}
+          <div class="d-flex align-items-center">
+            <i class="bi bi-laptop me-2 text-primary"></i>
+            <div class="flex-grow-1">
+              <a href="{{ url_for('assets.detail', asset_id=t.asset_id) }}" class="fw-semibold text-decoration-none">
+                {% set linked = contact_assets|selectattr('id','equalto', t.asset_id)|list %}
+                {% if linked and linked[0].name %}{{ linked[0].name }}{% else %}Asset #{{ t.asset_id }}{% endif %}
+              </a>
+              {% if linked and linked[0].asset_tag %}
+                <div class="small text-muted">Tag: {{ linked[0].asset_tag }}</div>
+              {% endif %}
+            </div>
+          </div>
+        {% elif contact_assets %}
+          <form method="post" action="{{ url_for('tickets.assign_asset', ticket_id=t.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="mb-2">
+              <select name="asset_id" class="form-select form-select-sm">
+                <option value="">-- Select Asset --</option>
+                {% for a in contact_assets %}
+                  <option value="{{ a.id }}">{{ a.name }}{% if a.asset_tag %} #{{ a.asset_tag }}{% endif %}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <button class="btn btn-outline-primary btn-sm w-100" type="submit">
+              <i class="bi bi-link-45deg me-1"></i>Attach Asset
+            </button>
+          </form>
+        {% else %}
+          <div class="text-center text-muted py-2">
+            <i class="bi bi-laptop opacity-50"></i>
+            <div class="small mt-1">No assigned assets</div>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+    <!-- Update -->
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-body-tertiary">
+        <h6 class="mb-0"><i class="bi bi-pencil-square me-1"></i>Update</h6>
+      </div>
+      <div class="card-body">
+        <form method="post">
+          {{ update_form.hidden_tag() }}
+          <div class="mb-2">{{ update_form.status.label(class='form-label') }} {{ update_form.status(class='form-select') }}</div>
+          <div class="mb-2">{{ update_form.priority.label(class='form-label') }} {{ update_form.priority(class='form-select') }}</div>
+          <div class="mb-2">{{ update_form.source.label(class='form-label') }} {{ update_form.source(class='form-select') }}</div>
+          <div class="mb-2">{{ update_form.assignee_id.label('Assignee', class='form-label') }} {{ update_form.assignee_id(class='form-select') }}</div>
+          <div class="d-grid">{{ update_form.submit_update(class='btn btn-primary') }}</div>
+        </form>
+      </div>
+    </div>
+    <!-- Actions -->
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-body-tertiary">
+        <h6 class="mb-0"><i class="bi bi-gear me-1"></i>Actions</h6>
+      </div>
+      <div class="card-body position-relative">
+        <form id="deleteTicketForm" method="post" action="{{ url_for('tickets.delete_ticket', ticket_id=t.id) }}" class="d-none">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        </form>
+        <button type="button" id="deleteTicketBtn" class="btn btn-sm btn-outline-danger position-absolute" style="top:.35rem; right:.35rem; padding:.15rem .4rem; line-height:1;" title="Delete Ticket" aria-label="Delete Ticket"
+          data-has-notes="{{ 1 if notes|length > 0 else 0 }}"
+          data-has-items="{{ 1 if order_items|length > 0 else 0 }}"
+          data-has-assignee="{{ 1 if t.assignee_id else 0 }}">
+          &times;
+        </button>
+        <div class="d-grid gap-2">
+          <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#assignProcessModal" {% if t.status=='closed' %}disabled{% endif %}>Assign Process</button>
+          <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#assignTasksModal" {% if t.status=='closed' %}disabled{% endif %}>Assign Tasks</button>
+          <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addOrderItemModal">Add Order Item</button>
+          <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#mergeToProjectModal" {% if t.project_id %}disabled{% endif %}>Merge to Project</button>
+        </div>
+      </div>
+    </div>
+
+    
+  </div>
+</div>
+{% endblock %}
+
+  {% block extra_modals %}
+  {{ super() }}
+  <!-- Edit Note Modal -->
+  <div class="modal fade" id="editNoteModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Edit Note</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <form id="editNoteForm" method="post">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="modal-body">
+            <div class="btn-toolbar mb-2" role="toolbar" aria-label="Editor toolbar">
+              <div class="btn-group btn-group-sm me-1" role="group">
+                <button type="button" class="btn btn-outline-secondary" data-cmd="bold" title="Bold"><i class="bi bi-type-bold"></i></button>
+                <button type="button" class="btn btn-outline-secondary" data-cmd="italic" title="Italic"><i class="bi bi-type-italic"></i></button>
+                <button type="button" class="btn btn-outline-secondary" data-cmd="underline" title="Underline"><i class="bi bi-type-underline"></i></button>
+              </div>
+              <div class="btn-group btn-group-sm me-1" role="group">
+                <button type="button" class="btn btn-outline-secondary" data-cmd="insertUnorderedList" title="Bulleted list"><i class="bi bi-list-ul"></i></button>
+                <button type="button" class="btn btn-outline-secondary" data-cmd="insertOrderedList" title="Numbered list"><i class="bi bi-list-ol"></i></button>
+              </div>
+              <div class="btn-group btn-group-sm me-1" role="group">
+                <button type="button" class="btn btn-outline-secondary" data-cmd="formatBlock" data-value="h3" title="Heading">H3</button>
+                <button type="button" class="btn btn-outline-secondary" data-cmd="formatBlock" data-value="p" title="Paragraph">P</button>
+              </div>
+              <div class="btn-group btn-group-sm me-1" role="group">
+                <button type="button" class="btn btn-outline-secondary" id="enoteLinkBtn" title="Insert link"><i class="bi bi-link-45deg"></i></button>
+                <button type="button" class="btn btn-outline-secondary" data-cmd="removeFormat" title="Clear formatting"><i class="bi bi-eraser"></i></button>
+              </div>
+            </div>
+            <div id="editNoteEditor" class="form-control" contenteditable="true" style="min-height: 140px;"></div>
+            <textarea name="content" class="d-none" id="editNoteHidden"></textarea>
+            <div class="form-check mt-2">
+              <input class="form-check-input" type="checkbox" id="editNotePrivate" name="private" checked>
+              <label class="form-check-label" for="editNotePrivate">Private</label>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <!-- Snooze Ticket Modal -->
+  <div class="modal fade" id="snoozeModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Snooze Ticket</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <form method="post" action="{{ url_for('tickets.snooze_ticket', ticket_id=t.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="modal-body">
+            <label class="form-label">Snooze until</label>
+            <input type="date" name="snooze_until" class="form-control" required>
+            <div class="form-text">This ticket will be hidden from Dashboard and Tickets until that day ends.</div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-primary">Snooze</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="modal fade" id="changeRequesterModal" tabindex="-1" aria-labelledby="changeRequesterLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-sm">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="changeRequesterLabel">Change Requester</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <form method="post" action="{{ url_for('tickets.show_ticket', ticket_id=t.id) }}" id="requesterQuickForm">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="quick_change_requester" value="1">
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label small fw-semibold mb-1" for="newRequesterEmail">Requester Email</label>
+              <input list="requesterOptions" type="email" class="form-control" id="newRequesterEmail" name="requester_email" value="{{ t.requester_email or t.requester or '' }}" placeholder="Type name or email" autocomplete="off" required>
+              <datalist id="requesterOptions">
+                {% for c in contacts %}
+                  {% set display = c.name if c.name else c.email %}
+                  <option value="{{ c.email }}">{{ display }}</option>
+                {% endfor %}
+              </datalist>
+              <div class="form-text">Type to search by name/email. New contact created automatically if not found.</div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endblock %}
+
+{% block scripts %}
+<script>
+  // Quick requester change (modal)
+  document.addEventListener('DOMContentLoaded', () => {
+    const reqForm = document.getElementById('requesterQuickForm');
+    if(reqForm){
+      reqForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(reqForm);
+        try {
+          const res = await fetch(reqForm.action, { method: 'POST', body: fd, headers: { 'X-Requested-With':'XMLHttpRequest' }});
+          if(res.ok){
+            window.location.reload();
+          } else {
+            alert('Failed to update requester');
+          }
+        } catch(err){
+          console.error(err); alert('Error updating requester');
+        }
+      });
+    }
+  });
+  const CSRF_TOKEN = "{{ csrf_token() }}";
+  const TICKET_ID = "{{ t.id }}";
+  const NOTE_DRAFT_KEY = 'ticketNoteDraft:' + TICKET_ID;
+  async function submitProcessItem(form) {
+    try {
+      const fd = new FormData(form);
+      const res = await fetch(form.action, {
+        method: 'POST',
+        body: fd,
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      });
+      if (res.ok) {
+        showSavedToast();
+      }
+    } catch (e) {
+      console.error('Failed to update item', e);
+    }
+  }
+
+  async function submitTask(form) {
+    try {
+      const fd = new FormData(form);
+      const res = await fetch(form.action, {
+        method: 'POST',
+        body: fd,
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      });
+      if (res.ok) {
+        showSavedToast();
+      }
+    } catch (e) {
+      console.error('Failed to update task', e);
+    }
+  }
+
+  function showSavedToast() {
+    const el = document.getElementById('saveToast');
+    if (!el) return;
+    if (window.bootstrap && bootstrap.Toast) {
+      const t = bootstrap.Toast.getOrCreateInstance(el);
+      t.show();
+    } else {
+      el.style.display = 'block';
+      setTimeout(() => el.style.display = 'none', 1200);
+    }
+  }
+  function showForwardWarnToast(msg) {
+    const el = document.getElementById('forwardWarnToast');
+    if (!el) return;
+    const body = document.getElementById('forwardWarnToastMessage');
+    if (body && msg) body.textContent = msg;
+    if (window.bootstrap && bootstrap.Toast) {
+      const t = bootstrap.Toast.getOrCreateInstance(el);
+      t.show();
+    } else {
+      el.style.display = 'block';
+      setTimeout(() => el.style.display = 'none', 2500);
+    }
+  }
+  document.addEventListener('DOMContentLoaded', function(){
+    // Edit note handlers
+    const editModalEl = document.getElementById('editNoteModal');
+    let editModal;
+    const editForm = document.getElementById('editNoteForm');
+    const editEditor = document.getElementById('editNoteEditor');
+    const editHidden = document.getElementById('editNoteHidden');
+    const editPrivate = document.getElementById('editNotePrivate');
+    // Toolbar for edit note
+    const eToolbar = editModalEl ? editModalEl.querySelector('.btn-toolbar') : null;
+    const eLinkBtn = document.getElementById('enoteLinkBtn');
+    if (eToolbar && editEditor) {
+      eToolbar.addEventListener('click', function(e){
+        const btn = e.target.closest('button[data-cmd]');
+        if (!btn) return;
+        const cmd = btn.getAttribute('data-cmd');
+        const val = btn.getAttribute('data-value');
+        if (cmd === 'formatBlock') document.execCommand(cmd, false, val || 'p');
+        else document.execCommand(cmd, false, null);
+        editEditor && editEditor.focus();
+      });
+    }
+    if (eLinkBtn) {
+      eLinkBtn.addEventListener('click', function(){
+        let url = prompt('Enter URL (include http(s)://)');
+        if (!url) return;
+        try { if (!/^https?:\/\//i.test(url)) url = 'https://' + url; } catch(e) {}
+        document.execCommand('createLink', false, url);
+        const sel = window.getSelection();
+        if (sel && sel.anchorNode) {
+          let node = sel.anchorNode.nodeType === 3 ? sel.anchorNode.parentElement : sel.anchorNode;
+          while (node && node !== editEditor && node.tagName !== 'A') node = node.parentElement;
+          if (node && node.tagName === 'A') {
+            node.setAttribute('target','_blank');
+            node.setAttribute('rel','noopener noreferrer');
+          }
+        }
+        editEditor && editEditor.focus();
+      });
+    }
+    // Open modal when clicking pencil
+    document.body.addEventListener('click', (e) => {
+      const btn = e.target.closest('.note-edit-btn');
+      if (!btn) return;
+      const nid = btn.getAttribute('data-note-id');
+      const priv = btn.getAttribute('data-note-private') === '1';
+      const contentEl = document.querySelector('.note-content[data-note-id="' + nid + '"]');
+      if (!contentEl || !editForm || !editEditor) return;
+      // Set form action
+      const action = "{{ url_for('tickets.edit_note', ticket_id=t.id, note_id=0) }}".replace('/0/', '/' + nid + '/');
+      editForm.setAttribute('action', action);
+      // Load current HTML
+      editEditor.innerHTML = contentEl.innerHTML;
+      if (editPrivate) editPrivate.checked = priv;
+      if (!editModal) editModal = new bootstrap.Modal(editModalEl);
+      editModal.show();
+      setTimeout(() => editEditor && editEditor.focus(), 120);
+    });
+    // Sync content on submit
+    if (editForm && editEditor && editHidden) {
+      editForm.addEventListener('submit', function(){
+        editHidden.value = editEditor.innerHTML;
+      });
+    }
+    if (window.bootstrap && bootstrap.Tooltip) {
+      const triggers = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+      triggers.forEach(el => new bootstrap.Tooltip(el));
+    }
+    const btn = document.getElementById('toggleTasksEdit');
+    const card = document.getElementById('tasksCard');
+    function updateTasksEditingUI(on) {
+      const delLines = card ? card.querySelectorAll('.task-delete-line') : [];
+      const delAll = card ? card.querySelector('.task-delete-all-form') : null;
+      delLines.forEach(el => el.classList.toggle('d-none', !on));
+      if (delAll) delAll.classList.toggle('d-none', !on);
+    }
+    if (btn && card) {
+      btn.addEventListener('click', () => {
+        const editing = card.classList.toggle('tasks-editing');
+        btn.textContent = editing ? 'Done' : 'Edit';
+        updateTasksEditingUI(editing);
+      });
+    }
+
+    window.toggleProcessEdit = function(tpId, cancel){
+      const block = document.getElementById('processBlock'+tpId);
+      if(!block) return;
+      const view = document.getElementById('processView'+tpId);
+      const edit = document.getElementById('processEdit'+tpId);
+      const delForm = block.querySelector('.process-delete-form');
+      const isEditing = block.getAttribute('data-editing') === '1';
+      if (cancel || isEditing) {
+        block.setAttribute('data-editing','0');
+        if (view) view.classList.remove('d-none');
+        if (edit) edit.classList.add('d-none');
+        if (delForm) delForm.classList.add('d-none');
+      } else {
+        block.setAttribute('data-editing','1');
+        if (view) view.classList.add('d-none');
+        if (edit) edit.classList.remove('d-none');
+        if (delForm) delForm.classList.remove('d-none');
+      }
+    }
+    // Delegate clicks for process edit/cancel buttons
+    document.body.addEventListener('click', (e) => {
+      const editBtn = e.target.closest('.process-edit-btn');
+      if (editBtn) {
+        const id = editBtn.getAttribute('data-tp-id');
+        toggleProcessEdit(id);
+        return;
+      }
+      const cancelBtn = e.target.closest('.process-cancel-btn');
+      if (cancelBtn) {
+        const id = cancelBtn.getAttribute('data-tp-id');
+        toggleProcessEdit(id, true);
+        return;
+      }
+      const procDelBtn = e.target.closest('.process-delete-line');
+      if (procDelBtn) {
+        const url = procDelBtn.getAttribute('data-delete-url');
+        if (!url) return;
+        if (!confirm('Delete this line item?')) return;
+        fetch(url, {
+          method: 'POST',
+          headers: { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: 'csrf_token=' + encodeURIComponent(CSRF_TOKEN)
+        }).then(res => {
+          if (res.ok) {
+            const li = procDelBtn.closest('li');
+            if (li) li.remove();
+          }
+        }).catch(()=>{});
+        return;
+      }
+      const taskDelBtn = e.target.closest('.task-delete-line');
+      if (taskDelBtn) {
+        const url = taskDelBtn.getAttribute('data-delete-url');
+        if (!url) return;
+        if (!confirm('Delete this task?')) return;
+        fetch(url, {
+          method: 'POST',
+          headers: { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: 'csrf_token=' + encodeURIComponent(CSRF_TOKEN)
+        }).then(res => {
+          if (res.ok) {
+            const li = taskDelBtn.closest('li');
+            if (li) li.remove();
+            // If the list becomes empty, remove its title/group wrapper
+            const group = taskDelBtn.closest('.task-list-group');
+            if (group) {
+              const anyItems = group.querySelectorAll('li').length > 0;
+              if (!anyItems) {
+                group.remove();
+              }
+            }
+            // If no groups left, show a placeholder
+            const tasksBody = document.getElementById('tasksCard');
+            if (tasksBody) {
+              const anyGroup = tasksBody.querySelectorAll('.task-list-group').length > 0;
+              if (!anyGroup) {
+                const container = tasksBody.querySelector('.card-body');
+                if (container && !container.querySelector('.no-tasks-msg')) {
+                  const msg = document.createElement('div');
+                  msg.className = 'text-muted no-tasks-msg';
+                  msg.textContent = 'No tasks yet.';
+                  container.appendChild(msg);
+                }
+              }
+            }
+          }
+        }).catch(()=>{});
+      }
+    });
+
+    function userIsEditing() {
+      if (document.querySelector('.modal.show')) return true;
+      if (card && card.classList.contains('tasks-editing')) return true;
+      if (document.querySelector('[id^="processBlock"][data-editing="1"]')) return true;
+      const note = document.querySelector('#noteForm textarea[name="content"]');
+      if (note) {
+        if (document.activeElement === note) return true;
+        if (note.value && note.value.trim().length > 0) return true;
+      }
+      // Also consider the rich-text editor as activity
+      const ce = document.getElementById('noteEditor');
+      if (ce) {
+        if (document.activeElement === ce) return true;
+        const txt = (ce.innerText || '').trim();
+        if (txt.length > 0) return true;
+      }
+      const active = document.activeElement;
+      if (active && active.closest && active.closest('#tasksCard')) return true;
+      return false;
+    }
+    setInterval(() => {
+      try {
+        if (!userIsEditing()) {
+          window.location.reload();
+        }
+      } catch (e) { }
+    }, 60000);
+
+    async function refreshOrderItems(){
+      if (document.querySelector('.modal.show')) return;
+      try {
+        const container = document.getElementById('ticketOrderItemsContainer');
+        const editing = container && container.getAttribute('data-editing') === '1';
+        const res = await fetch("{{ url_for('orders.ticket_items_fragment', ticket_id=t.id) }}" + (editing ? '?edit=1':'' ) , { headers: { 'X-Requested-With':'XMLHttpRequest' } });
+        if (res.ok) {
+          const html = await res.text();
+          if (container) {
+            if (editing) container.setAttribute('data-editing','1');
+            container.innerHTML = html;
+              if (editing) forceShowOrderItemEditControls();
+          }
+        }
+      } catch(e) {}
+    }
+    setInterval(refreshOrderItems, 30000);
+
+    const addOrderItemForm = document.getElementById('addOrderItemForm');
+    if (addOrderItemForm) {
+      addOrderItemForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(addOrderItemForm);
+        try {
+          const res = await fetch(addOrderItemForm.action, { method: 'POST', body: fd, headers: { 'X-Requested-With':'XMLHttpRequest' } });
+          if (res.status === 204) {
+            addOrderItemForm.reset();
+            refreshOrderItems();
+          }
+        } catch(err) { console.error(err); }
+      });
+    }
+    const toggleOrderItemsEdit = document.getElementById('toggleOrderItemsEdit');
+    if (toggleOrderItemsEdit) {
+      toggleOrderItemsEdit.addEventListener('click', () => {
+        const container = document.getElementById('ticketOrderItemsContainer');
+        if (!container) return;
+        const editing = container.getAttribute('data-editing') === '1';
+        container.setAttribute('data-editing', editing ? '0':'1');
+        toggleOrderItemsEdit.textContent = editing ? 'Edit' : 'Done';
+        refreshOrderItems();
+      });
+    }
+
+    window.refreshOrderItems = refreshOrderItems;
+    function forceShowOrderItemEditControls(){
+      const container = document.getElementById('ticketOrderItemsContainer');
+      if(!container) return;
+      if(container.getAttribute('data-editing') !== '1') return;
+      container.querySelectorAll('.order-item-edit-btn, .order-item-delete-form').forEach(el=>{
+        el.classList.remove('d-none');
+      });
+    }
+    setInterval(forceShowOrderItemEditControls, 1500);
+
+    const delBtn = document.getElementById('deleteTicketBtn');
+    if (delBtn) {
+      delBtn.addEventListener('click', function() {
+        const hasNotes = delBtn.getAttribute('data-has-notes') === '1';
+        const hasItems = delBtn.getAttribute('data-has-items') === '1';
+        const hasAssignee = delBtn.getAttribute('data-has-assignee') === '1';
+        if (hasNotes || hasItems || hasAssignee) {
+          alert('This ticket cannot be deleted because it has notes, order items, or is assigned. Close the ticket instead.');
+          return;
+        }
+        if (confirm('Delete this ticket? This cannot be undone.')) {
+          const f = document.getElementById('deleteTicketForm');
+          if (f) f.submit();
+        }
+      });
+    }
+
+    // Document insert helpers
+    const insertModal = document.getElementById('insertDocModal');
+    const searchInput = document.getElementById('docSearchInput');
+    const resultsList = document.getElementById('docSearchResults');
+    const noteTextarea = document.querySelector('#noteForm textarea[name="content"]');
+    const noteEditorEl = document.getElementById('noteEditor');
+    async function searchDocs(q) {
+      try {
+        const res = await fetch("{{ url_for('documents.api_search') }}?q=" + encodeURIComponent(q||''), { headers: { 'X-Requested-With':'XMLHttpRequest' } });
+        if (!res.ok) return;
+        const items = await res.json();
+        renderResults(items);
+      } catch(e) {}
+    }
+    // Sanitize document HTML to a safe subset we support in notes
+    function sanitizeDocumentHtml(html) {
+      const allowedTags = new Set(['DIV','SPAN','P','BR','B','STRONG','I','EM','U','UL','OL','LI','H3','H4','H5','H6','A','TABLE','THEAD','TBODY','TR','TH','TD']);
+      const allowedAttrs = {
+        'A': new Set(['href','title','target','rel']),
+        'TD': new Set(['colspan','rowspan']),
+        'TH': new Set(['colspan','rowspan'])
+      };
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = html || '';
+      function clean(node) {
+        const children = Array.from(node.childNodes);
+        for (const child of children) {
+          if (child.nodeType === 1) { // ELEMENT
+            const tag = child.tagName;
+            if (!allowedTags.has(tag)) {
+              // Replace disallowed element with its text content or children
+              if (child.childNodes && child.childNodes.length) {
+                // Move children up then remove
+                while (child.firstChild) node.insertBefore(child.firstChild, child);
+              }
+              node.removeChild(child);
+              continue;
+            }
+            // Strip disallowed attributes
+            const allowed = allowedAttrs[tag] || new Set();
+            // Remove event handlers and style/class for safety
+            Array.from(child.attributes).forEach(attr => {
+              const name = attr.name.toLowerCase();
+              if (name.startsWith('on') || name === 'style') {
+                child.removeAttribute(attr.name);
+                return;
+              }
+              if (!allowed.has(attr.name)) {
+                child.removeAttribute(attr.name);
+              }
+            });
+            // Fix up links
+            if (tag === 'A') {
+              const href = child.getAttribute('href') || '';
+              if (!/^https?:\/\//i.test(href) && !/^mailto:/i.test(href)) {
+                child.removeAttribute('href');
+              }
+              child.setAttribute('target','_blank');
+              child.setAttribute('rel','noopener noreferrer');
+            }
+            clean(child);
+          } else if (child.nodeType === 8) { // COMMENT
+            node.removeChild(child);
+          }
+        }
+      }
+      clean(wrapper);
+      return wrapper.innerHTML;
+    }
+    function appendToNote(text) {
+      console.log('appendToNote called with:', text);
+      console.log('noteEditorEl exists:', !!noteEditorEl);
+      console.log('noteTextarea exists:', !!noteTextarea);
+      
+      // Prefer inserting into the visible contenteditable editor
+      if (noteEditorEl) {
+        console.log('Using noteEditorEl');
+        const safeHtml = (text || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/\n/g, '<br>');
+        console.log('Safe HTML:', safeHtml);
+        
+        // Focus the editor first to ensure we have a cursor position
+        noteEditorEl.focus();
+        
+        // Insert at cursor if possible; fallback to append
+        try {
+          const success = document.execCommand('insertHTML', false, safeHtml);
+          console.log('execCommand insertHTML success:', success);
+          if (!success) {
+            throw new Error('execCommand failed');
+          }
+        } catch(e) {
+          console.log('execCommand failed, appending to innerHTML:', e);
+          const separator = noteEditorEl.innerHTML ? '<br>' : '';
+          noteEditorEl.innerHTML = (noteEditorEl.innerHTML || '') + separator + safeHtml;
+        }
+        return;
+      }
+      // Fallback to hidden/plain textarea
+      if (noteTextarea) {
+        console.log('Using noteTextarea fallback');
+        const sep = noteTextarea.value && !noteTextarea.value.endsWith('\n') ? '\n' : '';
+        noteTextarea.value = noteTextarea.value + sep + text;
+        noteTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+        noteTextarea.focus();
+      }
+    }
+    async function fetchAndInsert(id) {
+      console.log('Fetching document with ID:', id);
+      try {
+        const url = "{{ url_for('documents.api_body', doc_id=0) }}".replace('0', String(id));
+        console.log('Fetching from URL:', url);
+        const res = await fetch(url, { headers: { 'X-Requested-With':'XMLHttpRequest' } });
+        console.log('Response status:', res.status);
+        if (!res.ok) {
+          console.error('Failed to fetch document:', res.status, res.statusText);
+          return;
+        }
+        const data = await res.json();
+        console.log('Document data:', data);
+        const sanitized = sanitizeDocumentHtml(data.body || '');
+        console.log('Sanitized HTML length:', sanitized.length);
+        if (noteEditorEl) {
+          noteEditorEl.focus();
+          try {
+            document.execCommand('insertHTML', false, sanitized);
+          } catch(e) {
+            noteEditorEl.innerHTML = (noteEditorEl.innerHTML || '') + (noteEditorEl.innerHTML ? '<br>' : '') + sanitized;
+          }
+        } else {
+          // Fallback as plain text
+          const tmp = document.createElement('div');
+          tmp.innerHTML = sanitized;
+          appendToNote(tmp.textContent || '');
+        }
+        // hide modal
+        if (window.bootstrap && bootstrap.Modal) {
+          const m = bootstrap.Modal.getOrCreateInstance(insertModal);
+          m.hide();
+        }
+      } catch(e) {
+        console.error('Error in fetchAndInsert:', e);
+      }
+    }
+    function renderResults(items) {
+      if (!resultsList) return;
+      resultsList.innerHTML = '';
+      if (!items || !items.length) {
+        resultsList.innerHTML = '<li class="list-group-item text-muted">No documents found.</li>';
+        return;
+      }
+      items.forEach(it => {
+        const li = document.createElement('li');
+        li.className = 'list-group-item list-group-item-action';
+        li.textContent = it.name;
+        li.tabIndex = 0;
+        li.addEventListener('click', () => fetchAndInsert(it.id));
+        li.addEventListener('keypress', (e) => { if (e.key === 'Enter') fetchAndInsert(it.id); });
+        resultsList.appendChild(li);
+      });
+    }
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => searchDocs(e.target.value));
+    }
+    if (insertModal) {
+      insertModal.addEventListener('shown.bs.modal', () => {
+        if (searchInput) searchInput.focus();
+        searchDocs('');
+      });
+    }
+
+    // Rich text editor for note
+    const noteToolbar = document.querySelector('#noteForm .btn-toolbar');
+    const noteEditor = document.getElementById('noteEditor');
+    const noteHidden = document.querySelector('#noteForm textarea[name="content"]');
+    const linkBtn = document.getElementById('noteLinkBtn');
+    // Table controls
+    const nbtnIns = document.getElementById('ntblInsert');
+    const nbtnAddRow = document.getElementById('ntblAddRow');
+    const nbtnAddCol = document.getElementById('ntblAddCol');
+    const nbtnDelRow = document.getElementById('ntblDelRow');
+    const nbtnDelCol = document.getElementById('ntblDelCol');
+    const nbtnDelTable = document.getElementById('ntblDelTable');
+    if (noteToolbar) {
+      noteToolbar.addEventListener('click', function(e){
+        const btn = e.target.closest('button[data-cmd]');
+        if (!btn) return;
+        const cmd = btn.getAttribute('data-cmd');
+        const val = btn.getAttribute('data-value');
+        if (cmd === 'formatBlock') {
+          document.execCommand(cmd, false, val || 'p');
+        } else {
+          document.execCommand(cmd, false, null);
+        }
+        noteEditor && noteEditor.focus();
+      });
+    }
+    if (linkBtn) {
+      linkBtn.addEventListener('click', function(){
+        let url = prompt('Enter URL (include http(s)://)');
+        if (!url) return;
+        try { if (!/^https?:\/\//i.test(url)) url = 'https://' + url; } catch(e) {}
+        document.execCommand('createLink', false, url);
+        const sel = window.getSelection();
+        if (sel && sel.anchorNode) {
+          let node = sel.anchorNode.nodeType === 3 ? sel.anchorNode.parentElement : sel.anchorNode;
+          while (node && node !== noteEditor && node.tagName !== 'A') node = node.parentElement;
+          if (node && node.tagName === 'A') {
+            node.setAttribute('target','_blank');
+            node.setAttribute('rel','noopener noreferrer');
+          }
+        }
+        noteEditor && noteEditor.focus();
+      });
+    }
+  if (noteEditor && noteHidden) {
+      // Keep hidden textarea synced on submit
+      const form = document.getElementById('noteForm');
+      if (form) {
+        form.addEventListener('submit', function(e){
+          console.log('Form submitting, syncing editor to hidden field');
+          console.log('Editor content:', noteEditor.innerHTML);
+          noteHidden.value = noteEditor.innerHTML;
+          console.log('Hidden field value:', noteHidden.value);
+      try { localStorage.removeItem(NOTE_DRAFT_KEY); } catch(_) {}
+        });
+        
+        // Also sync when buttons are clicked directly
+        const submitBtn = form.querySelector('button[name="submit"]') || form.querySelector('input[name="submit"]');
+        const closeBtn = form.querySelector('button[name="add_note_close"]');
+        
+        if (submitBtn) {
+          submitBtn.addEventListener('click', function() {
+            console.log('Submit button clicked, syncing content');
+            noteHidden.value = noteEditor.innerHTML;
+          });
+        }
+        
+        if (closeBtn) {
+          closeBtn.addEventListener('click', function() {
+            console.log('Close button clicked, syncing content');
+            noteHidden.value = noteEditor.innerHTML;
+          });
+        }
+      }
+    }
+    // Forward note: open modal, search recipients, and submit
+  const fwdBtn = document.getElementById('forwardNoteBtn');
+  const notePrivateCb = document.getElementById('notePrivate');
+    const fwdModalEl = document.getElementById('forwardNoteModal');
+    const fwdEmail = document.getElementById('forwardEmail');
+    const fwdResults = document.getElementById('forwardResults');
+    const fwdEmailHidden = document.getElementById('forwardEmailHidden');
+    const fwdBodyHtml = document.getElementById('forwardBodyHtml');
+    const fwdSendBtn = document.getElementById('forwardSendBtn');
+    let fwdModal;
+    function setForwardEmail(val){
+      fwdEmailHidden.value = val || '';
+      fwdSendBtn.disabled = !(val && /.+@.+\..+/.test(val));
+    }
+    function renderFwdResults(items){
+      if (!fwdResults) return;
+      fwdResults.innerHTML = '';
+      (items||[]).forEach(it => {
+        const a = document.createElement('button');
+        a.type = 'button';
+        a.className = 'list-group-item list-group-item-action';
+        a.textContent = `${it.name} <${it.email}>`;
+        a.addEventListener('click', () => {
+          if (fwdEmail) fwdEmail.value = it.email;
+          setForwardEmail(it.email);
+          fwdResults.innerHTML = '';
+        });
+        fwdResults.appendChild(a);
+      });
+    }
+    async function searchRecipients(q){
+      try{
+        const res = await fetch(`{{ url_for('tickets.recipient_search') }}?q=${encodeURIComponent(q||'')}`, { headers: { 'X-Requested-With':'XMLHttpRequest' } });
+        if (!res.ok) return;
+        const data = await res.json();
+        renderFwdResults(data.items || []);
+      }catch(_){}
+    }
+    if (fwdBtn && fwdModalEl) {
+      fwdBtn.addEventListener('click', () => {
+        // Block forwarding if note is marked Private
+        if (notePrivateCb && notePrivateCb.checked) {
+          showForwardWarnToast('To forward a note it must be public');
+          return;
+        }
+        if (!fwdModal) fwdModal = new bootstrap.Modal(fwdModalEl);
+        if (fwdEmail) { fwdEmail.value = ''; }
+        setForwardEmail('');
+        if (fwdResults) fwdResults.innerHTML = '';
+        fwdModal.show();
+        setTimeout(() => fwdEmail && fwdEmail.focus(), 150);
+      });
+    }
+    if (fwdEmail) {
+      fwdEmail.addEventListener('input', (e) => {
+        const v = e.target.value.trim();
+        setForwardEmail(v);
+        if (v.length >= 2) searchRecipients(v); else if (fwdResults) fwdResults.innerHTML='';
+      });
+    }
+    const fwdForm = document.getElementById('forwardForm');
+    if (fwdForm) {
+      fwdForm.addEventListener('submit', () => {
+        // Sync current editor HTML into body_html
+        const editor = document.getElementById('noteEditor');
+        fwdBodyHtml.value = editor ? editor.innerHTML : (document.querySelector('#noteForm textarea[name="content"]').value || '');
+        // Clear draft and editor so Add a note is blank after forwarding
+        try { localStorage.removeItem(NOTE_DRAFT_KEY); } catch(_) {}
+        if (editor) editor.innerHTML = '';
+        if (noteHidden) noteHidden.value = '';
+      });
+    }
+    // Autosave/restore note drafts so refresh won't lose typing
+    if (noteEditor) {
+      try {
+        const existing = localStorage.getItem(NOTE_DRAFT_KEY);
+        if (existing && (noteEditor.innerText || '').trim().length === 0) {
+          noteEditor.innerHTML = existing;
+        }
+        noteEditor.addEventListener('input', () => {
+          try { localStorage.setItem(NOTE_DRAFT_KEY, noteEditor.innerHTML); } catch(_) {}
+        });
+      } catch(_) {}
+    }
+    // Helpers for table editing within the note editor
+    function nclosest(el, selector) {
+      while (el && el.nodeType === 1) {
+        if (el.matches(selector)) return el;
+        el = el.parentElement;
+      }
+      return null;
+    }
+    function ngetSelectedCell() {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return null;
+      let node = sel.anchorNode;
+      if (node && node.nodeType === 3) node = node.parentElement;
+      return node ? nclosest(node, 'td,th') : null;
+    }
+    function ninsertTable(rows=3, cols=3) {
+      let html = '<table class="table table-bordered table-sm"><tbody>';
+      for (let r=0;r<rows;r++) {
+        html += '<tr>';
+        for (let c=0;c<cols;c++) html += '<td>&nbsp;</td>';
+        html += '</tr>';
+      }
+      html += '</tbody></table>';
+      document.execCommand('insertHTML', false, html);
+      noteEditor && noteEditor.focus();
+    }
+    function naddRowBelow() {
+      const cell = ngetSelectedCell();
+      if (!cell) return;
+      const tr = nclosest(cell, 'tr');
+      const cols = tr ? tr.children.length : 0;
+      const newTr = document.createElement('tr');
+      for (let i=0;i<cols;i++) {
+        const td = document.createElement('td');
+        td.innerHTML = '&nbsp;';
+        newTr.appendChild(td);
+      }
+      tr.parentElement.insertBefore(newTr, tr.nextSibling);
+    }
+    function naddColRight() {
+      const cell = ngetSelectedCell();
+      if (!cell) return;
+      const index = Array.from(cell.parentElement.children).indexOf(cell);
+      const table = nclosest(cell, 'table');
+      if (!table) return;
+      table.querySelectorAll('tr').forEach(tr => {
+        const td = document.createElement('td');
+        td.innerHTML = '&nbsp;';
+        if (index >= 0 && index < tr.children.length-1) {
+          tr.insertBefore(td, tr.children[index+1]);
+        } else {
+          tr.appendChild(td);
+        }
+      });
+    }
+    function ndelRow() {
+      const cell = ngetSelectedCell();
+      if (!cell) return;
+      const tr = nclosest(cell, 'tr');
+      if (tr) tr.remove();
+    }
+    function ndelCol() {
+      const cell = ngetSelectedCell();
+      if (!cell) return;
+      const index = Array.from(cell.parentElement.children).indexOf(cell);
+      const table = nclosest(cell, 'table');
+      if (!table) return;
+      table.querySelectorAll('tr').forEach(tr => {
+        if (index >=0 && index < tr.children.length) tr.children[index].remove();
+      });
+    }
+    function ndelTable() {
+      const cell = ngetSelectedCell();
+      if (!cell) return;
+      const table = nclosest(cell, 'table');
+      if (table) table.remove();
+    }
+    if (nbtnIns) nbtnIns.addEventListener('click', () => ninsertTable());
+    if (nbtnAddRow) nbtnAddRow.addEventListener('click', () => naddRowBelow());
+    if (nbtnAddCol) nbtnAddCol.addEventListener('click', () => naddColRight());
+    if (nbtnDelRow) nbtnDelRow.addEventListener('click', () => ndelRow());
+    if (nbtnDelCol) nbtnDelCol.addEventListener('click', () => ndelCol());
+    if (nbtnDelTable) nbtnDelTable.addEventListener('click', () => ndelTable());
+  });
+</script>
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1100">
+  <div id="saveToast" class="toast align-items-center text-bg-success border-0" role="status" aria-live="polite" aria-atomic="true" data-bs-delay="1200">
+    <div class="d-flex">
+      <div class="toast-body">
+        Saved
+      </div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+    </div>
+  </div>
+  <div id="forwardWarnToast" class="toast align-items-center text-bg-warning border-0 mt-2" role="status" aria-live="polite" aria-atomic="true" data-bs-delay="2500">
+    <div class="d-flex">
+      <div class="toast-body" id="forwardWarnToastMessage">To forward a note it must be public</div>
+      <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+    </div>
+  </div>
+</div>
+<!-- Modals for ticket actions -->
+<!-- Forward Note Modal -->
+<div class="modal fade" id="forwardNoteModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Forward Note</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label">Recipient</label>
+        <input type="email" class="form-control" id="forwardEmail" placeholder="Type to search users or enter email...">
+        <div class="list-group mt-2" id="forwardResults"></div>
+      </div>
+      <div class="modal-footer">
+        <form id="forwardForm" method="post" action="{{ url_for('tickets.forward_note', ticket_id=t.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="email" id="forwardEmailHidden">
+          <input type="hidden" name="body_html" id="forwardBodyHtml">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="forwardSendBtn" disabled>Send</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- Insert Document Modal -->
+<div class="modal fade" id="insertDocModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Insert from Documents</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <input type="text" class="form-control mb-2" id="docSearchInput" placeholder="Search documents by name...">
+        <ul class="list-group" id="docSearchResults"></ul>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+  </div>
+<div class="modal fade" id="assignProcessModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Assign Process</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form method="post" id="assignProcessForm">
+          {{ assign_form.hidden_tag() }}
+          <div class="mb-2">{{ assign_form.template_id.label(class='form-label') }} {{ assign_form.template_id(class='form-select', disabled=(t.status=='closed')) }}</div>
+          <div class="d-grid">{{ assign_form.submit_assign(class='btn btn-primary', disabled=(t.status=='closed')) }}</div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="assignTasksModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Assign Tasks</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form method="post" id="assignTasksForm">
+          {{ task_form.hidden_tag() }}
+          <div class="mb-2">{{ task_form.list_name.label(class='form-label') }} {{ task_form.list_name(class='form-control', placeholder='e.g., Onboarding Tasks', disabled=(t.status=='closed')) }}</div>
+          <div class="mb-2">{{ task_form.tasks_text(class='form-control', rows=4, placeholder='One task per line', disabled=(t.status=='closed')) }}</div>
+            <div class="mb-2">{{ task_form.assigned_tech_id.label('Assign to', class='form-label') }} {{ task_form.assigned_tech_id(class='form-select', disabled=(t.status=='closed')) }}</div>
+          <div class="d-grid">{{ task_form.submit_tasks(class='btn btn-primary', disabled=(t.status=='closed')) }}</div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="addOrderItemModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Add Order Item</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="addOrderItemForm" method="post" action="{{ url_for('orders.create_item') }}" class="small">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="ticket_id" value="{{ t.id }}">
+          <div class="row g-2 mb-2">
+            <div class="col-md-8"><input name="description" class="form-control form-control-sm" placeholder="Description" required></div>
+            <div class="col-md-2"><input name="quantity" type="number" min="1" value="1" class="form-control form-control-sm" placeholder="Qty"></div>
+            <div class="col-md-2"><input name="target_vendor" class="form-control form-control-sm" placeholder="Vendor"></div>
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col-md-3"><input name="est_unit_cost" class="form-control form-control-sm" placeholder="Unit Cost"></div>
+            <div class="col-md-4"><input name="source_url" class="form-control form-control-sm" placeholder="Source URL"></div>
+            <div class="col-md-3"><input name="dept_code" class="form-control form-control-sm" placeholder="Dept/Cost Code"></div>
+            <div class="col-md-2"><input type="date" name="needed_by" class="form-control form-control-sm" placeholder="Needed By"></div>
+          </div>
+          <div class="d-flex justify-content-end gap-2">
+            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+            <button class="btn btn-primary btn-sm">Add Item</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="mergeToProjectModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Merge to Project</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form method="post">
+          {{ merge_form.hidden_tag() }}
+          <div class="mb-2">{{ merge_form.project_id.label(class='form-label') }} {{ merge_form.project_id(class='form-select', disabled=(t.project_id is not none)) }}</div>
+          <div class="d-grid">{{ merge_form.submit_merge(class='btn btn-primary', disabled=(t.project_id is not none)) }}</div>
+        </form>
+        {% if not merge_form.project_id.choices %}
+          <div class="alert alert-info mt-2">No open projects available. Create a project first.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

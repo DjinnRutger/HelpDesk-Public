@@ -1,0 +1,218 @@
+{% extends 'base.html' %}
+{% block title %}Tickets · HelpDesk{% endblock %}
+{% block head %}
+<script>
+  // Reload every 30s, only if tab is visible
+  setInterval(function(){
+    if (document.visibilityState === 'visible') {
+      location.reload();
+    }
+  }, 30000);
+</script>
+{% endblock %}
+{% block content %}
+<!-- Tickets Header -->
+<div class="card shadow-sm mb-3">
+  <div class="card-header bg-body-tertiary">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <div class="d-flex align-items-center">
+        <i class="bi bi-ticket-perforated text-primary me-2 fs-4"></i>
+        <div>
+          <h1 class="h5 mb-0">Tickets</h1>
+          <small class="text-muted">Manage support requests and issues</small>
+        </div>
+      </div>
+      <div class="d-flex gap-2">
+        <a href="{{ url_for('tickets.new_ticket') }}" class="btn btn-primary">
+          <i class="bi bi-plus-lg me-1"></i>New Ticket
+        </a>
+        <a href="{{ url_for('tickets.list_tickets', status=status, assigned=assigned, q=q, show_snoozed=(0 if show_snoozed else 1)) }}" class="btn btn-outline-secondary" title="Toggle snoozed">
+          <i class="bi bi-moon"></i>
+          {% if snoozed_count %}
+            <span class="badge rounded-pill text-bg-secondary ms-1">{{ snoozed_count }}</span>
+          {% endif %}
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Search & Filters -->
+<div class="card shadow-sm mb-3">
+  <div class="card-body">
+    <form method="get" class="row g-3 align-items-end">
+      <div class="col-md-4">
+        <label class="form-label small fw-semibold"><i class="bi bi-search me-1"></i>Search</label>
+        <input type="text" class="form-control" name="q" placeholder="Subject, body, requester..." value="{{ q or '' }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold">Status</label>
+        <select name="status" class="form-select">
+          <option value="open" {% if status=='open' %}selected{% endif %}>Open</option>
+          <option value="all" {% if status=='all' %}selected{% endif %}>All</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold">Assignment</label>
+        <select name="assigned" class="form-select">
+          <option value="any">Any</option>
+          <option value="me" {% if assigned=='me' %}selected{% endif %}>Assigned to me</option>
+          <option value="me_or_unassigned" {% if assigned=='me_or_unassigned' %}selected{% endif %}>Unassigned + Mine</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <div class="d-flex gap-2">
+          <button type="submit" class="btn btn-primary flex-fill">
+            <i class="bi bi-funnel me-1"></i>Filter
+          </button>
+          {% if q or status != 'open' or assigned != 'any' %}
+          <a href="{{ url_for('tickets.list_tickets') }}" class="btn btn-outline-secondary" title="Clear filters">
+            <i class="bi bi-x-lg"></i>
+          </a>
+          {% endif %}
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+<!-- Results Summary -->
+{% if items %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <div class="text-muted small">
+    <i class="bi bi-info-circle me-1"></i>
+    {% if q %}
+      Showing {{ items|length }} ticket{{ 's' if items|length != 1 else '' }} matching "{{ q }}"
+    {% else %}
+      Showing {{ items|length }} ticket{{ 's' if items|length != 1 else '' }}
+      {% if status == 'open' %}(open only){% else %}(all statuses){% endif %}
+    {% endif %}
+    {% if q or status != 'open' or assigned != 'any' %}
+      <span class="badge text-bg-info ms-1">Filtered</span>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<!-- Tickets List -->
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    {% if items %}
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead class="table-light">
+            <tr>
+              <th class="ps-3 fw-semibold">Ticket</th>
+              <th class="fw-semibold">Requester</th>
+              <th class="fw-semibold">Assignee</th>
+              <th class="fw-semibold">Status</th>
+              <th class="fw-semibold">Priority</th>
+              <th class="fw-semibold">Age</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for it in items %}
+              {% set t = it.obj %}
+              <tr class="clickable-row {% if t.priority == 'high' %}table-danger{% endif %}" data-href="{{ url_for('tickets.show_ticket', ticket_id=t.id) }}">
+                <td class="ps-3">
+                  <div class="d-flex align-items-start">
+                    <div class="me-2">
+                      <i class="bi bi-ticket-perforated text-primary"></i>
+                    </div>
+                    <div>
+                      <div class="fw-semibold">#{{ t.id }} · {{ t.subject }}
+                        {% if show_snoozed and t.is_snoozed %}
+                          <span class="ms-2 text-muted small"><i class="bi bi-moon"></i> {{ t.snoozed_until|cst_datetime('%m/%d/%Y') }}</span>
+                        {% endif %}
+                      </div>
+                      <div class="small text-muted">
+                        {% if t.project %}
+                          <span class="badge text-bg-dark me-1">Project: {{ t.project.name }}</span>
+                        {% endif %}
+                        {% if t.asset %}
+                          <i class="bi bi-link-45deg me-1"></i>{{ t.asset.name }}
+                        {% endif %}
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="d-flex align-items-center">
+                    <i class="bi bi-person-circle me-1 text-muted"></i>
+                    <span>{{ t.requester_name or t.requester_email or 'Unknown' }}</span>
+                  </div>
+                </td>
+                <td>
+                  {% if t.assignee %}
+                    <div class="d-flex align-items-center">
+                      <i class="bi bi-person-check me-1 text-muted"></i>
+                      <span>{{ t.assignee.name }}</span>
+                    </div>
+                  {% else %}
+                    <span class="text-muted small"><i class="bi bi-dash-lg"></i> Unassigned</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% set status_class = 'secondary' %}
+                  {% if t.status == 'open' %}{% set status_class = 'success' %}{% endif %}
+                  {% if t.status == 'in_progress' %}{% set status_class = 'warning' %}{% endif %}
+                  {% if t.status == 'closed' %}{% set status_class = 'danger' %}{% endif %}
+                  <span class="badge text-bg-{{ status_class }} text-capitalize">{{ t.status|replace('_', ' ') }}</span>
+                </td>
+                <td>
+                  {% set priority_class = 'secondary' %}
+                  {% if t.priority == 'high' %}{% set priority_class = 'danger' %}{% endif %}
+                  {% if t.priority == 'medium' %}{% set priority_class = 'warning' %}{% endif %}
+                  {% if t.priority == 'low' %}{% set priority_class = 'success' %}{% endif %}
+                  <span class="badge text-bg-{{ priority_class }} text-capitalize">{{ t.priority }}</span>
+                </td>
+                <td>
+                  <div class="small">
+                    <i class="bi bi-clock me-1 text-muted"></i>
+                    {{ t.age_days }}d
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="text-center py-5">
+        <i class="bi bi-ticket-perforated display-1 text-muted opacity-25"></i>
+        <h5 class="mt-3 mb-2">No Tickets Found</h5>
+        {% if q or status != 'open' or assigned != 'any' %}
+          <p class="text-muted mb-3">No tickets match your search criteria.</p>
+          <a href="{{ url_for('tickets.list_tickets') }}" class="btn btn-outline-secondary">View All Tickets</a>
+        {% else %}
+          <p class="text-muted mb-3">Get started by creating your first ticket.</p>
+          <a href="{{ url_for('tickets.new_ticket') }}" class="btn btn-primary">
+            <i class="bi bi-plus-lg me-1"></i>New Ticket
+          </a>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const rows = document.querySelectorAll('tr.clickable-row[data-href]');
+  rows.forEach(row => {
+    row.style.cursor = 'pointer';
+    row.addEventListener('click', () => {
+      const url = row.getAttribute('data-href');
+      if (url) window.location = url;
+    });
+    row.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        row.click();
+      }
+    });
+  });
+});
+</script>
+{% endblock %}

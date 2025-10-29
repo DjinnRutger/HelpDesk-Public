@@ -1,0 +1,185 @@
+/* Fallout Terminal Theme - monochrome green CRT aesthetic */
+:root {
+  --fallout-bg: #001a00;
+  --fallout-panel: #002200;
+  --fallout-text: #39ff14; /* bright phosphor green */
+  --fallout-dim: #2bbf10;
+  --fallout-accent: #00ff66;
+  --fallout-border: #0f3d0f;
+  --fallout-link: #7CFF80;
+  --bs-secondary-color: rgba(124,255,128,0.65);
+}
+
+html, body {
+  background: radial-gradient(circle at 50% 50%, rgba(0,40,0,0.35), rgba(0,0,0,0.9)), var(--fallout-bg);
+  color: var(--fallout-text);
+  font-family: "IBM Plex Mono", "Fira Code", Consolas, monospace;
+  text-shadow: 0 0 2px rgba(57,255,20,0.6), 0 0 6px rgba(57,255,20,0.3);
+}
+
+/* CRT scanline effect */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(rgba(0,0,0,0) 50%, rgba(0,0,0,0.12) 51%),
+              linear-gradient(90deg, rgba(57,255,20,0.03), rgba(57,255,20,0.02), rgba(57,255,20,0.03));
+  background-size: 100% 3px, 3px 100%;
+  mix-blend-mode: multiply;
+  z-index: 9999;
+}
+
+.navbar,
+.card,
+.dropdown-menu,
+.modal-content,
+.offcanvas,
+.list-group-item {
+  background-color: var(--fallout-panel) !important;
+  border-color: var(--fallout-border) !important;
+  color: var(--fallout-text) !important;
+}
+
+.bg-body-tertiary {
+  background-color: var(--fallout-panel) !important;
+  color: var(--fallout-text) !important;
+  border-color: var(--fallout-border) !important;
+}
+
+.border,
+.card,
+.navbar,
+.modal-content,
+.list-group-item {
+  border: 1px solid var(--fallout-border) !important;
+}
+
+a,
+.nav-link,
+.btn-link {
+  color: var(--fallout-link) !important;
+}
+
+a:hover,
+.nav-link:hover,
+.btn-link:hover {
+  color: var(--fallout-accent) !important;
+  text-shadow: 0 0 6px rgba(0,255,102,0.4);
+}
+
+hr,
+.dropdown-divider {
+  border-top: 1px solid var(--fallout-border) !important;
+}
+
+/* Buttons */
+.btn,
+button {
+  background-color: transparent;
+  color: var(--fallout-text);
+  border: 1px solid var(--fallout-dim);
+}
+
+.btn:hover,
+button:hover {
+  background-color: rgba(0,255,102,0.06);
+  border-color: var(--fallout-accent);
+}
+
+.btn-primary,
+.btn-success,
+.btn-danger,
+.btn-warning,
+.btn-secondary,
+.btn-outline-primary,
+.btn-outline-success,
+.btn-outline-danger,
+.btn-outline-warning,
+.btn-outline-secondary {
+  background-color: transparent !important;
+  color: var(--fallout-text) !important;
+  border: 1px solid var(--fallout-dim) !important;
+}
+
+.btn-close {
+  filter: invert(80%) sepia(60%) saturate(500%) hue-rotate(60deg) brightness(120%);
+}
+
+/* Forms */
+.form-control,
+.form-select,
+.input-group-text,
+textarea,
+select,
+input {
+  background-color: rgba(0,0,0,0.2) !important;
+  border: 1px solid var(--fallout-border) !important;
+  color: var(--fallout-text) !important;
+}
+
+.form-control::placeholder { color: rgba(124,255,128,0.5) !important; }
+
+/* Tables */
+.table {
+  color: var(--fallout-text);
+  /* Make table background match the page/panel green */
+  --bs-table-bg: var(--fallout-panel);
+  --bs-table-color: var(--fallout-text);
+  --bs-table-border-color: var(--fallout-border);
+}
+.table-striped > tbody > tr:nth-of-type(odd) > * {
+  background-color: rgba(0, 255, 102, 0.05);
+}
+
+/* Alerts, badges, progress */
+.alert { background-color: rgba(0,255,102,0.05) !important; color: var(--fallout-text) !important; border-color: var(--fallout-dim) !important; }
+.badge { background-color: rgba(0,255,102,0.1) !important; color: var(--fallout-text) !important; border: 1px solid var(--fallout-dim); }
+.progress { background-color: rgba(0,0,0,0.3); }
+.progress-bar { background-color: var(--fallout-accent); box-shadow: 0 0 8px rgba(0,255,102,0.5); }
+
+/* Icons */
+.bi { filter: drop-shadow(0 0 3px rgba(57,255,20,0.6)); }
+
+/* Misc */
+.navbar-brand { letter-spacing: 1px; }
+.card { box-shadow: inset 0 0 0 1px var(--fallout-border), 0 0 12px rgba(0,255,102,0.06); }
+
+/* Subtle flicker animation on headings */
+@keyframes crt-flicker {
+  0%, 100% { opacity: 0.97; }
+  50% { opacity: 1; }
+}
+
+h1, h2, h3, h4 { animation: crt-flicker 3s infinite; }
+
+/* High priority rows (dark red accent) */
+.table-danger {
+  --bs-table-bg: #2a0000; /* deep dark red */
+  --bs-table-border-color: #5c0000;
+  --bs-table-color: var(--fallout-text);
+  background-color: var(--bs-table-bg) !important;
+  border-color: var(--bs-table-border-color) !important;
+}
+
+/* Project rows: transparent fill, green outline, light grey hover */
+.table-info {
+  --bs-table-bg: transparent;
+  --bs-table-color: var(--fallout-text);
+  --bs-table-border-color: var(--fallout-dim);
+  --bs-table-hover-bg: rgba(0, 255, 102, 0.06); /* subtle green hover (original vibe) */
+  --bs-table-striped-bg: rgba(0, 255, 102, 0.03);
+}
+.table-info > * { background-color: transparent !important; }
+.table tr.table-info { box-shadow: inset 0 0 0 1px var(--fallout-dim); }
+/* Neutralize default hover fill and apply our light grey */
+.table.table-hover > tbody > tr.table-info:hover { background-color: transparent !important; }
+.table.table-hover > tbody > tr.table-info:hover > * { background-color: var(--bs-table-hover-bg) !important; }
+
+.empty-state .empty-icon {
+  color: rgba(124,255,128,0.45);
+  opacity: 1;
+}
+.empty-state .empty-title {
+  color: var(--fallout-text);
+}
