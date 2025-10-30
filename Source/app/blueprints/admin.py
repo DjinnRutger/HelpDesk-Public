@@ -1088,35 +1088,77 @@ def msgraph():
 @admin_bp.route('/ftp_settings', methods=['POST'])
 @login_required
 def ftp_settings():
-    """Save Ticket Import settings (MS enable toggle + FTP settings)."""
-    # MS Graph enable toggle
-    ms_enabled = bool(request.form.get('ms_enabled'))
-    enabled = bool(request.form.get('ftp_enabled'))
-    host = (request.form.get('ftp_host') or '').strip()
-    port_raw = (request.form.get('ftp_port') or '').strip() or '21'
-    user = (request.form.get('ftp_user') or '').strip()
-    pwd = (request.form.get('ftp_pass') or '').strip()
-    base = (request.form.get('ftp_base') or '').strip()
-    subdir = (request.form.get('ftp_subdir') or '').strip() or 'HDWish Data'
-    # Basic validation
+    """Save Ticket Import settings.
+
+    This endpoint serves two small forms in the Ticket Import modal:
+    - MS Graph enable toggle (form_section=ms)
+    - FTP enable + connection settings (form_section=ftp)
+
+    Each form should only update its own settings so MS and FTP can be enabled/disabled independently.
+    """
+    section = (request.form.get('form_section') or '').strip().lower()
     try:
-        port = int(port_raw)
-        if port <= 0:
-            port = 21
-    except Exception:
-        port = 21
-    try:
-        Setting.set('MS_ENABLED', '1' if ms_enabled else '0')
-        Setting.set('FTP_ENABLED', '1' if enabled else '0')
-        Setting.set('FTP_HOST', host)
-        Setting.set('FTP_PORT', str(port))
-        Setting.set('FTP_USER', user)
-        # Store password if provided; allow leaving blank to keep existing
-        if pwd:
-            Setting.set('FTP_PASS', pwd)
-        Setting.set('FTP_BASE_DIR', base)
-        Setting.set('FTP_SUBDIR', subdir)
-        flash('Ticket Import settings saved.', 'success')
+        if section == 'ms':
+            # Checkbox sends when checked; absence means off
+            raw = (request.form.get('ms_enabled') or '').strip().lower()
+            ms_enabled = raw in ('1', 'true', 'on', 'yes')
+            Setting.set('MS_ENABLED', '1' if ms_enabled else '0')
+            flash('Saved MS Graph import setting.', 'success')
+        elif section == 'ftp':
+            # Read FTP fields; only update FTP-related settings
+            raw_enabled = (request.form.get('ftp_enabled') or '').strip().lower()
+            enabled = raw_enabled in ('1', 'true', 'on', 'yes')
+            host = (request.form.get('ftp_host') or '').strip()
+            port_raw = (request.form.get('ftp_port') or '').strip() or '21'
+            user = (request.form.get('ftp_user') or '').strip()
+            pwd = (request.form.get('ftp_pass') or '').strip()
+            base = (request.form.get('ftp_base') or '').strip()
+            subdir = (request.form.get('ftp_subdir') or '').strip() or 'HDWish Data'
+            try:
+                port = int(port_raw)
+                if port <= 0:
+                    port = 21
+            except Exception:
+                port = 21
+            Setting.set('FTP_ENABLED', '1' if enabled else '0')
+            Setting.set('FTP_HOST', host)
+            Setting.set('FTP_PORT', str(port))
+            Setting.set('FTP_USER', user)
+            if pwd:
+                Setting.set('FTP_PASS', pwd)
+            Setting.set('FTP_BASE_DIR', base)
+            Setting.set('FTP_SUBDIR', subdir)
+            flash('Saved FTP import settings.', 'success')
+        else:
+            # Fallback: be conservative and update only keys that are present
+            if 'ms_enabled' in request.form:
+                raw = (request.form.get('ms_enabled') or '').strip().lower()
+                ms_enabled = raw in ('1', 'true', 'on', 'yes')
+                Setting.set('MS_ENABLED', '1' if ms_enabled else '0')
+            if any(k in request.form for k in ('ftp_enabled','ftp_host','ftp_port','ftp_user','ftp_pass','ftp_base','ftp_subdir')):
+                raw_enabled = (request.form.get('ftp_enabled') or '').strip().lower()
+                enabled = raw_enabled in ('1', 'true', 'on', 'yes') if 'ftp_enabled' in request.form else ((Setting.get('FTP_ENABLED','0') or '0') in ('1','true','on','yes'))
+                host = (request.form.get('ftp_host') or Setting.get('FTP_HOST','')).strip()
+                port_raw = (request.form.get('ftp_port') or Setting.get('FTP_PORT','21')).strip() or '21'
+                user = (request.form.get('ftp_user') or Setting.get('FTP_USER','')).strip()
+                pwd = (request.form.get('ftp_pass') or '').strip()
+                base = (request.form.get('ftp_base') or Setting.get('FTP_BASE_DIR','')).strip()
+                subdir = (request.form.get('ftp_subdir') or Setting.get('FTP_SUBDIR','HDWish Data')).strip() or 'HDWish Data'
+                try:
+                    port = int(port_raw)
+                    if port <= 0:
+                        port = 21
+                except Exception:
+                    port = 21
+                Setting.set('FTP_ENABLED', '1' if enabled else '0')
+                Setting.set('FTP_HOST', host)
+                Setting.set('FTP_PORT', str(port))
+                Setting.set('FTP_USER', user)
+                if pwd:
+                    Setting.set('FTP_PASS', pwd)
+                Setting.set('FTP_BASE_DIR', base)
+                Setting.set('FTP_SUBDIR', subdir)
+            flash('Ticket Import settings saved.', 'success')
     except Exception:
         flash('Failed to save settings.', 'danger')
     return redirect(url_for('admin.index'))

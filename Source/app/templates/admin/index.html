@@ -179,6 +179,7 @@
           <h6 class="fw-semibold">Microsoft Graph Settings</h6>
           <form method="post" action="{{ url_for('admin.ftp_settings') }}" class="mb-2">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="form_section" value="ms">
             <div class="form-check form-switch mb-3">
               <input class="form-check-input" type="checkbox" id="msEnabled" name="ms_enabled" {% if settings.ms_enabled %}checked{% endif %}>
               <label class="form-check-label" for="msEnabled">Enable MS Graph email import</label>
@@ -218,6 +219,7 @@
           <h6 class="fw-semibold">FTP Import (HDWish)</h6>
           <form method="post" action="{{ url_for('admin.ftp_settings') }}" class="mb-2">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="form_section" value="ftp">
             <div class="form-check form-switch mb-3">
               <input class="form-check-input" type="checkbox" id="ftpEnabled" name="ftp_enabled" {% if settings.ftp_enabled %}checked{% endif %}>
               <label class="form-check-label" for="ftpEnabled">Enable FTP ticket import</label>
