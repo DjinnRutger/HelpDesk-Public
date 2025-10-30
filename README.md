@@ -4,6 +4,15 @@ A Flask-based HelpDesk and lightweight purchasing app using SQLite + SQLAlchemy,
 
 If running from executible jump to end of readme
 
+## Security & Safety
+This app is compiled into a single executable for easy deployment. We've scanned the latest release (1.2.1) with VirusTotal (68 engines) and it came back **clean with 0 detections**!
+
+- [View Full VirusTotal Report](https://www.virustotal.com/gui/file/54d8601fdc44e8c65b8daf49fe032b3bf123325fac4d1d0f8024184bd9bdcd25?nocache=1)
+- SHA-256 Hash: `54d8601fdc44e8c65b8daf49fe032b3bf123325fac4d1d0f8024184bd9bdcd25` (for verification)
+
+We recommend users verify downloads themselves via VT for peace of mind.
+
+
 ## Features	
 
 - **Tickets**: Email ingestion via Microsoft Graph, dashboard, notes, attachments, processes, tasks, scheduled recurring tickets
