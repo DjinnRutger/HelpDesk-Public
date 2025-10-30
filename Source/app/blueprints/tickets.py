@@ -148,17 +148,19 @@ def new_ticket():
 
     if form.validate_on_submit():
         # Upsert contact if requester provided
+        c = None
         if form.requester.data:
             email = form.requester.data.strip().lower()
             c = Contact.query.filter_by(email=email).first()
             if not c:
                 c = Contact(email=email)
                 db.session.add(c)
-            # We don't have a separate requester name on manual form; keep email-only
+            # We don't have a separate requester name on manual form; use Contact name if present
         t = Ticket(
             subject=form.subject.data,
             requester=form.requester.data,
             requester_email=form.requester.data,
+            requester_name=(c.name if c and c.name else None),
             body=form.body.data,
             status=form.status.data,
             priority=form.priority.data or 'medium',
@@ -237,7 +239,11 @@ def show_ticket(ticket_id):
                 c = Contact(email=new_req)
                 db.session.add(c)
                 db.session.flush()
+            # Update ticket snapshot fields so UI reflects the change consistently
             t.requester_email = new_req
+            # Prefer the contact's name if available; otherwise clear to fall back to email
+            t.requester_name = (c.name or None)
+            # Keep legacy requester in sync with email for backwards-compatibility
             t.requester = new_req
             db.session.commit()
             flash('Requester updated', 'success')
