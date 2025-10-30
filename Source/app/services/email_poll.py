@@ -3,7 +3,7 @@ import time
 from datetime import datetime, timezone
 from flask import current_app
 from .. import db
-from ..models import Ticket, Setting, AllowedDomain, TicketAttachment, Contact, DenyFilter, TicketNote, User, EmailCheck, EmailCheckEntry
+from ..models import Ticket, Setting, AllowedDomain, TicketAttachment, Contact, DenyFilter, TicketNote, User, EmailCheck, EmailCheckEntry, Asset
 from .ms_graph import (
     get_msal_app,
     get_access_token,
@@ -18,6 +18,8 @@ from pathlib import Path
 import re
 import html as _html
 import bleach
+import ftplib
+from io import BytesIO
 
 
 def _html_to_text_lite(html: str) -> str:
@@ -133,26 +135,38 @@ def poll_ms_graph(app=None):
         return
 
     try:
-        msal_app = get_msal_app()
-        user_email = Setting.get("MS_USER_EMAIL", None) or os.getenv("MS_USER_EMAIL")
-        if not msal_app or not user_email:
-            result_status = "missing_config"
-            if logger:
-                logger.info("email_poll: missing config (client or mailbox); aborting")
-            return
-        token = get_access_token(msal_app)
-        if not token:
-            result_status = "no_token"
-            if logger:
-                logger.warning("email_poll: could not acquire token")
-            return
-        messages = get_unread_messages(token, user_email)
-        # Start email check log
-        check = EmailCheck(checked_at=datetime.utcnow(), new_count=len(messages))
+        # Determine which services are enabled
+        ms_enabled = (Setting.get('MS_ENABLED', '1') or '1') in ('1','true','on','yes')
+        # Create an EmailCheck row up front so FTP-only runs still have a place to log
+        check = EmailCheck(checked_at=datetime.utcnow(), new_count=0)
         db.session.add(check)
-        db.session.commit()  # ensure ID for entries
-        # If no messages, add an informational entry for visibility
-        if not messages:
+        db.session.commit()
+
+        messages = []
+        token = None
+        user_email = None
+        if ms_enabled:
+            msal_app = get_msal_app()
+            user_email = Setting.get("MS_USER_EMAIL", None) or os.getenv("MS_USER_EMAIL")
+            if msal_app and user_email:
+                token = get_access_token(msal_app)
+                if token:
+                    messages = get_unread_messages(token, user_email) or []
+                    # Update check with message count
+                    try:
+                        check.new_count = len(messages)
+                        db.session.commit()
+                    except Exception:
+                        db.session.rollback()
+                else:
+                    if logger:
+                        logger.warning("email_poll: could not acquire token; skipping MS Graph")
+            else:
+                if logger:
+                    logger.info("email_poll: MS disabled or missing config; skipping MS Graph")
+
+        # If MS enabled and we had no messages, add a 'none' log for visibility
+        if ms_enabled and not messages:
             try:
                 db.session.add(EmailCheckEntry(check_id=check.id, sender='', subject='No New Messages', action='none', ticket_id=None, note=''))
                 db.session.commit()
@@ -165,7 +179,7 @@ def poll_ms_graph(app=None):
         deny_phrases = [d.phrase.lower() for d in DenyFilter.query.all()]
 
         if logger:
-            logger.info("email_poll: start messages=%d interval=%ds max_runtime=%ds", len(messages), interval_setting, max_runtime)
+            logger.info("email_poll: start messages=%d interval=%ds max_runtime=%ds (ms_enabled=%s)", len(messages), interval_setting, max_runtime, str(ms_enabled))
 
         for idx, m in enumerate(messages):
             if (time.time() - start_ts) > max_runtime:
@@ -286,6 +300,12 @@ def poll_ms_graph(app=None):
                                 target.write_bytes(data)
                                 rel_path = f"{subdir}/{existing.id}/{target.name}"
                                 db.session.add(TicketAttachment(ticket_id=existing.id, filename=target.name, content_type=ctype, static_path=rel_path, size_bytes=len(data)))
+                            # If no files were saved, remove the empty attachment directory
+                            try:
+                                if save_dir.exists() and not any(save_dir.iterdir()):
+                                    save_dir.rmdir()
+                            except Exception:
+                                pass
                         except Exception:
                             pass
                         notes_created += 1
@@ -404,9 +424,32 @@ def poll_ms_graph(app=None):
                     # Build a URL path with forward slashes for static serving
                     rel_path = f"{subdir}/{t.id}/{target.name}"
                     db.session.add(TicketAttachment(ticket_id=t.id, filename=target.name, content_type=ctype, static_path=rel_path, size_bytes=len(data)))
+                # If no files were saved, remove the empty attachment directory
+                try:
+                    if save_dir.exists() and not any(save_dir.iterdir()):
+                        save_dir.rmdir()
+                except Exception:
+                    pass
             except Exception:
                 # Don’t fail the whole cycle on attachment issues
                 pass
+
+        # After processing email, optionally poll FTP (HDWish)
+        try:
+            ftp_enabled = (Setting.get('FTP_ENABLED', '0') or '0') in ('1','true','on','yes')
+        except Exception:
+            ftp_enabled = False
+        if ftp_enabled:
+            try:
+                created_ftp = _poll_ftp_and_import(check)
+                tickets_created += (created_ftp or 0)
+            except Exception as _e:
+                # Log a failure entry for visibility
+                try:
+                    db.session.add(EmailCheckEntry(check_id=check.id, sender='', subject='FTP Import Error', action='error', ticket_id=None, note=str(_e)))
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
 
         if tickets_created or notes_created:
             db.session.commit()
@@ -453,6 +496,206 @@ def poll_ms_graph(app=None):
                 logger.warning("email_poll: failed to record metrics / release lock")
         if ctx is not None:
             ctx.pop()
+
+
+def _poll_ftp_and_import(check_row: EmailCheck) -> int:
+    """Poll configured FTP for HDWish ticket folders and import them.
+
+    Returns count of tickets created.
+    """
+    host = Setting.get('FTP_HOST', '')
+    try:
+        port = int(Setting.get('FTP_PORT', '21') or '21')
+    except Exception:
+        port = 21
+    user = Setting.get('FTP_USER', '') or 'anonymous'
+    pwd = Setting.get('FTP_PASS', '') or ''
+    base = (Setting.get('FTP_BASE_DIR', '') or '').strip()
+    subdir = (Setting.get('FTP_SUBDIR', 'HDWish Data') or 'HDWish Data').strip()
+    if not host:
+        return 0
+    ftp = ftplib.FTP()
+    ftp.connect(host, port, timeout=15)
+    ftp.login(user=user, passwd=pwd)
+    # Navigate to base/subdir
+    if base:
+        ftp.cwd(base)
+    if subdir:
+        ftp.cwd(subdir)
+
+    # Helper to check if name is directory by attempting cwd
+    def is_dir(name: str) -> bool:
+        cur = ftp.pwd()
+        try:
+            ftp.cwd(name)
+            ftp.cwd(cur)
+            return True
+        except Exception:
+            try:
+                ftp.cwd(cur)
+            except Exception:
+                pass
+            return False
+
+    folders = ftp.nlst()
+    created = 0
+    for folder in folders:
+        # Ignore obvious files
+        if '.' in (folder or ''):
+            continue
+        if not is_dir(folder):
+            continue
+        # Unique external_id for dedupe
+        external_id = f"ftp://{host}/{(base + '/' if base else '')}{subdir}/{folder}"
+        if Ticket.query.filter_by(external_id=external_id).first():
+            try:
+                db.session.add(EmailCheckEntry(check_id=check_row.id, sender='', subject=folder, action='duplicate', ticket_id=None, note='FTP folder already imported'))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+            continue
+        # Enter folder and find note.txt (case-insensitive)
+        ftp.cwd(folder)
+        items = ftp.nlst()
+        notes_name = None
+        for nm in items:
+            if nm.lower() == 'note.txt':
+                notes_name = nm
+                break
+        if not notes_name:
+            # No notes file; skip folder
+            ftp.cwd('..')
+            try:
+                db.session.add(EmailCheckEntry(check_id=check_row.id, sender='', subject=folder, action='skip', ticket_id=None, note='No note.txt'))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+            continue
+        # Download note.txt
+        buf = BytesIO()
+        ftp.retrbinary(f'RETR {notes_name}', buf.write)
+        text = buf.getvalue().decode('utf-8', errors='replace')
+        lines = [ln.strip() for ln in text.splitlines()]
+        requester_email = (lines[0] if len(lines) >= 1 else '').strip()
+        serial_no = (lines[1] if len(lines) >= 2 else '').strip()
+        rest = '\n'.join(lines[2:]) if len(lines) > 2 else ''
+        subject = (lines[2].strip() if len(lines) >= 3 and lines[2].strip() else f"HDWish submission ({folder})")
+        # Upsert contact
+        contact = None
+        if requester_email:
+            contact = Contact.query.filter_by(email=requester_email.lower()).first()
+            if not contact:
+                contact = Contact(email=requester_email.lower())
+                db.session.add(contact)
+        # Build body as simple HTML
+        body_html = _html.escape(rest or '').replace('\n', '<br>') if rest else '(no details)'
+        t = Ticket(
+            external_id=external_id,
+            subject=subject,
+            requester=requester_email,
+            requester_email=requester_email,
+            requester_name=getattr(contact, 'name', None),
+            body=body_html,
+            status='open',
+            priority='medium',
+            source='ftp'
+        )
+        # Attempt asset match by serial number
+        try:
+            if serial_no:
+                a = Asset.query.filter_by(serial_number=serial_no).first()
+                if a:
+                    t.asset_id = a.id
+        except Exception:
+            pass
+        db.session.add(t)
+        db.session.flush()
+        
+        # Delete note.txt from FTP after successful ticket creation
+        try:
+            ftp.delete(notes_name)
+        except Exception:
+            pass
+        
+        # Download images as attachments (if any exist)
+        try:
+            subdir_rel = (Setting.get('ATTACHMENTS_DIR_REL', 'attachments') or 'attachments').strip()
+            subdir_rel = subdir_rel.replace('\\','/').lstrip('/') or 'attachments'
+            base_loc = (Setting.get('ATTACHMENTS_BASE', 'instance') or 'instance').strip().lower()
+            root = current_app.static_folder if base_loc == 'static' else current_app.instance_path
+            save_dir = Path(root) / subdir_rel / str(t.id)
+            save_dir.mkdir(parents=True, exist_ok=True)
+            exts = ('.png','.jpg','.jpeg','.gif','.bmp')
+            for nm in items:
+                if nm.lower() == notes_name.lower():
+                    continue
+                if not nm.lower().endswith(exts):
+                    continue
+                out = BytesIO()
+                ftp.retrbinary(f'RETR {nm}', out.write)
+                data = out.getvalue()
+                if not data:
+                    continue
+                target = save_dir / nm
+                i = 1
+                while target.exists():
+                    stem = Path(nm).stem
+                    suffix = Path(nm).suffix
+                    target = save_dir / f"{stem}_{i}{suffix}"
+                    i += 1
+                target.write_bytes(data)
+                rel_path = f"{subdir_rel}/{t.id}/{target.name}"
+                db.session.add(TicketAttachment(ticket_id=t.id, filename=target.name, content_type='', static_path=rel_path, size_bytes=len(data)))
+                # Remove image from FTP after successful import of this file
+                try:
+                    ftp.delete(nm)
+                except Exception:
+                    pass
+            # If no files were saved, remove the empty attachment directory
+            try:
+                if save_dir.exists() and not any(save_dir.iterdir()):
+                    save_dir.rmdir()
+            except Exception:
+                pass
+        except Exception:
+            pass
+        # Log creation
+        try:
+            db.session.add(EmailCheckEntry(check_id=check_row.id, sender=requester_email or '', subject=subject or folder, action='new_ticket', ticket_id=t.id, note='FTP import'))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+        created += 1
+        # After successful import, delete the ticket folder on the FTP server
+        try:
+            # Delete any remaining files in the folder (note.txt already deleted above, but check for any stragglers)
+            try:
+                remaining = ftp.nlst()
+                for nm in remaining:
+                    try:
+                        ftp.delete(nm)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            # Move up one level and delete the now-empty ticket folder
+            ftp.cwd('..')
+            try:
+                ftp.rmd(folder)
+            except Exception:
+                pass
+        except Exception:
+            # If cleanup fails, ensure we're back at the parent directory
+            try:
+                ftp.cwd('..')
+            except Exception:
+                pass
+
+    try:
+        ftp.quit()
+    except Exception:
+        pass
+    return created
 
 
 def email_poll_watchdog(app=None):

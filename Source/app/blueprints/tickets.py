@@ -823,7 +823,22 @@ def delete_ticket(ticket_id):
         flash('Ticket cannot be deleted (must have no notes, no order items, and no assignee). Close it instead.', 'danger')
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
     # Hard delete (cascades remove tasks, processes, etc.)
+    # Also remove attachment files from disk if present
     try:
+        # Attempt to remove attachments directory: base/subdir/<ticket_id>
+        try:
+            from ..models import Setting
+            import os, shutil
+            subdir = (Setting.get('ATTACHMENTS_DIR_REL', 'attachments') or 'attachments').strip()
+            subdir = subdir.replace('\\','/').lstrip('/') or 'attachments'
+            base = (Setting.get('ATTACHMENTS_BASE', 'instance') or 'instance').strip().lower()
+            root = current_app.static_folder if base == 'static' else current_app.instance_path
+            ticket_dir = os.path.join(root, subdir, str(t.id))
+            if os.path.isdir(ticket_dir):
+                shutil.rmtree(ticket_dir, ignore_errors=True)
+        except Exception:
+            # Do not block deletion if filesystem cleanup fails
+            pass
         db.session.delete(t)
         db.session.commit()
         flash('Ticket deleted', 'success')

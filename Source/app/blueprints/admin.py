@@ -13,6 +13,7 @@ import shutil
 from datetime import datetime
 import os
 import requests
+import ftplib
 
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
@@ -39,6 +40,14 @@ def index():
         'client_id': Setting.get('MS_CLIENT_ID', ''),
         'tenant_id': Setting.get('MS_TENANT_ID', ''),
         'user_email': Setting.get('MS_USER_EMAIL', ''),
+        'ms_enabled': (Setting.get('MS_ENABLED', '1') or '1') in ('1','true','on','yes'),
+        # FTP (HDWish) settings surfaced in Ticket Import modal
+        'ftp_enabled': (Setting.get('FTP_ENABLED', '0') or '0') in ('1','true','on','yes'),
+        'ftp_host': Setting.get('FTP_HOST', ''),
+        'ftp_port': Setting.get('FTP_PORT', '21'),
+        'ftp_user': Setting.get('FTP_USER', ''),
+        'ftp_base': Setting.get('FTP_BASE_DIR', ''),
+        'ftp_subdir': Setting.get('FTP_SUBDIR', 'HDWish Data'),
     }
     techs = User.query.order_by(User.created_at.desc()).all()
     templates = ProcessTemplate.query.order_by(ProcessTemplate.name.asc()).all()
@@ -1074,6 +1083,89 @@ def msgraph():
             flash('Connection test failed: could not acquire token.', 'danger')
         return redirect(url_for('admin.msgraph'))
     return render_template('admin/msgraph.html', form=form)
+
+
+@admin_bp.route('/ftp_settings', methods=['POST'])
+@login_required
+def ftp_settings():
+    """Save Ticket Import settings (MS enable toggle + FTP settings)."""
+    # MS Graph enable toggle
+    ms_enabled = bool(request.form.get('ms_enabled'))
+    enabled = bool(request.form.get('ftp_enabled'))
+    host = (request.form.get('ftp_host') or '').strip()
+    port_raw = (request.form.get('ftp_port') or '').strip() or '21'
+    user = (request.form.get('ftp_user') or '').strip()
+    pwd = (request.form.get('ftp_pass') or '').strip()
+    base = (request.form.get('ftp_base') or '').strip()
+    subdir = (request.form.get('ftp_subdir') or '').strip() or 'HDWish Data'
+    # Basic validation
+    try:
+        port = int(port_raw)
+        if port <= 0:
+            port = 21
+    except Exception:
+        port = 21
+    try:
+        Setting.set('MS_ENABLED', '1' if ms_enabled else '0')
+        Setting.set('FTP_ENABLED', '1' if enabled else '0')
+        Setting.set('FTP_HOST', host)
+        Setting.set('FTP_PORT', str(port))
+        Setting.set('FTP_USER', user)
+        # Store password if provided; allow leaving blank to keep existing
+        if pwd:
+            Setting.set('FTP_PASS', pwd)
+        Setting.set('FTP_BASE_DIR', base)
+        Setting.set('FTP_SUBDIR', subdir)
+        flash('Ticket Import settings saved.', 'success')
+    except Exception:
+        flash('Failed to save settings.', 'danger')
+    return redirect(url_for('admin.index'))
+
+
+@admin_bp.route('/ftp_test', methods=['POST'])
+@login_required
+def ftp_test():
+    """Test the FTP connection using saved settings and attempt to list the HDWish folder."""
+    try:
+        host = Setting.get('FTP_HOST', '')
+        port = int(Setting.get('FTP_PORT', '21') or '21')
+        user = Setting.get('FTP_USER', '')
+        pwd = Setting.get('FTP_PASS', '')
+        base = (Setting.get('FTP_BASE_DIR', '') or '').strip()
+        subdir = (Setting.get('FTP_SUBDIR', 'HDWish Data') or 'HDWish Data').strip()
+        if not host:
+            flash('FTP host is required. Save settings first.', 'danger')
+            return redirect(url_for('admin.index'))
+        ftp = ftplib.FTP()
+        ftp.connect(host, port, timeout=10)
+        ftp.login(user=user or 'anonymous', passwd=pwd or '')
+        # Navigate to base/subdir if provided
+        if base:
+            ftp.cwd(base)
+        if subdir:
+            ftp.cwd(subdir)
+        # Try listing entries
+        entries = ftp.nlst()
+        ftp.quit()
+        flash(f'FTP test succeeded. Found {len(entries)} item(s) under {base}/{subdir}.', 'success')
+    except Exception as e:
+        try:
+            ftp.quit()
+        except Exception:
+            pass
+        flash(f'FTP test failed: {e}', 'danger')
+    return redirect(url_for('admin.index'))
+
+
+@admin_bp.route('/import_check_now', methods=['POST'])
+@login_required
+def import_check_now():
+    """Run an immediate Ticket Import for enabled services (MS Graph and/or FTP)."""
+    # We reuse poll_ms_graph, which respects MS_ENABLED and FTP_ENABLED and will skip
+    # MS processing if disabled/misconfigured while still running FTP if enabled.
+    poll_ms_graph()
+    flash('Ticket import run completed.', 'success')
+    return redirect(url_for('admin.index'))
 
 
 # --- Documents: Categories management ---
