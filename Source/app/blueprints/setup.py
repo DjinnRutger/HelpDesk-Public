@@ -173,6 +173,7 @@ def restore_database():
                 ensure_user_columns,
                 ensure_ticket_process_item_columns,
                 ensure_ticket_note_columns,
+                ensure_po_note_table,
                 ensure_order_tables,
                 ensure_company_shipping_tables,
                 ensure_documents_tables,
@@ -183,6 +184,7 @@ def restore_database():
             ensure_user_columns(db.engine)
             ensure_ticket_process_item_columns(db.engine)
             ensure_ticket_note_columns(db.engine)
+            ensure_po_note_table(db.engine)
             ensure_order_tables(db.engine)
             ensure_company_shipping_tables(db.engine)
             ensure_documents_tables(db.engine)

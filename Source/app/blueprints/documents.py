@@ -101,6 +101,37 @@ def api_search():
     return jsonify([{ 'id': d.id, 'name': d.name } for d in docs])
 
 
+@documents_bp.route('/search')
+@login_required
+def search():
+    """Search documents by name and content"""
+    q = (request.args.get('q') or '').strip()
+    results = []
+    if q:
+        # Search in both name and body fields
+        search_pattern = f'%{q}%'
+        results = Document.query.filter(
+            db.or_(
+                Document.name.ilike(search_pattern),
+                Document.body.ilike(search_pattern)
+            )
+        ).order_by(Document.name.asc()).all()
+    
+    # Get categories for each result
+    result_data = []
+    for doc in results:
+        cat = DocumentCategory.query.get(doc.category_id)
+        result_data.append({
+            'doc': doc,
+            'category': cat
+        })
+    
+    return render_template('documents/search_results.html', 
+                         query=q, 
+                         results=result_data,
+                         result_count=len(results))
+
+
 @documents_bp.route('/api/body/<int:doc_id>')
 @login_required
 def api_body(doc_id):

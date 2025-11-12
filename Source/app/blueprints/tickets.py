@@ -165,6 +165,7 @@ def new_ticket():
             status=form.status.data,
             priority=form.priority.data or 'medium',
             source=form.source.data or 'manual',
+            created_by_user_id=getattr(current_user, 'id', None),
             asset_id=(form.asset_id.data if form.asset_id.data else None) if form.asset_id.data != 0 else None
         )
         db.session.add(t)

@@ -330,6 +330,7 @@ def create_app():
     # Schedule email polling job (can be disabled for tests by setting DISABLE_SCHEDULER=1)
     if os.getenv("DISABLE_SCHEDULER") != "1":
         from .services.email_poll import poll_ms_graph, email_poll_watchdog
+        from .services.snooze_wakeup import process_wakeups
         from .models import ScheduledTicket, Ticket, TicketTask
         from datetime import datetime as _dt
         from zoneinfo import ZoneInfo as _Z
@@ -414,6 +415,12 @@ def create_app():
         # Watchdog runs every 5 minutes to clear stale locks
         try:
             scheduler.add_job(func=lambda: email_poll_watchdog(app), trigger="interval", minutes=5, id="email_poll_watchdog", replace_existing=True)
+        except Exception:
+            pass
+
+        # Check for snooze wake-ups every minute
+        try:
+            scheduler.add_job(func=lambda: process_wakeups(app), trigger="interval", minutes=1, id="snooze_wakeup", replace_existing=True)
         except Exception:
             pass
 

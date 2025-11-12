@@ -42,6 +42,17 @@
 
 <!-- Statistics Cards -->
 <div class="row g-3 mb-3">
+  <!-- Health Widget -->
+  <div class="col-md-3">
+    <div class="card shadow-sm h-100">
+      <div class="card-body text-center">
+        <i class="bi bi-heart-pulse text-{{ stats.health_class }} fs-1 mb-2"></i>
+        <div class="h2 mb-1" style="color: {{ stats.health_color }};">{{ stats.health }}</div>
+        <div class="text-muted small">Health</div>
+      </div>
+    </div>
+  </div>
+  <!-- Total Open Tickets Widget -->
   <div class="col-md-3">
     <div class="card shadow-sm h-100">
       <div class="card-body text-center">
@@ -51,24 +62,30 @@
       </div>
     </div>
   </div>
+  <!-- Leaders Widget -->
   <div class="col-md-3">
     <div class="card shadow-sm h-100">
-      <div class="card-body text-center">
-        <i class="bi bi-person-check text-success fs-1 mb-2"></i>
-        <div class="h2 mb-1">{{ stats.my_open }}</div>
-        <div class="text-muted small">My Open Tickets</div>
+      <div class="card-body">
+        <div class="text-center mb-2">
+          <i class="bi bi-trophy text-warning fs-1"></i>
+          <div class="text-muted small mt-1">Leaders (This Week)</div>
+        </div>
+        <div class="small">
+          {% if stats.leaders %}
+            {% for leader in stats.leaders %}
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <span class="text-truncate" style="max-width: 120px;">{{ leader.name }}</span>
+                <span class="badge text-bg-success">{{ leader.closed_count }}</span>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="text-center text-muted fst-italic">No data yet</div>
+          {% endif %}
+        </div>
       </div>
     </div>
   </div>
-  <div class="col-md-3">
-    <div class="card shadow-sm h-100">
-      <div class="card-body text-center">
-        <i class="bi bi-person-x text-warning fs-1 mb-2"></i>
-        <div class="h2 mb-1">{{ stats.unassigned }}</div>
-        <div class="text-muted small">Unassigned Tickets</div>
-      </div>
-    </div>
-  </div>
+  <!-- Active Projects Widget -->
   <div class="col-md-3">
     <div class="card shadow-sm h-100">
       <div class="card-body text-center">

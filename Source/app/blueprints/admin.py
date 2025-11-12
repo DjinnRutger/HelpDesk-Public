@@ -143,9 +143,11 @@ def email_logs():
     q = (request.args.get('q') or '').strip()
     action = (request.args.get('action') or '').strip().lower()
     # Optional toggle to hide "No new messages" rows (action == 'none')
+    # Default: ON (hide entries with action == 'none' unless explicitly disabled)
     hide_none_raw = request.args.get('hide_none')
-    hide_none = False
-    if hide_none_raw is not None:
+    if hide_none_raw is None:
+        hide_none = True
+    else:
         val = (str(hide_none_raw) or '').strip().lower()
         hide_none = val in ('1', 'true', 'yes', 'on') or hide_none_raw == ''
     try:
@@ -185,6 +187,9 @@ def email_logs():
     ql = q.lower()
     if action:
         query = query.filter(EmailCheckEntry.action.ilike(action))
+    # If explicitly filtering to action "none", do not hide them regardless of toggle
+    if action == 'none':
+        hide_none = False
     # Apply hide-none filter
     if hide_none:
         query = query.filter(

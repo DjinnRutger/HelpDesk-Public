@@ -72,3 +72,14 @@ On first run the following directories are created if not presant:
 - Databases - Main Database folder
 
 to upgrade to newest version, backup your database then remove HelpfulDjinn.exe. copy new HelpfulDjinn.exe and run. System will update database (if applicable) and start.
+
+## Snoozed Tickets Wake-up Notifications
+
+When a ticket is snoozed, it is hidden until the selected date/time. A background job runs every minute and:
+- Detects tickets whose snooze time has arrived
+- Clears the snooze so they appear again
+- Sends an email to the assigned tech (if any) letting them know the ticket is active again
+
+Notes:
+- Email delivery uses Microsoft Graph. Configure MS_CLIENT_ID, MS_CLIENT_SECRET, MS_TENANT_ID, and MS_USER_EMAIL in Admin > Email Settings (or environment variables).
+- If no tech is assigned, the ticket is simply unsnoozed with a private system note.

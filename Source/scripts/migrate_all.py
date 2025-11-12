@@ -4,8 +4,10 @@ from app.utils.db_migrate import (
     ensure_user_columns,
     ensure_ticket_process_item_columns,
     ensure_ticket_note_columns,
+    ensure_po_note_table,
     ensure_project_table,
     ensure_ticket_task_table,
+    ensure_order_tables,
 )
 
 
@@ -16,8 +18,10 @@ def main():
         ensure_user_columns(db.engine)
         ensure_ticket_process_item_columns(db.engine)
         ensure_ticket_note_columns(db.engine)
+        ensure_po_note_table(db.engine)
         ensure_project_table(db.engine)
         ensure_ticket_task_table(db.engine)
+        ensure_order_tables(db.engine)
         print("DB migrations applied.")
 
 

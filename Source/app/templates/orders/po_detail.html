@@ -54,7 +54,17 @@
             <tbody>
               {% for it in po.items %}
               <tr id="item-{{ it.id }}">
-                <td>{{ it.description }}</td>
+                <td>
+                  {{ it.description }}
+                  {% if it.ticket_id %}
+                  <div class="small text-muted mt-1">
+                    From ticket
+                    <a href="{{ url_for('tickets.show_ticket', ticket_id=it.ticket_id) }}" class="text-decoration-none">
+                      <i class="bi bi-link-45deg"></i>#{{ it.ticket_id }}
+                    </a>
+                  </div>
+                  {% endif %}
+                </td>
                 <td>{{ it.quantity }}</td>
                 <td>{% if it.est_unit_cost %}${{ '%.2f'|format(it.est_unit_cost) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
                 <td>{% if it.est_unit_cost %}<strong>${{ '%.2f'|format(it.est_unit_cost * it.quantity) }}</strong>{% else %}<span class="text-muted">—</span>{% endif %}</td>
@@ -177,7 +187,7 @@
       </div>
     </div>
 
-    <!-- Notes -->
+    <!-- Notes (Draft only: simple notes field) -->
     <div class="card shadow-sm">
       <div class="card-header bg-body-tertiary">
         <h6 class="mb-0"><i class="bi bi-chat-left-text me-1"></i>Notes</h6>
@@ -194,14 +204,110 @@
     </div>
     {% endif %}
     
-    {% if po.status != 'draft' and (po.notes or '') %}
-    <!-- Notes Display -->
-    <div class="card shadow-sm">
+    {% if po.status != 'draft' %}
+    <!-- Order Notes (from draft; included on PDF) -->
+    {% if po.notes %}
+    <div class="card shadow-sm mb-3">
       <div class="card-header bg-body-tertiary">
-        <h6 class="mb-0"><i class="bi bi-chat-left-text me-1"></i>Notes</h6>
+        <h6 class="mb-0"><i class="bi bi-sticky me-1"></i>Order Notes</h6>
       </div>
       <div class="card-body">
         <div class="white-space-pre-wrap">{{ po.notes }}</div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- PO Reference Notes: list and add (like ticket notes) -->
+    <div class="card shadow-sm mb-3" id="po-notes">
+      <div class="card-header bg-body-tertiary">
+        <div class="d-flex align-items-center gap-2">
+          <h6 class="mb-0"><i class="bi bi-chat-dots me-1"></i>Notes</h6>
+          <span class="badge bg-secondary">{{ notes|length }}</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <ul class="list-group list-group-flush" id="notes">
+          {% if notes and notes|length > 0 %}
+            {% for n in notes %}
+            <li class="list-group-item">
+              <div class="d-flex align-items-center gap-2 mb-2">
+                <div class="small text-muted">
+                  <i class="bi bi-person me-1"></i>{{ n.author.name if n.author else 'System' }}
+                  · <i class="bi bi-clock me-1"></i>{{ n.created_at|cst_datetime }}
+                  {% if n.is_private %}<span class="badge rounded-pill text-bg-secondary ms-2">Private</span>{% endif %}
+                </div>
+                {% if n.author_id == (current_user.id if current_user else -1) or (current_user and current_user.role=='admin') %}
+                <button type="button" class="btn btn-sm btn-outline-secondary ms-auto note-edit-btn" title="Edit note"
+                  data-note-id="{{ n.id }}">
+                  <i class="bi bi-pencil"></i>
+                </button>
+                {% endif %}
+              </div>
+              <div class="border rounded p-2 bg-body-tertiary note-content" data-note-id="{{ n.id }}">{{ n.content|safe }}</div>
+            </li>
+            {% endfor %}
+          {% else %}
+            <li class="list-group-item text-muted">No notes yet.</li>
+          {% endif %}
+        </ul>
+      </div>
+    </div>
+
+    <!-- Add Note -->
+    <div class="card shadow-sm mb-4">
+      <div class="card-header bg-body-tertiary">
+        <h6 class="mb-0"><i class="bi bi-plus-circle me-1"></i>Add Note</h6>
+      </div>
+      <div class="card-body position-relative">
+        <form method="post" id="noteForm" action="{{ url_for('orders.add_po_note', po_id=po.id) }}">
+          {{ note_form.hidden_tag() }}
+          <div class="mb-2 d-flex gap-2">
+            <div class="btn-group" role="group" aria-label="Editor toolbar">
+              <button type="button" class="btn btn-outline-secondary" id="noteBoldBtn" title="Bold"><i class="bi bi-type-bold"></i></button>
+              <button type="button" class="btn btn-outline-secondary" id="noteItalicBtn" title="Italic"><i class="bi bi-type-italic"></i></button>
+              <button type="button" class="btn btn-outline-secondary" id="noteUlBtn" title="Bulleted list"><i class="bi bi-list-ul"></i></button>
+              <button type="button" class="btn btn-outline-secondary" id="noteOlBtn" title="Numbered list"><i class="bi bi-list-ol"></i></button>
+              <button type="button" class="btn btn-outline-secondary" id="noteLinkBtn" title="Insert link"><i class="bi bi-link-45deg"></i></button>
+            </div>
+          </div>
+          <div id="noteEditor" class="form-control" contenteditable="true" style="min-height: 140px;">{{ note_form.content.data or '' }}</div>
+          {{ note_form.content(class='d-none', rows=4, placeholder='Type your note...') }}
+          <div class="mt-3 d-flex gap-2">
+            {{ note_form.submit(class='btn btn-outline-primary flex-fill') }}
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Edit Note Modal -->
+    <div class="modal fade" id="editNoteModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Edit Note</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <form id="editNoteForm" method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="modal-body">
+              <div class="mb-2 d-flex gap-2">
+                <div class="btn-group" role="group" aria-label="Editor toolbar">
+                  <button type="button" class="btn btn-outline-secondary" id="enoteBoldBtn" title="Bold"><i class="bi bi-type-bold"></i></button>
+                  <button type="button" class="btn btn-outline-secondary" id="enoteItalicBtn" title="Italic"><i class="bi bi-type-italic"></i></button>
+                  <button type="button" class="btn btn-outline-secondary" id="enoteUlBtn" title="Bulleted list"><i class="bi bi-list-ul"></i></button>
+                  <button type="button" class="btn btn-outline-secondary" id="enoteOlBtn" title="Numbered list"><i class="bi bi-list-ol"></i></button>
+                  <button type="button" class="btn btn-outline-secondary" id="enoteLinkBtn" title="Insert link"><i class="bi bi-link-45deg"></i></button>
+                </div>
+              </div>
+              <div id="editNoteEditor" class="form-control" contenteditable="true" style="min-height: 140px;"></div>
+              <textarea name="content" class="d-none" id="editNoteHidden"></textarea>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+              <button type="submit" class="btn btn-primary">Save Changes</button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
     {% endif %}
@@ -398,5 +504,91 @@ document.addEventListener('click', function(e){
   document.getElementById('editDeptCode').value = dept;
   form.action = '/orders/items/' + id + '/edit';
 });
+
+// --- Notes editor behaviors (PO) ---
+(() => {
+  const PO_ID = "{{ po.id }}";
+  const form = document.getElementById('noteForm');
+  if (!form) return;
+  const editor = document.getElementById('noteEditor');
+  const hidden = form.querySelector('textarea[name="content"]');
+  const draftKey = 'poNoteDraft:' + PO_ID;
+
+  function syncHidden() {
+    hidden.value = editor.innerHTML;
+  }
+  editor.addEventListener('input', syncHidden);
+  form.addEventListener('submit', () => {
+    syncHidden();
+    try { localStorage.removeItem(draftKey); } catch (e) {}
+  });
+  // Restore draft
+  try {
+    const d = localStorage.getItem(draftKey);
+    if (d) { editor.innerHTML = d; syncHidden(); }
+  } catch (e) {}
+  // Save draft on change (debounced)
+  let tId;
+  editor.addEventListener('input', () => {
+    clearTimeout(tId);
+    tId = setTimeout(() => {
+      try { localStorage.setItem(draftKey, editor.innerHTML); } catch (e) {}
+    }, 300);
+  });
+  // Toolbar
+  function cmd(command, value=null) {
+    editor.focus();
+    document.execCommand(command, false, value);
+    syncHidden();
+  }
+  document.getElementById('noteBoldBtn')?.addEventListener('click', () => cmd('bold'));
+  document.getElementById('noteItalicBtn')?.addEventListener('click', () => cmd('italic'));
+  document.getElementById('noteUlBtn')?.addEventListener('click', () => cmd('insertUnorderedList'));
+  document.getElementById('noteOlBtn')?.addEventListener('click', () => cmd('insertOrderedList'));
+  document.getElementById('noteLinkBtn')?.addEventListener('click', () => {
+    const url = prompt('Link URL (https://...)');
+    if (url) cmd('createLink', url);
+  });
+})();
+
+// Edit note modal handlers
+(() => {
+  const editModalEl = document.getElementById('editNoteModal');
+  if (!editModalEl) return;
+  const editForm = document.getElementById('editNoteForm');
+  const editEditor = document.getElementById('editNoteEditor');
+  const editHidden = document.getElementById('editNoteHidden');
+
+  function syncEditHidden() { editHidden.value = editEditor.innerHTML; }
+  editEditor.addEventListener('input', syncEditHidden);
+
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.note-edit-btn');
+    if (!btn) return;
+    const nid = btn.getAttribute('data-note-id');
+    const contentEl = document.querySelector('.note-content[data-note-id="' + nid + '"]');
+    editEditor.innerHTML = contentEl ? contentEl.innerHTML : '';
+    syncEditHidden();
+    // Set form action
+    editForm.action = "{{ url_for('orders.edit_po_note', po_id=po.id, note_id=0) }}".replace('/0', '/' + nid);
+    const modal = new bootstrap.Modal(editModalEl);
+    modal.show();
+  });
+
+  // Edit toolbar
+  function ecmd(command, value=null) {
+    editEditor.focus();
+    document.execCommand(command, false, value);
+    syncEditHidden();
+  }
+  document.getElementById('enoteBoldBtn')?.addEventListener('click', () => ecmd('bold'));
+  document.getElementById('enoteItalicBtn')?.addEventListener('click', () => ecmd('italic'));
+  document.getElementById('enoteUlBtn')?.addEventListener('click', () => ecmd('insertUnorderedList'));
+  document.getElementById('enoteOlBtn')?.addEventListener('click', () => ecmd('insertOrderedList'));
+  document.getElementById('enoteLinkBtn')?.addEventListener('click', () => {
+    const url = prompt('Link URL (https://...)');
+    if (url) ecmd('createLink', url);
+  });
+})();
 </script>
 {% endblock %}

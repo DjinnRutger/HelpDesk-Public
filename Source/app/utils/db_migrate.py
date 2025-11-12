@@ -19,6 +19,7 @@ def ensure_ticket_columns(engine):
     'project_position': "INTEGER",
     'asset_id': "INTEGER",
     'snoozed_until': "DATETIME",
+    'created_by_user_id': "INTEGER",
     }
 
     with engine.connect() as conn:
@@ -98,6 +99,45 @@ def ensure_ticket_note_columns(engine):
         for col, coltype in required.items():
             if col not in existing:
                 conn.execute(text(f"ALTER TABLE ticket_note ADD COLUMN {col} {coltype}"))
+        conn.commit()
+
+
+def ensure_po_note_table(engine):
+    """Ensure the po_note table exists with required columns (including is_private).
+    Columns: id, po_id, author_id, content, is_private, created_at
+    """
+    with engine.connect() as conn:
+        # Create if missing
+        exists = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='po_note'"))\
+            .fetchone() is not None
+        if not exists:
+            conn.execute(text(
+                """
+                CREATE TABLE po_note (
+                    id INTEGER PRIMARY KEY,
+                    po_id INTEGER NOT NULL,
+                    author_id INTEGER,
+                    content TEXT NOT NULL,
+                    is_private BOOLEAN,
+                    created_at DATETIME
+                )
+                """
+            ))
+            conn.commit()
+            return
+        # Table exists: ensure columns added in upgrades
+        info = conn.execute(text("PRAGMA table_info('po_note')")).fetchall()
+        existing = {row[1] for row in info}
+        required = {
+            'po_id': 'INTEGER',
+            'author_id': 'INTEGER',
+            'content': 'TEXT',
+            'is_private': 'BOOLEAN',
+            'created_at': 'DATETIME',
+        }
+        for col, coltype in required.items():
+            if col not in existing:
+                conn.execute(text(f"ALTER TABLE po_note ADD COLUMN {col} {coltype}"))
         conn.commit()
 
 

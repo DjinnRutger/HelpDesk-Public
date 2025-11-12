@@ -1,12 +1,13 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request, abort, Response
-from flask_login import login_required
-from app.models import OrderItem, PurchaseOrder, Vendor, Company, ShippingLocation
+from flask_login import login_required, current_user
+from app.models import OrderItem, PurchaseOrder, Vendor, Company, ShippingLocation, PoNote
 from app import db
-from app.forms import OrderItemForm
+from app.forms import OrderItemForm, NoteForm
 from datetime import datetime
 import base64
 from sqlalchemy import func, cast, Integer
 from sqlalchemy.exc import IntegrityError
+import bleach
 
 orders_bp = Blueprint('orders', __name__, url_prefix='/orders')
 
@@ -166,7 +167,18 @@ def show_po(po_id):
     po = PurchaseOrder.query.get_or_404(po_id)
     companies = Company.query.order_by(Company.name.asc()).all()
     shipping = ShippingLocation.query.order_by(ShippingLocation.name.asc()).all()
-    return render_template('orders/po_detail.html', po=po, companies=companies, shipping=shipping)
+    notes = []
+    note_form = None
+    if po.status != 'draft':
+        from sqlalchemy.orm import joinedload
+        notes = (
+            PoNote.query.options(joinedload(PoNote.author))
+            .filter_by(po_id=po.id)
+            .order_by(PoNote.created_at.asc())
+            .all()
+        )
+        note_form = NoteForm()
+    return render_template('orders/po_detail.html', po=po, companies=companies, shipping=shipping, notes=notes, note_form=note_form)
 
 
 @orders_bp.route('/ticket/<int:ticket_id>/items')
@@ -359,6 +371,109 @@ def update_po_notes(po_id):
     po.notes = notes or None
     db.session.commit()
     flash('Notes saved', 'success')
+    return redirect(url_for('orders.show_po', po_id=po.id))
+
+
+@orders_bp.route('/po/<int:po_id>/notes/add', methods=['POST'])
+@login_required
+def add_po_note(po_id):
+    po = PurchaseOrder.query.get_or_404(po_id)
+    if po.status == 'draft':
+        flash('Notes for draft POs are edited in the Notes section.', 'warning')
+        return redirect(url_for('orders.show_po', po_id=po.id))
+    form = NoteForm()
+    if not form.validate_on_submit():
+        flash('Note content required.', 'danger')
+        return redirect(url_for('orders.show_po', po_id=po.id))
+    # Sanitize content similar to ticket notes
+    raw_content = form.content.data or ''
+    allowed_tags = [
+        'p', 'br', 'div', 'span', 'b', 'strong', 'i', 'em', 'u', 'ul', 'ol', 'li',
+        'h3', 'h4', 'h5', 'h6', 'a', 'table', 'thead', 'tbody', 'tr', 'th', 'td'
+    ]
+    allowed_attrs = {
+        'a': ['href', 'title', 'target', 'rel'],
+        'td': ['colspan', 'rowspan'],
+        'th': ['colspan', 'rowspan']
+    }
+    sanitized_html = bleach.clean(
+        raw_content,
+        tags=allowed_tags,
+        attributes=allowed_attrs,
+        protocols=['http', 'https', 'mailto'],
+        strip=True
+    )
+    def _set_target_rel(attrs, new=False):
+        href = attrs.get('href')
+        if href:
+            attrs['target'] = '_blank'
+            rel = attrs.get('rel', '') or ''
+            rel_vals = set(rel.split()) if rel else set()
+            rel_vals.update(['noopener', 'noreferrer'])
+            attrs['rel'] = ' '.join(sorted(rel_vals))
+        return attrs
+    sanitized_html = bleach.linkify(sanitized_html, callbacks=[_set_target_rel])
+    # All PO reference notes are internal; mark them private without UI.
+    is_private_flag = True
+    note = PoNote(
+        po_id=po.id,
+        author_id=getattr(current_user, 'id', None),
+        content=sanitized_html,
+        is_private=is_private_flag,
+    )
+    db.session.add(note)
+    db.session.commit()
+    flash('Note added.', 'success')
+    return redirect(url_for('orders.show_po', po_id=po.id))
+
+
+@orders_bp.route('/po/<int:po_id>/notes/<int:note_id>/edit', methods=['POST'])
+@login_required
+def edit_po_note(po_id, note_id):
+    po = PurchaseOrder.query.get_or_404(po_id)
+    if po.status == 'draft':
+        flash('Notes for draft POs are edited in the Notes section.', 'warning')
+        return redirect(url_for('orders.show_po', po_id=po.id))
+    note = PoNote.query.filter_by(id=note_id, po_id=po.id).first_or_404()
+    # Permission: author or admin
+    role = getattr(current_user, 'role', 'tech') or 'tech'
+    user_id = getattr(current_user, 'id', None)
+    if not ((note.author_id and note.author_id == user_id) or (role == 'admin')):
+        flash('You do not have permission to edit this note.', 'danger')
+        return redirect(url_for('orders.show_po', po_id=po.id))
+    raw_content = (request.form.get('content') or '').strip()
+    allowed_tags = [
+        'p', 'br', 'div', 'span', 'b', 'strong', 'i', 'em', 'u', 'ul', 'ol', 'li',
+        'h3', 'h4', 'h5', 'h6', 'a', 'table', 'thead', 'tbody', 'tr', 'th', 'td'
+    ]
+    allowed_attrs = {
+        'a': ['href', 'title', 'target', 'rel'],
+        'td': ['colspan', 'rowspan'],
+        'th': ['colspan', 'rowspan']
+    }
+    sanitized_html = bleach.clean(
+        raw_content,
+        tags=allowed_tags,
+        attributes=allowed_attrs,
+        protocols=['http', 'https', 'mailto'],
+        strip=True
+    )
+    def _set_target_rel(attrs, new=False):
+        href = attrs.get('href')
+        if href:
+            attrs['target'] = '_blank'
+            rel = attrs.get('rel', '') or ''
+            rel_vals = set(rel.split()) if rel else set()
+            rel_vals.update(['noopener', 'noreferrer'])
+            attrs['rel'] = ' '.join(sorted(rel_vals))
+        return attrs
+    sanitized_html = bleach.linkify(sanitized_html, callbacks=[_set_target_rel])
+    # Keep notes private; no UI to toggle.
+    is_private_flag = True
+    note.content = sanitized_html
+    note.is_private = is_private_flag
+    db.session.commit()
+    flash('Note updated.', 'success')
     return redirect(url_for('orders.show_po', po_id=po.id))
 
 

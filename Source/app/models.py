@@ -68,6 +68,8 @@ class Ticket(db.Model):
     asset_id = db.Column(db.Integer, db.ForeignKey('asset.id'), nullable=True)
     # Snooze: when set in the future, hide from default Dashboard and Tickets list
     snoozed_until = db.Column(db.DateTime, nullable=True)
+    # Creator (tech) when manually added via UI; null for email-imported tickets
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
 
     @property
     def age_hours(self) -> float:
@@ -94,6 +96,8 @@ class Ticket(db.Model):
     tasks = db.relationship('TicketTask', backref='ticket', cascade='all, delete-orphan', order_by='TicketTask.position')
     # Relationship to asset (defined after Asset model as well)
     asset = db.relationship('Asset', foreign_keys=[asset_id])
+    # Relationship to creator (tech)
+    created_by = db.relationship('User', foreign_keys=[created_by_user_id])
 
 
 class TicketNote(db.Model):
@@ -318,6 +322,8 @@ class PurchaseOrder(db.Model):
 
     # Relationship to items
     items = db.relationship('OrderItem', backref='purchase_order', cascade='all, delete-orphan')
+    # PoNote entries (separate from the simple notes text field)
+    po_notes = db.relationship('PoNote', backref='purchase_order', lazy='dynamic', cascade='all, delete-orphan')
     vendor = db.relationship('Vendor', backref=db.backref('purchase_orders', lazy='dynamic'))
     company = db.relationship('Company', backref=db.backref('purchase_orders', lazy='dynamic'))
     shipping_location = db.relationship('ShippingLocation', backref=db.backref('purchase_orders', lazy='dynamic'))
@@ -375,6 +381,19 @@ class OrderItem(db.Model):
     def mark_received(self):
         self.status = 'received'
         self.received_at = datetime.utcnow()
+
+
+# --- PO Notes ---
+class PoNote(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    po_id = db.Column(db.Integer, db.ForeignKey('purchase_order.id'), nullable=False)
+    author_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    content = db.Column(db.Text, nullable=False)
+    is_private = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Author relationship for display
+    author = db.relationship('User', foreign_keys=[author_id])
 
 
 # --- Documents ---

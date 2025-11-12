@@ -1,0 +1,14 @@
+Health = 100 
+  - (Overdue tickets × 10) 
+  - (Unassigned > 24h × 5) 
+  - (Open > 7 days × 2) 
+  - (Open > 14 days × 4)
+  + (Closed today × 3)
+  
+  
+  
+Health Colors:
+90-100 = dark green
+70-89 = light green
+50-69 = yellow
+<50 = red
