@@ -4,6 +4,15 @@ A Flask-based HelpDesk and lightweight purchasing app using SQLite + SQLAlchemy,
 
 If running from executible jump to end of readme
 
+## Security & Safety
+This app is compiled into a single executable for easy deployment. We've scanned the latest release (1.2.1) with VirusTotal (68 engines) and it came back **clean with 0 detections**!
+
+- [View Full VirusTotal Report](https://www.virustotal.com/gui/file/54d8601fdc44e8c65b8daf49fe032b3bf123325fac4d1d0f8024184bd9bdcd25?nocache=1)
+- SHA-256 Hash: `54d8601fdc44e8c65b8daf49fe032b3bf123325fac4d1d0f8024184bd9bdcd25` (for verification)
+
+We recommend users verify downloads themselves via VT for peace of mind.
+
+
 ## Features	
 
 - **Tickets**: Email ingestion via Microsoft Graph, dashboard, notes, attachments, processes, tasks, scheduled recurring tickets
@@ -72,6 +81,7 @@ On first run the following directories are created if not presant:
 - Databases - Main Database folder
 
 to upgrade to newest version, backup your database then remove HelpfulDjinn.exe. copy new HelpfulDjinn.exe and run. System will update database (if applicable) and start.
+<<<<<<< HEAD
 
 ## Snoozed Tickets Wake-up Notifications
 
@@ -83,3 +93,5 @@ When a ticket is snoozed, it is hidden until the selected date/time. A backgroun
 Notes:
 - Email delivery uses Microsoft Graph. Configure MS_CLIENT_ID, MS_CLIENT_SECRET, MS_TENANT_ID, and MS_USER_EMAIL in Admin > Email Settings (or environment variables).
 - If no tech is assigned, the ticket is simply unsnoozed with a private system note.
+=======
+>>>>>>> 5348acca801cc1836eb2afc774a4503303920f3e
