@@ -5,10 +5,10 @@ A Flask-based HelpDesk and lightweight purchasing app using SQLite + SQLAlchemy,
 If running from executible jump to end of readme
 
 ## Security & Safety
-This app is compiled into a single executable for easy deployment. We've scanned the latest release (1.2.1) with VirusTotal (68 engines) and it came back **clean with 0 detections**!
+This app is compiled into a single executable for easy deployment. We've scanned the latest release (1.2.2) with VirusTotal (72 engines) and it came back 3/72 detections.
 
-- [View Full VirusTotal Report](https://www.virustotal.com/gui/file/54d8601fdc44e8c65b8daf49fe032b3bf123325fac4d1d0f8024184bd9bdcd25?nocache=1)
-- SHA-256 Hash: `54d8601fdc44e8c65b8daf49fe032b3bf123325fac4d1d0f8024184bd9bdcd25` (for verification)
+- [View Full VirusTotal Report] https://www.virustotal.com/gui/file/6cc3f74972f6e2b9a6ae0f6a7553fa9c313d292e80ea5b5ece4132a614ba1d9f?nocache=1
+- SHA-256 Hash: `6cc3f74972f6e2b9a6ae0f6a7553fa9c313d292e80ea5b5ece4132a614ba1d9f` (for verification)
 
 We recommend users verify downloads themselves via VT for peace of mind.
 
