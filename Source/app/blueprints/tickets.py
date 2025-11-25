@@ -277,6 +277,11 @@ def show_ticket(ticket_id):
                 flash('Cannot close ticket. All process and task checklist items must be completed.', 'warning')
                 return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
         t.status = new_status
+        # Maintain closed_at timestamp when status changes
+        if new_status == 'closed':
+            t.closed_at = datetime.utcnow()
+        else:
+            t.closed_at = None
         t.priority = update_form.priority.data
         t.source = update_form.source.data or t.source
         t.assignee_id = None if update_form.assignee_id.data == 0 else update_form.assignee_id.data
@@ -380,6 +385,7 @@ def show_ticket(ticket_id):
                 flash('Note added, but ticket not closed (open checklist items/tasks remain).', 'warning')
                 return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
             t.status = 'closed'
+            t.closed_at = datetime.utcnow()
             db.session.commit()
             flash('Note added and ticket closed', 'success')
             return redirect(url_for('dashboard.index'))
