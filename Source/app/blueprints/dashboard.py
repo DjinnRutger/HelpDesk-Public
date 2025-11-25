@@ -31,6 +31,7 @@ def index():
     overdue_count = Ticket.query.filter(
         (Ticket.status != 'closed') & 
         (Ticket.project_id.is_(None)) &
+        ((Ticket.snoozed_until.is_(None)) | (Ticket.snoozed_until <= datetime.utcnow())) &
         (Ticket.priority == 'high') &
         (Ticket.created_at < now - timedelta(days=1))
     ).count()
@@ -39,6 +40,7 @@ def index():
     unassigned_24h = Ticket.query.filter(
         (Ticket.status != 'closed') &
         (Ticket.project_id.is_(None)) &
+        ((Ticket.snoozed_until.is_(None)) | (Ticket.snoozed_until <= datetime.utcnow())) &
         (Ticket.assignee_id.is_(None)) &
         (Ticket.created_at < now - timedelta(hours=24))
     ).count()
@@ -47,6 +49,7 @@ def index():
     open_7days = Ticket.query.filter(
         (Ticket.status != 'closed') &
         (Ticket.project_id.is_(None)) &
+        ((Ticket.snoozed_until.is_(None)) | (Ticket.snoozed_until <= datetime.utcnow())) &
         (Ticket.created_at < now - timedelta(days=7))
     ).count()
     
@@ -54,6 +57,7 @@ def index():
     open_14days = Ticket.query.filter(
         (Ticket.status != 'closed') &
         (Ticket.project_id.is_(None)) &
+        ((Ticket.snoozed_until.is_(None)) | (Ticket.snoozed_until <= datetime.utcnow())) &
         (Ticket.created_at < now - timedelta(days=14))
     ).count()
     
@@ -87,8 +91,11 @@ def index():
         health_color = 'red'
         health_class = 'danger'
     
-    # Get leaders - techs with most closed tickets this week
-    week_start = now - timedelta(days=now.weekday())  # Start of this week (Monday)
+    # Get leaders - techs with most closed tickets this week (reset on Sunday)
+    # Compute start of current week as Sunday 00:00
+    # Python weekday(): Monday=0 .. Sunday=6, so days since Sunday is (weekday+1) % 7
+    days_since_sunday = (now.weekday() + 1) % 7
+    week_start = now - timedelta(days=days_since_sunday)
     week_start = datetime(week_start.year, week_start.month, week_start.day)
     
     leaders = db.session.query(
@@ -101,7 +108,7 @@ def index():
         (Ticket.status == 'closed') &
         (Ticket.closed_at >= week_start) &
         (Ticket.project_id.is_(None))
-    ).group_by(User.id, User.name).order_by(func.count(Ticket.id).desc()).limit(5).all()
+    ).group_by(User.id, User.name).order_by(func.count(Ticket.id).desc()).limit(2).all()
     
     # Count active projects
     active_projects = Project.query.filter(Project.status != 'closed').count()

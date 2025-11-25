@@ -73,8 +73,9 @@
         <div class="small">
           {% if stats.leaders %}
             {% for leader in stats.leaders %}
+              {% set first_name = leader.name.split(' ')[0] if leader.name else 'Unknown' %}
               <div class="d-flex justify-content-between align-items-center mb-1">
-                <span class="text-truncate" style="max-width: 120px;">{{ leader.name }}</span>
+                <span class="text-truncate" style="max-width: 140px;">{{ first_name }}</span>
                 <span class="badge text-bg-success">{{ leader.closed_count }}</span>
               </div>
             {% endfor %}
