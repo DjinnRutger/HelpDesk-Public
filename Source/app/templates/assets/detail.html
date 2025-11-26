@@ -67,6 +67,14 @@
               <label class="form-label small fw-semibold">Serial</label>
               <input name="serial_number" class="form-control" value="{{ asset.serial_number or '' }}">
             </div>
+            {% if asset.purchase_order_id %}
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">PO</label>
+              <div class="form-control-plaintext">
+                <a href="{{ url_for('orders.show_po', po_id=asset.purchase_order_id) }}" target="_blank">PO {{ asset.purchase_order.po_number or asset.purchase_order_id }}</a>
+              </div>
+            </div>
+            {% endif %}
           </div>
           <div class="row g-3">
             <div class="col-md-4">
@@ -185,6 +193,11 @@
                 <tr><td class="text-muted small">Manufacturer:</td><td>{{ asset.manufacturer or '—' }}</td></tr>
                 <tr><td class="text-muted small">Model:</td><td>{{ asset.model_name or '—' }}</td></tr>
                 <tr><td class="text-muted small">Model No.:</td><td>{{ asset.model_no or '—' }}</td></tr>
+                <tr><td class="text-muted small">PO:</td><td>
+                  {% if asset.purchase_order_id %}
+                    <a href="{{ url_for('orders.show_po', po_id=asset.purchase_order_id) }}">PO {{ asset.purchase_order.po_number or asset.purchase_order_id }}</a>
+                  {% else %}—{% endif %}
+                </td></tr>
               </table>
             </div>
             <div class="col-md-6">

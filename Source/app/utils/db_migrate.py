@@ -457,7 +457,8 @@ def ensure_assets_table(engine):
                 ('assigned_contact_id', 'INTEGER'), ('checkout_date', 'DATETIME'), ('expected_checkin_date', 'DATETIME'),
                 ('last_checkin_date', 'DATETIME'), ('last_audit', 'DATETIME'), ('next_audit_date', 'DATETIME'),
                 ('deleted_flag', 'BOOLEAN'), ('created_at_legacy', 'DATETIME'), ('updated_at_legacy', 'DATETIME'),
-                ('created_at', 'DATETIME'), ('updated_at', 'DATETIME')
+                ('created_at', 'DATETIME'), ('updated_at', 'DATETIME'),
+                ('purchase_order_id', 'INTEGER'), ('order_item_id', 'INTEGER')
             ]:
                 if col not in existing:
                     conn.execute(text(f"ALTER TABLE asset ADD COLUMN {col} {ddl}"))

@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request, abort, Response
 from flask_login import login_required, current_user
-from app.models import OrderItem, PurchaseOrder, Vendor, Company, ShippingLocation, PoNote
+from app.models import OrderItem, PurchaseOrder, Vendor, Company, ShippingLocation, PoNote, Asset, AssetAudit
 from app import db
 from app.forms import OrderItemForm, NoteForm
 from datetime import datetime
@@ -178,7 +178,13 @@ def show_po(po_id):
             .all()
         )
         note_form = NoteForm()
-    return render_template('orders/po_detail.html', po=po, companies=companies, shipping=shipping, notes=notes, note_form=note_form)
+    # Map existing assets linked to order items for quick lookup in template
+    item_ids = [it.id for it in po.items]
+    assets = []
+    if item_ids:
+        assets = Asset.query.filter(Asset.order_item_id.in_(item_ids)).all()
+    item_assets = {a.order_item_id: a for a in assets if a.order_item_id}
+    return render_template('orders/po_detail.html', po=po, companies=companies, shipping=shipping, notes=notes, note_form=note_form, item_assets=item_assets)
 
 
 @orders_bp.route('/ticket/<int:ticket_id>/items')
@@ -607,6 +613,38 @@ def receive_item(item_id):
     if itm.po_id:
         return redirect(url_for('orders.show_po', po_id=itm.po_id))
     return redirect(url_for('orders.list_items'))
+
+
+@orders_bp.route('/items/<int:item_id>/create_asset', methods=['POST'])
+@login_required
+def create_asset_from_item(item_id):
+    """Create an Asset record from a received PO line item and redirect to edit page."""
+    itm = OrderItem.query.get_or_404(item_id)
+    if itm.status != 'received':
+        flash('Item must be received before creating an asset.', 'warning')
+        return redirect(url_for('orders.show_po', po_id=itm.po_id))
+    existing = Asset.query.filter_by(order_item_id=itm.id).first()
+    if existing:
+        flash('Asset already exists for this item.', 'info')
+        return redirect(url_for('assets.edit', asset_id=existing.id))
+    po = PurchaseOrder.query.get(itm.po_id) if itm.po_id else None
+    # Build asset from available fields
+    a = Asset(
+        name=(itm.description or 'New Asset')[:255],
+        cost=itm.est_unit_cost,
+        purchased_at=itm.received_at,
+        supplier=(po.vendor_name if po and po.vendor_name else itm.target_vendor),
+        order_number=(po.po_number if po and po.po_number else None),
+        status='available',
+        purchase_order_id=(po.id if po else None),
+        order_item_id=itm.id,
+    )
+    db.session.add(a)
+    db.session.commit()
+    db.session.add(AssetAudit(asset_id=a.id, user_id=getattr(current_user,'id',None), action='edit', field='create_from_po', old_value=None, new_value=a.name))
+    db.session.commit()
+    flash('Asset created from PO item. You can edit details now.', 'success')
+    return redirect(url_for('assets.edit', asset_id=a.id))
 
 
 @orders_bp.route('/po/<int:po_id>/download', methods=['GET'])

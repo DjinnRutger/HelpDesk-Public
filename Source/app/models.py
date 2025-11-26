@@ -480,10 +480,15 @@ class Asset(db.Model):
     updated_at_legacy = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # Link back to originating Purchase Order / Order Item if created from a PO line
+    purchase_order_id = db.Column(db.Integer, db.ForeignKey('purchase_order.id'), nullable=True)
+    order_item_id = db.Column(db.Integer, db.ForeignKey('order_item.id'), nullable=True)
 
     assigned_contact = db.relationship('Contact', foreign_keys=[assigned_contact_id])
     # Tickets associated with this asset (Ticket.asset_id FK). Using dynamic for further filtering.
     tickets = db.relationship('Ticket', foreign_keys='Ticket.asset_id', lazy='dynamic', overlaps="asset")
+    purchase_order = db.relationship('PurchaseOrder', foreign_keys=[purchase_order_id])
+    order_item = db.relationship('OrderItem', foreign_keys=[order_item_id])
 
     def checkout(self, contact, expected=None):
         from datetime import datetime as _dt

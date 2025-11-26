@@ -99,6 +99,16 @@
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class="btn btn-sm btn-outline-success"><i class="bi bi-check me-1"></i>Receive</button>
                   </form>
+                  {% else %}
+                    {% set a = item_assets.get(it.id) if item_assets else None %}
+                    {% if a %}
+                      <a href="{{ url_for('assets.detail', asset_id=a.id) }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-laptop me-1"></i>Asset</a>
+                    {% else %}
+                      <form method="post" action="{{ url_for('orders.create_asset_from_item', item_id=it.id) }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-sm btn-outline-primary"><i class="bi bi-plus-circle me-1"></i>Create Asset</button>
+                      </form>
+                    {% endif %}
                   {% endif %}
                 </td>
               </tr>
