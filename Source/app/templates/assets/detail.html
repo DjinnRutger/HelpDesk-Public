@@ -399,6 +399,7 @@
 
 {% block extra_modals %}
 {{ super() }}
+{% if not is_new and asset and asset.id %}
 <!-- Checkout Modal -->
 <div class="modal fade" id="checkoutModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
@@ -488,4 +489,5 @@
     </div>
   </div>
 </div>
+{% endif %}
 {% endblock %}
