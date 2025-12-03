@@ -868,8 +868,12 @@
         const fd = new FormData(addOrderItemForm);
         try {
           const res = await fetch(addOrderItemForm.action, { method: 'POST', body: fd, headers: { 'X-Requested-With':'XMLHttpRequest' } });
-          if (res.status === 204) {
+          if (res.ok) {
             addOrderItemForm.reset();
+            // Close the modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('addOrderItemModal'));
+            if (modal) modal.hide();
+            // Refresh the order items list
             refreshOrderItems();
           }
         } catch(err) { console.error(err); }

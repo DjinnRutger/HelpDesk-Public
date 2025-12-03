@@ -184,51 +184,130 @@
             form.submit();
           }
         </script>
-        <!-- Add Planned Item (now directly under Planned Items in left column) -->
-        <div class="card shadow-sm mt-3">
-          <div class="card-header bg-body-tertiary">
-            <h6 class="mb-0"><i class="bi bi-plus-circle me-1"></i>Add Planned Item</h6>
+        <!-- Add Planned Item Button -->
+        <div class="card-footer bg-body-tertiary border-top">
+          <button type="button" class="btn btn-primary w-100" data-bs-toggle="modal" data-bs-target="#addPlannedItemModal">
+            <i class="bi bi-plus-circle me-1"></i>Add Planned Item
+          </button>
+        </div>
+    </div>
+
+    <!-- Add Planned Item Modal -->
+    <div class="modal fade" id="addPlannedItemModal" tabindex="-1" aria-labelledby="addPlannedItemModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="addPlannedItemModalLabel">
+              <i class="bi bi-plus-circle me-2"></i>Add Planned Item
+            </h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
-          <div class="card-body">
-            <form method="post" action="{{ url_for('orders.create_item') }}">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <form method="post" action="{{ url_for('orders.create_item') }}" id="addPlannedItemForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="modal-body">
               <div class="mb-3">
-                <label class="form-label small fw-semibold">Description</label>
+                <label class="form-label fw-semibold">Description <span class="text-danger">*</span></label>
                 <input name="description" class="form-control" placeholder="Item description" required>
               </div>
               <div class="row g-3 mb-3">
-                <div class="col-4">
-                  <label class="form-label small fw-semibold">Quantity</label>
-                  <input name="quantity" type="number" min="1" value="1" class="form-control" placeholder="Qty">
+                <div class="col-md-3">
+                  <label class="form-label fw-semibold">Quantity</label>
+                  <input name="quantity" type="number" min="1" value="1" class="form-control">
                 </div>
-                <div class="col-8">
-                  <label class="form-label small fw-semibold">Vendor</label>
-                  <input name="target_vendor" class="form-control" placeholder="Target vendor">
+                <div class="col-md-5">
+                  <label class="form-label fw-semibold">Vendor</label>
+                  <input name="target_vendor" class="form-control" placeholder="Target vendor" list="vendorSuggestions">
+                  <datalist id="vendorSuggestions">
+                    {% for v in (vendors or []) %}
+                    <option value="{{ v.company_name }}">
+                    {% endfor %}
+                  </datalist>
                 </div>
-              </div>
-              <div class="mb-3">
-                <label class="form-label small fw-semibold">Estimated Unit Cost</label>
-                <input name="est_unit_cost" class="form-control" placeholder="0.00">
+                <div class="col-md-4">
+                  <label class="form-label fw-semibold">Est. Unit Cost</label>
+                  <div class="input-group">
+                    <span class="input-group-text">$</span>
+                    <input name="est_unit_cost" class="form-control" placeholder="0.00">
+                  </div>
+                </div>
               </div>
               <div class="row g-3 mb-3">
-                <div class="col-6">
-                  <label class="form-label small fw-semibold">Dept/Cost Code</label>
+                <div class="col-md-6">
+                  <label class="form-label fw-semibold">Dept/Cost Code</label>
                   <input name="dept_code" class="form-control" placeholder="Optional">
                 </div>
-                <div class="col-6">
-                  <label class="form-label small fw-semibold">Needed By</label>
+                <div class="col-md-6">
+                  <label class="form-label fw-semibold">Needed By</label>
                   <input type="date" name="needed_by" class="form-control">
                 </div>
               </div>
               <div class="mb-3">
-                <label class="form-label small fw-semibold">Source URL</label>
+                <label class="form-label fw-semibold">Source URL</label>
                 <input name="source_url" class="form-control" placeholder="Product or vendor URL">
               </div>
-              <button class="btn btn-primary w-100"><i class="bi bi-plus-lg me-1"></i>Add Item</button>
-            </form>
-          </div>
+              
+              <hr class="my-3">
+              <div class="d-flex align-items-center justify-content-between mb-2">
+                <span class="text-muted small">Need to add multiple items?</span>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="addAnotherItemBtn">
+                  <i class="bi bi-plus me-1"></i>Add Another Item
+                </button>
+              </div>
+              
+              <!-- Container for additional items -->
+              <div id="additionalItemsContainer"></div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+              <button type="submit" class="btn btn-primary">
+                <i class="bi bi-plus-lg me-1"></i>Add Item(s)
+              </button>
+            </div>
+          </form>
         </div>
+      </div>
     </div>
+    
+    <script>
+    (function() {
+      let additionalItemCount = 0;
+      const container = document.getElementById('additionalItemsContainer');
+      const addBtn = document.getElementById('addAnotherItemBtn');
+      
+      if (!addBtn || !container) return;
+      
+      addBtn.addEventListener('click', function() {
+        additionalItemCount++;
+        const itemHtml = `
+          <div class="card mb-2 additional-item" id="additionalItem${additionalItemCount}">
+            <div class="card-body py-2 px-3">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <small class="fw-semibold text-muted">Additional Item #${additionalItemCount}</small>
+                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" onclick="this.closest('.additional-item').remove()">
+                  <i class="bi bi-x"></i>
+                </button>
+              </div>
+              <div class="row g-2">
+                <div class="col-12">
+                  <input name="additional_description[]" class="form-control form-control-sm" placeholder="Description *" required>
+                </div>
+                <div class="col-3">
+                  <input name="additional_quantity[]" type="number" min="1" value="1" class="form-control form-control-sm" placeholder="Qty">
+                </div>
+                <div class="col-5">
+                  <input name="additional_vendor[]" class="form-control form-control-sm" placeholder="Vendor" list="vendorSuggestions">
+                </div>
+                <div class="col-4">
+                  <input name="additional_cost[]" class="form-control form-control-sm" placeholder="Unit Cost">
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+        container.insertAdjacentHTML('beforeend', itemHtml);
+      });
+    })();
+    </script>
     </div><!-- /col -->
   <div class="col-lg-4">
     <!-- Purchase Orders List -->

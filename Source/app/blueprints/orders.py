@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request, abort, Response
+from flask import Blueprint, render_template, redirect, url_for, flash, request, abort, Response, jsonify
 from flask_login import login_required, current_user
 from app.models import OrderItem, PurchaseOrder, Vendor, Company, ShippingLocation, PoNote, Asset, AssetAudit
 from app import db
@@ -109,6 +109,8 @@ def list_items():
 def create_item():
     form = OrderItemForm()
     is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    items_created = 0
+    
     if form.validate_on_submit():
         # Parse unit cost (allow blank or currency characters)
         raw_cost = (form.est_unit_cost.data or '').strip()
@@ -147,10 +149,56 @@ def create_item():
             dept_code=(request.form.get('dept_code') or '').strip() or None,
         )
         db.session.add(itm)
+        items_created += 1
+        
+        # Handle additional items from the modal
+        additional_descriptions = request.form.getlist('additional_description[]')
+        additional_quantities = request.form.getlist('additional_quantity[]')
+        additional_vendors = request.form.getlist('additional_vendor[]')
+        additional_costs = request.form.getlist('additional_cost[]')
+        
+        for i, desc in enumerate(additional_descriptions):
+            desc = (desc or '').strip()
+            if not desc:
+                continue
+            
+            # Parse quantity
+            try:
+                qty = int(additional_quantities[i]) if i < len(additional_quantities) and additional_quantities[i] else 1
+                if qty < 1:
+                    qty = 1
+            except (ValueError, IndexError):
+                qty = 1
+            
+            # Parse vendor
+            vendor = additional_vendors[i].strip() if i < len(additional_vendors) and additional_vendors[i] else None
+            
+            # Parse cost
+            add_cost = None
+            if i < len(additional_costs) and additional_costs[i]:
+                cost_raw = additional_costs[i].strip()
+                cleaned = ''.join(ch for ch in cost_raw if ch.isdigit() or ch in '.-')
+                try:
+                    add_cost = float(cleaned)
+                except ValueError:
+                    add_cost = None
+            
+            add_item = OrderItem(
+                description=desc,
+                quantity=qty,
+                target_vendor=vendor or None,
+                est_unit_cost=add_cost,
+            )
+            db.session.add(add_item)
+            items_created += 1
+        
         db.session.commit()
         if is_ajax:
             return ('', 204)
-        flash('Order item added', 'success')
+        if items_created > 1:
+            flash(f'{items_created} order items added', 'success')
+        else:
+            flash('Order item added', 'success')
     else:
         if is_ajax:
             return abort(400)
@@ -183,8 +231,16 @@ def show_po(po_id):
     assets = []
     if item_ids:
         assets = Asset.query.filter(Asset.order_item_id.in_(item_ids)).all()
-    item_assets = {a.order_item_id: a for a in assets if a.order_item_id}
-    return render_template('orders/po_detail.html', po=po, companies=companies, shipping=shipping, notes=notes, note_form=note_form, item_assets=item_assets)
+    # Group assets by order_item_id (can have multiple assets per item)
+    item_assets = {}  # item_id -> list of assets
+    for a in assets:
+        if a.order_item_id:
+            if a.order_item_id not in item_assets:
+                item_assets[a.order_item_id] = []
+            item_assets[a.order_item_id].append(a)
+    # Count of assets per item for easy access
+    item_asset_counts = {item_id: len(asset_list) for item_id, asset_list in item_assets.items()}
+    return render_template('orders/po_detail.html', po=po, companies=companies, shipping=shipping, notes=notes, note_form=note_form, item_assets=item_assets, item_asset_counts=item_asset_counts)
 
 
 @orders_bp.route('/ticket/<int:ticket_id>/items')
@@ -520,8 +576,56 @@ def add_item_to_po(po_id):
         status='ordered',
     )
     db.session.add(itm)
+    items_added = 1
+    
+    # Handle additional items from the modal
+    additional_descriptions = request.form.getlist('additional_description[]')
+    additional_quantities = request.form.getlist('additional_quantity[]')
+    additional_costs = request.form.getlist('additional_cost[]')
+    additional_depts = request.form.getlist('additional_dept[]')
+    
+    for i, add_desc in enumerate(additional_descriptions):
+        add_desc = (add_desc or '').strip()
+        if not add_desc:
+            continue
+        
+        # Parse quantity
+        try:
+            add_qty = int(additional_quantities[i]) if i < len(additional_quantities) and additional_quantities[i] else 1
+            if add_qty < 1:
+                add_qty = 1
+        except (ValueError, IndexError):
+            add_qty = 1
+        
+        # Parse cost
+        add_cost = None
+        if i < len(additional_costs) and additional_costs[i]:
+            cost_raw = additional_costs[i].strip()
+            cleaned = ''.join(ch for ch in cost_raw if ch.isdigit() or ch in '.-')
+            try:
+                add_cost = float(cleaned)
+            except ValueError:
+                add_cost = None
+        
+        # Parse dept code
+        add_dept = additional_depts[i].strip() if i < len(additional_depts) and additional_depts[i] else None
+        
+        add_item = OrderItem(
+            description=add_desc,
+            quantity=add_qty,
+            est_unit_cost=add_cost,
+            dept_code=add_dept or None,
+            po_id=po.id,
+            status='ordered',
+        )
+        db.session.add(add_item)
+        items_added += 1
+    
     db.session.commit()
-    flash('Item added to PO', 'success')
+    if items_added > 1:
+        flash(f'{items_added} items added to PO', 'success')
+    else:
+        flash('Item added to PO', 'success')
     return redirect(url_for('orders.show_po', po_id=po.id))
 
 
@@ -645,6 +749,105 @@ def create_asset_from_item(item_id):
     db.session.commit()
     flash('Asset created from PO item. You can edit details now.', 'success')
     return redirect(url_for('assets.edit', asset_id=a.id))
+
+
+@orders_bp.route('/items/<int:item_id>/create_multiple_assets', methods=['POST'])
+@login_required
+def create_multiple_assets_from_item(item_id):
+    """Create multiple Asset records from a received PO line item (one per quantity) via AJAX."""
+    import json
+    itm = OrderItem.query.get_or_404(item_id)
+    
+    if itm.status != 'received':
+        return jsonify({'success': False, 'error': 'Item must be received before creating assets.'}), 400
+    
+    # Check how many assets already exist for this item
+    existing_count = Asset.query.filter_by(order_item_id=itm.id).count()
+    if existing_count >= itm.quantity:
+        return jsonify({'success': False, 'error': 'All assets already created for this item.'}), 400
+    
+    # Parse asset tags and serial numbers from request
+    data = request.get_json() or {}
+    asset_tags = data.get('asset_tags', [])
+    serial_numbers = data.get('serial_numbers', [])
+    
+    # Determine how many we need to create
+    remaining = itm.quantity - existing_count
+    
+    po = PurchaseOrder.query.get(itm.po_id) if itm.po_id else None
+    created_assets = []
+    errors = []
+    
+    for i in range(remaining):
+        asset_tag = asset_tags[i] if i < len(asset_tags) else None
+        asset_tag = asset_tag.strip() if asset_tag else None
+        serial = serial_numbers[i] if i < len(serial_numbers) else None
+        serial = serial.strip() if serial else None
+        
+        try:
+            a = Asset(
+                name=(itm.description or 'New Asset')[:255],
+                asset_tag=asset_tag if asset_tag else None,
+                serial_number=serial if serial else None,
+                cost=itm.est_unit_cost,
+                purchased_at=itm.received_at,
+                supplier=(po.vendor_name if po and po.vendor_name else itm.target_vendor),
+                order_number=(po.po_number if po and po.po_number else None),
+                status='available',
+                purchase_order_id=(po.id if po else None),
+                order_item_id=itm.id,
+            )
+            db.session.add(a)
+            db.session.flush()  # Get the ID
+            db.session.add(AssetAudit(
+                asset_id=a.id, 
+                user_id=getattr(current_user, 'id', None), 
+                action='edit', 
+                field='create_from_po', 
+                old_value=None, 
+                new_value=f'{a.name} (#{i+1+existing_count} of {itm.quantity})'
+            ))
+            created_assets.append({
+                'id': a.id,
+                'name': a.name,
+                'asset_tag': a.asset_tag,
+                'serial_number': a.serial_number,
+                'index': i + existing_count
+            })
+        except IntegrityError as e:
+            db.session.rollback()
+            errors.append({'index': i + existing_count, 'error': f'Asset tag or serial number conflict: {asset_tag or serial}'})
+            continue
+        except Exception as e:
+            db.session.rollback()
+            errors.append({'index': i + existing_count, 'error': str(e)})
+            continue
+    
+    if created_assets:
+        db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'created': created_assets,
+        'errors': errors,
+        'total_created': len(created_assets),
+        'total_expected': remaining
+    })
+
+
+@orders_bp.route('/items/<int:item_id>/assets_count', methods=['GET'])
+@login_required
+def get_item_assets_count(item_id):
+    """Get count of assets already created for an item."""
+    itm = OrderItem.query.get_or_404(item_id)
+    existing = Asset.query.filter_by(order_item_id=itm.id).all()
+    return jsonify({
+        'item_id': itm.id,
+        'quantity': itm.quantity,
+        'assets_created': len(existing),
+        'remaining': itm.quantity - len(existing),
+        'assets': [{'id': a.id, 'name': a.name, 'serial_number': a.serial_number} for a in existing]
+    })
 
 
 @orders_bp.route('/po/<int:po_id>/download', methods=['GET'])
