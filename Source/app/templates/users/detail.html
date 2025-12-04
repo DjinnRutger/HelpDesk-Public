@@ -47,6 +47,22 @@
                   </div>
                 </td>
               </tr>
+              <tr>
+                <td class="text-muted small">Manager:</td>
+                <td>
+                  {% if contact.manager %}
+                    <div class="d-flex align-items-center">
+                      <i class="bi bi-person-badge text-muted me-2"></i>
+                      <a href="{{ url_for('users.show_user', contact_id=contact.manager.id) }}" class="text-decoration-none">
+                        {{ contact.manager.name or contact.manager.email }}
+                      </a>
+                      <small class="text-muted ms-2">({{ contact.manager.email }})</small>
+                    </div>
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+              </tr>
             </table>
           </div>
 
@@ -124,6 +140,27 @@
               <textarea name="notes" class="form-control" rows="4" placeholder="Additional notes about this user...">{{ contact.notes or '' }}</textarea>
             </div>
 
+            <!-- Manager Selection -->
+            <div class="mb-4">
+              <label class="form-label small fw-semibold"><i class="bi bi-person-badge me-1"></i>Manager</label>
+              <div class="position-relative">
+                <input type="hidden" name="manager_id" id="manager_id" value="{{ contact.manager_id or '' }}">
+                <input type="text" 
+                       class="form-control" 
+                       id="manager_search" 
+                       placeholder="Search for manager by name or email..."
+                       autocomplete="off"
+                       value="{{ (contact.manager.name ~ ' (' ~ contact.manager.email ~ ')') if contact.manager else '' }}">
+                <div id="manager_dropdown" class="dropdown-menu w-100" style="max-height: 250px; overflow-y: auto;"></div>
+                {% if contact.manager %}
+                <button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="clear_manager">
+                  <i class="bi bi-x-lg me-1"></i>Clear Manager
+                </button>
+                {% endif %}
+              </div>
+              <div class="form-text">Select a manager for approval workflows. Type to search users.</div>
+            </div>
+
             <div class="d-flex justify-content-between align-items-center pt-3 border-top">
               <button type="button" id="delete-user-btn" class="btn btn-outline-danger" data-has-assets="{{ '1' if assets|length > 0 else '0' }}">
                 <i class="bi bi-trash me-1"></i>Delete User
@@ -159,6 +196,82 @@
                   document.body.appendChild(f);
                   f.submit();
                 });
+              }
+
+              // Manager search functionality
+              const managerSearch = document.getElementById('manager_search');
+              const managerDropdown = document.getElementById('manager_dropdown');
+              const managerIdInput = document.getElementById('manager_id');
+              const clearManagerBtn = document.getElementById('clear_manager');
+              let searchTimeout = null;
+              const contactId = {{ contact.id }};
+
+              if(managerSearch && managerDropdown && managerIdInput){
+                managerSearch.addEventListener('input', function(){
+                  clearTimeout(searchTimeout);
+                  const q = this.value.trim();
+                  if(q.length < 1){
+                    managerDropdown.classList.remove('show');
+                    return;
+                  }
+                  searchTimeout = setTimeout(function(){
+                    fetch(`{{ url_for('users.search_contacts') }}?q=${encodeURIComponent(q)}&exclude_id=${contactId}`)
+                      .then(r => r.json())
+                      .then(data => {
+                        managerDropdown.innerHTML = '';
+                        if(data.length === 0){
+                          managerDropdown.innerHTML = '<div class="dropdown-item text-muted">No users found</div>';
+                        } else {
+                          data.forEach(function(c){
+                            const item = document.createElement('a');
+                            item.href = '#';
+                            item.className = 'dropdown-item';
+                            item.textContent = c.display;
+                            item.addEventListener('click', function(e){
+                              e.preventDefault();
+                              managerIdInput.value = c.id;
+                              managerSearch.value = c.display;
+                              managerDropdown.classList.remove('show');
+                              // Show clear button if it doesn't exist
+                              if(!clearManagerBtn){
+                                const clearBtn = document.createElement('button');
+                                clearBtn.type = 'button';
+                                clearBtn.className = 'btn btn-sm btn-outline-secondary mt-2';
+                                clearBtn.id = 'clear_manager';
+                                clearBtn.innerHTML = '<i class="bi bi-x-lg me-1"></i>Clear Manager';
+                                clearBtn.addEventListener('click', clearManager);
+                                managerSearch.parentNode.insertBefore(clearBtn, managerSearch.nextSibling.nextSibling);
+                              }
+                            });
+                            managerDropdown.appendChild(item);
+                          });
+                        }
+                        managerDropdown.classList.add('show');
+                      });
+                  }, 300);
+                });
+
+                managerSearch.addEventListener('focus', function(){
+                  if(this.value.trim().length >= 1 && managerDropdown.children.length > 0){
+                    managerDropdown.classList.add('show');
+                  }
+                });
+
+                document.addEventListener('click', function(e){
+                  if(!managerSearch.contains(e.target) && !managerDropdown.contains(e.target)){
+                    managerDropdown.classList.remove('show');
+                  }
+                });
+
+                function clearManager(){
+                  managerIdInput.value = '';
+                  managerSearch.value = '';
+                  managerDropdown.classList.remove('show');
+                }
+
+                if(clearManagerBtn){
+                  clearManagerBtn.addEventListener('click', clearManager);
+                }
               }
             })();
           </script>

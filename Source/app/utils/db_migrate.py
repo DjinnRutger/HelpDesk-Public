@@ -478,3 +478,44 @@ def ensure_asset_picklists(engine):
             if not exists:
                 conn.execute(text(ddl))
         conn.commit()
+
+
+def ensure_contact_columns(engine):
+    """Ensure Contact table has manager_id column for approval workflows."""
+    required = {
+        'manager_id': 'INTEGER',
+    }
+    with engine.connect() as conn:
+        rows = conn.execute(text("PRAGMA table_info('contact')")).fetchall()
+        existing = {row[1] for row in rows}
+        for col, coltype in required.items():
+            if col not in existing:
+                conn.execute(text(f"ALTER TABLE contact ADD COLUMN {col} {coltype}"))
+        conn.commit()
+
+
+def ensure_approval_request_table(engine):
+    """Create ApprovalRequest table if it doesn't exist."""
+    with engine.connect() as conn:
+        rows = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='approval_request'"))
+        exists = rows.fetchone() is not None
+        if not exists:
+            conn.execute(text("""
+                CREATE TABLE approval_request (
+                    id INTEGER PRIMARY KEY,
+                    ticket_id INTEGER NOT NULL,
+                    requester_contact_id INTEGER,
+                    manager_contact_id INTEGER NOT NULL,
+                    requesting_tech_id INTEGER NOT NULL,
+                    status TEXT DEFAULT 'pending',
+                    request_note TEXT,
+                    response_note TEXT,
+                    responded_at DATETIME,
+                    created_at DATETIME,
+                    FOREIGN KEY (ticket_id) REFERENCES ticket(id),
+                    FOREIGN KEY (requester_contact_id) REFERENCES contact(id),
+                    FOREIGN KEY (manager_contact_id) REFERENCES contact(id),
+                    FOREIGN KEY (requesting_tech_id) REFERENCES user(id)
+                )
+            """))
+        conn.commit()

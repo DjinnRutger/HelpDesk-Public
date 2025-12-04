@@ -38,20 +38,44 @@ def _html_to_text_lite(html: str) -> str:
 
 
 def _extract_new_message_segment(text: str) -> str:
-    """Keep only the new reply text and stop when a line contains 'From: Help Desk'."""
+    """Keep only the new reply text and stop at common reply markers."""
     if not text:
         return ''
     lines = text.splitlines()
     out = []
+    # Common markers that indicate the start of quoted/original message
+    stop_markers = [
+        'from: help desk',
+        'from: helpdesk',
+        '-----original message-----',
+        '________________________________',
+        'on ', # "On Dec 3, 2025, at" style quotes
+        'sent from',
+        '> ',  # Quoted line marker
+        'approval request -',  # Our own subject being quoted
+    ]
     for line in lines:
-        # Stop at quoted previous message marker (case-insensitive)
-        if 'from: help desk' in line.lower():
+        line_lower = line.lower().strip()
+        # Stop at quoted previous message marker
+        should_stop = False
+        for marker in stop_markers:
+            if marker in line_lower:
+                # For "on " marker, be more specific - must look like a date reference
+                if marker == 'on ' and not any(x in line_lower for x in ['wrote:', 'sent:', 'at ']):
+                    continue
+                should_stop = True
+                break
+        if should_stop:
             break
         out.append(line)
     # Trim trailing blank lines
     while out and not out[-1].strip():
         out.pop()
-    return "\n".join(out).strip()
+    result = "\n".join(out).strip()
+    # Limit to reasonable length (500 chars max for response)
+    if len(result) > 500:
+        result = result[:500] + '...'
+    return result
 
 
 def poll_ms_graph(app=None):
@@ -228,6 +252,136 @@ def poll_ms_graph(app=None):
                 except Exception:
                     db.session.rollback()
                 continue
+
+            # Check for Approval Request replies first (before regular ticket replies)
+            # Subject format: "RE: Approval Request - Ticket#<id> - ..."
+            approval_match = re.search(r"Approval\s+Request\s*[-–—]\s*Ticket\s*#?\s*(\d+)", subject or "", flags=re.I)
+            if approval_match:
+                try:
+                    tid = int(approval_match.group(1))
+                except Exception:
+                    tid = None
+                if tid:
+                    from ..models import ApprovalRequest
+                    existing_ticket = Ticket.query.get(tid)
+                    if existing_ticket:
+                        # Find pending approval request for this ticket where the sender is the manager
+                        sender_email = (from_addr or '').strip().lower()
+                        pending_approval = (
+                            ApprovalRequest.query
+                            .join(Contact, ApprovalRequest.manager_contact_id == Contact.id)
+                            .filter(
+                                ApprovalRequest.ticket_id == tid,
+                                ApprovalRequest.status == 'pending',
+                                Contact.email.ilike(sender_email)
+                            )
+                            .first()
+                        )
+                        if pending_approval:
+                            # Extract the response text
+                            text_body = _html_to_text_lite(body_html)
+                            new_text = _extract_new_message_segment(text_body)
+                            response_text = (new_text or text_body or (m.get("bodyPreview") or "")).strip().lower()
+                            
+                            # Determine if approved or denied using expanded word lists
+                            # Approval keywords (partial matches work - e.g., "approving" contains "approv")
+                            approval_keywords = ['approv', 'yes', 'confirmed', 'confirm', 'authorize', 'authoriz', 'granted', 'grant', 'accept', 'agreed', 'agree', 'proceed', 'go ahead', 'lgtm', 'looks good', 'sounds good', 'fine', 'okay', 'ok', '👍', '✓', '✅']
+                            # Denial keywords
+                            denial_keywords = ['deny', 'denied', 'denial', 'no', 'reject', 'declined', 'decline', 'refused', 'refuse', 'disapprov', 'not approved', 'cannot approve', 'can\'t approve', 'dont approve', 'don\'t approve', 'hold off', 'wait', 'stop', '👎', '❌', '✗']
+                            
+                            is_approved = any(kw in response_text for kw in approval_keywords)
+                            is_denied = any(kw in response_text for kw in denial_keywords)
+                            
+                            # If both or neither, check the first word more strictly
+                            if (is_approved and is_denied) or (not is_approved and not is_denied):
+                                first_word = response_text.split()[0] if response_text.split() else ''
+                                # Strict first-word matching for ambiguous cases
+                                approval_first_words = ['approved', 'approve', 'yes', 'ok', 'okay', 'confirmed', 'granted', 'accepted', 'agreed', 'proceed', 'fine', 'lgtm', '👍', '✓', '✅']
+                                denial_first_words = ['denied', 'deny', 'no', 'rejected', 'reject', 'declined', 'refused', 'stop', 'wait', 'hold', '👎', '❌', '✗']
+                                if first_word in approval_first_words:
+                                    is_approved = True
+                                    is_denied = False
+                                elif first_word in denial_first_words:
+                                    is_denied = True
+                                    is_approved = False
+                            
+                            # Update the approval request
+                            from datetime import datetime as _dt
+                            if is_approved:
+                                pending_approval.status = 'approved'
+                                status_text = 'APPROVED'
+                            elif is_denied:
+                                pending_approval.status = 'denied'
+                                status_text = 'DENIED'
+                            else:
+                                # Couldn't determine - add as note but don't change status
+                                status_text = 'RESPONSE RECEIVED (unclear)'
+                            
+                            pending_approval.response_note = new_text or text_body or ''
+                            pending_approval.responded_at = _dt.utcnow()
+                            
+                            # Add a note to the ticket
+                            manager = pending_approval.manager_contact
+                            note_content = f"<p><strong>Approval Response: {status_text}</strong></p>"
+                            note_content += f"<p>From: {manager.name or manager.email} ({manager.email})</p>"
+                            if new_text:
+                                note_content += f"<p>Response: {_html.escape(new_text).replace(chr(10),'<br>')}</p>"
+                            
+                            approval_note = TicketNote(
+                                ticket_id=existing_ticket.id,
+                                author_id=None,
+                                content=note_content,
+                                is_private=False
+                            )
+                            db.session.add(approval_note)
+                            
+                            # Notify the requesting tech
+                            try:
+                                tech = pending_approval.requesting_tech
+                                if tech and tech.email:
+                                    tech_subject = f"Approval {status_text} - Ticket#{existing_ticket.id}"
+                                    tech_body = f"""
+                                    <p>Hello {tech.name or 'Tech'},</p>
+                                    <p>The approval request for <strong>Ticket #{existing_ticket.id} - {existing_ticket.subject}</strong> has been <strong>{status_text}</strong> by {manager.name or manager.email}.</p>
+                                    {f'<p><strong>Manager Response:</strong> {_html.escape(new_text or "").replace(chr(10),"<br>")}</p>' if new_text else ''}
+                                    <p>Thank you,<br>Help Desk</p>
+                                    """
+                                    send_mail(tech.email, tech_subject, tech_body, to_name=tech.name)
+                            except Exception:
+                                pass
+                            
+                            try:
+                                db.session.add(EmailCheckEntry(
+                                    check_id=check.id,
+                                    sender=sender_email,
+                                    subject=subject or '',
+                                    action='approval_response',
+                                    ticket_id=existing_ticket.id,
+                                    note=f'Approval {status_text}'
+                                ))
+                                db.session.commit()
+                            except Exception:
+                                db.session.rollback()
+                            
+                            to_mark_read.append(msg_id)
+                            continue
+                        else:
+                            # No pending approval found (already processed, wrong sender, etc.)
+                            # Still mark as read and skip to avoid duplicate processing
+                            try:
+                                db.session.add(EmailCheckEntry(
+                                    check_id=check.id,
+                                    sender=sender_email,
+                                    subject=subject or '',
+                                    action='approval_no_pending',
+                                    ticket_id=existing_ticket.id,
+                                    note='Approval reply but no pending request found'
+                                ))
+                                db.session.commit()
+                            except Exception:
+                                db.session.rollback()
+                            to_mark_read.append(msg_id)
+                            continue
 
             # If subject includes Ticket #<id> (with or without space), treat as a reply note instead of a new ticket
             ticket_match = re.search(r"Ticket\s*#\s*(\d+)", subject or "", flags=re.I)
@@ -453,7 +607,8 @@ def poll_ms_graph(app=None):
 
         if tickets_created or notes_created:
             db.session.commit()
-            # After successful save, mark those messages as read
+        # After successful processing, mark messages as read
+        if to_mark_read:
             for mid in to_mark_read:
                 try:
                     mark_message_read(token, user_email, mid)

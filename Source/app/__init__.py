@@ -151,7 +151,7 @@ def create_app():
     TicketProcessItem, AllowedDomain, TicketAttachment, Contact, DenyFilter,
     TicketTask, OrderItem, PurchaseOrder, Vendor, Company, ShippingLocation,
     DocumentCategory, Document, Asset, AssetCategory, AssetManufacturer, AssetCondition, AssetLocation,
-    EmailCheck, EmailCheckEntry
+    EmailCheck, EmailCheckEntry, ApprovalRequest
     )
 
     with app.app_context():
@@ -172,6 +172,8 @@ def create_app():
                 ensure_assets_table,
                 ensure_asset_picklists,
                 ensure_scheduled_tickets_table,
+                ensure_contact_columns,
+                ensure_approval_request_table,
             )
             ensure_ticket_columns(db.engine)
             ensure_user_columns(db.engine)
@@ -186,6 +188,8 @@ def create_app():
             ensure_assets_table(db.engine)
             ensure_asset_picklists(db.engine)
             ensure_scheduled_tickets_table(db.engine)
+            ensure_contact_columns(db.engine)
+            ensure_approval_request_table(db.engine)
             # Ensure AssetAudit table (runtime lightweight migration with pre-backup for SQLite)
             from sqlalchemy import inspect
             insp = inspect(db.engine)

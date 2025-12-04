@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, send_file, abort, current_app
 from flask_login import login_required
-from ..models import Ticket, ProcessTemplate, TicketProcess, TicketProcessItem, Project, TicketTask, OrderItem
+from ..models import Ticket, ProcessTemplate, TicketProcess, TicketProcessItem, Project, TicketTask, OrderItem, ApprovalRequest
 from .. import db
 from ..forms import TicketForm, NoteForm, TicketUpdateForm, ProcessAssignForm, TaskAssignForm
 from ..models import User, Contact, TicketNote
@@ -547,6 +547,60 @@ def recipient_search():
     return {'items': results[:20]}
 
 
+@tickets_bp.route('/<int:ticket_id>/api/approval_data')
+@login_required
+def get_approval_data(ticket_id):
+    """API endpoint to get current approval data for the modal (contact, manager, order items)."""
+    t = Ticket.query.get_or_404(ticket_id)
+    
+    # Find the requester contact
+    contact = None
+    if t.requester_email:
+        contact = Contact.query.filter_by(email=t.requester_email.lower()).first()
+    
+    # Get order items
+    order_items = OrderItem.query.filter_by(ticket_id=t.id).order_by(OrderItem.created_at.desc()).all()
+    
+    result = {
+        'contact': None,
+        'manager': None,
+        'order_items': [],
+        'can_submit': False
+    }
+    
+    if contact:
+        result['contact'] = {
+            'id': contact.id,
+            'name': contact.name or 'Not specified',
+            'email': contact.email
+        }
+        
+        if contact.manager:
+            result['manager'] = {
+                'id': contact.manager.id,
+                'name': contact.manager.name or contact.manager.email,
+                'email': contact.manager.email
+            }
+            result['can_submit'] = True
+    
+    total_cost = 0
+    for item in order_items:
+        item_cost = (item.est_unit_cost or 0) * item.quantity
+        total_cost += item_cost
+        result['order_items'].append({
+            'id': item.id,
+            'description': item.description,
+            'quantity': item.quantity,
+            'vendor': item.target_vendor or '—',
+            'unit_cost': item.est_unit_cost,
+            'total_cost': item_cost
+        })
+    
+    result['total_cost'] = total_cost
+    
+    return jsonify(result)
+
+
 @tickets_bp.route('/<int:ticket_id>/forward_note', methods=['POST'])
 @login_required
 def forward_note(ticket_id):
@@ -941,4 +995,136 @@ def assign_asset(ticket_id):
     t.asset_id = a.id
     db.session.commit()
     flash('Asset linked to ticket.', 'success')
+    return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
+
+
+@tickets_bp.route('/<int:ticket_id>/request_approval', methods=['POST'])
+@login_required
+def request_approval(ticket_id):
+    """Send an approval request to the requester's manager for order items."""
+    from ..services.ms_graph import send_mail
+    
+    t = Ticket.query.get_or_404(ticket_id)
+    
+    # Get form data
+    approval_note = (request.form.get('approval_note') or '').strip()
+    
+    # Find the requester contact
+    contact = None
+    if t.requester_email:
+        contact = Contact.query.filter_by(email=t.requester_email.lower()).first()
+    
+    if not contact:
+        flash('No contact found for this ticket requester.', 'danger')
+        return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
+    
+    if not contact.manager_id:
+        flash('No manager assigned to this contact. Please assign a manager first.', 'danger')
+        return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
+    
+    manager = Contact.query.get(contact.manager_id)
+    if not manager or not manager.email:
+        flash('Manager has no email address configured.', 'danger')
+        return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
+    
+    # Get order items for this ticket
+    order_items = OrderItem.query.filter_by(ticket_id=t.id).all()
+    
+    # Create the approval request record
+    approval = ApprovalRequest(
+        ticket_id=t.id,
+        requester_contact_id=contact.id,
+        manager_contact_id=manager.id,
+        requesting_tech_id=current_user.id,
+        status='pending',
+        request_note=approval_note,
+    )
+    db.session.add(approval)
+    db.session.flush()  # Get the ID
+    
+    # Add a note to the ticket about the approval request
+    note_content = f"<p><strong>Approval Request Sent</strong></p>"
+    note_content += f"<p>Sent to: {manager.name or manager.email} ({manager.email})</p>"
+    if approval_note:
+        note_content += f"<p>Note: {approval_note}</p>"
+    if order_items:
+        note_content += "<p>Items:</p><ul>"
+        for item in order_items:
+            note_content += f"<li>{item.description} (x{item.quantity})"
+            if item.est_unit_cost:
+                note_content += f" - ${item.est_unit_cost:.2f} each"
+            note_content += "</li>"
+        note_content += "</ul>"
+    
+    note = TicketNote(
+        ticket_id=t.id,
+        author_id=current_user.id,
+        content=note_content,
+        is_private=True,
+    )
+    db.session.add(note)
+    
+    # Build email to manager
+    tech_name = current_user.name or 'A technician'
+    requester_name = contact.name or contact.email
+    
+    subject = f"Approval Request - Ticket#{t.id} - {t.subject}"
+    
+    # Build items list for email
+    items_html = ""
+    if order_items:
+        items_html = "<h3>Items Requested:</h3><ul>"
+        total_cost = 0
+        for item in order_items:
+            item_cost = (item.est_unit_cost or 0) * item.quantity
+            total_cost += item_cost
+            items_html += f"<li><strong>{item.description}</strong> (Qty: {item.quantity})"
+            if item.est_unit_cost:
+                items_html += f" - ${item.est_unit_cost:.2f} each = ${item_cost:.2f}"
+            items_html += "</li>"
+        items_html += f"</ul><p><strong>Estimated Total: ${total_cost:.2f}</strong></p>"
+    else:
+        items_html = "<p><em>No specific order items listed.</em></p>"
+    
+    email_body = f"""
+    <p>Hello {manager.name or 'Manager'},</p>
+    
+    <p><strong>{tech_name}</strong> is requesting your approval for the following order for <strong>{requester_name}</strong>:</p>
+    
+    <hr>
+    <h3>Ticket Information:</h3>
+    <ul>
+        <li><strong>Ticket #:</strong> {t.id}</li>
+        <li><strong>Subject:</strong> {t.subject}</li>
+        <li><strong>Requester:</strong> {requester_name}</li>
+    </ul>
+    
+    {items_html}
+    
+    {f'<h3>Additional Notes from Tech:</h3><p>{approval_note}</p>' if approval_note else ''}
+    
+    <hr>
+    <h3>How to Respond:</h3>
+    <p>Please <strong>reply to this email</strong> with one of the following:</p>
+    <ul>
+        <li><strong>Approved</strong> - to approve this request</li>
+        <li><strong>Denied</strong> - to deny this request (please include a reason)</li>
+    </ul>
+    
+    <p>Thank you,<br>Help Desk</p>
+    """
+    
+    # Send the email
+    try:
+        success = send_mail(manager.email, subject, email_body, to_name=manager.name)
+        if success:
+            db.session.commit()
+            flash(f'Approval request sent to {manager.name or manager.email}.', 'success')
+        else:
+            db.session.rollback()
+            flash('Failed to send approval request email.', 'danger')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error sending approval request: {str(e)}', 'danger')
+    
     return redirect(url_for('tickets.show_ticket', ticket_id=t.id))

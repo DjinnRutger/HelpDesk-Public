@@ -233,8 +233,36 @@ class Contact(db.Model):
     notes = db.Column(db.Text, nullable=True)
     inventory_url = db.Column(db.String(1000), nullable=True)
     ninja_url = db.Column(db.String(1000), nullable=True)
+    # Manager relationship for approval workflows
+    manager_id = db.Column(db.Integer, db.ForeignKey('contact.id'), nullable=True)
+    manager = db.relationship('Contact', remote_side='Contact.id', backref='direct_reports', foreign_keys=[manager_id])
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# --- Approval Requests ---
+class ApprovalRequest(db.Model):
+    """Tracks approval requests sent to managers for order items on tickets."""
+    id = db.Column(db.Integer, primary_key=True)
+    ticket_id = db.Column(db.Integer, db.ForeignKey('ticket.id'), nullable=False)
+    requester_contact_id = db.Column(db.Integer, db.ForeignKey('contact.id'), nullable=True)
+    manager_contact_id = db.Column(db.Integer, db.ForeignKey('contact.id'), nullable=False)
+    requesting_tech_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    # Status: pending, approved, denied
+    status = db.Column(db.String(20), default='pending')
+    # Note from tech when requesting approval
+    request_note = db.Column(db.Text, nullable=True)
+    # Response note from manager (if any)
+    response_note = db.Column(db.Text, nullable=True)
+    responded_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Relationships
+    ticket = db.relationship('Ticket', backref=db.backref('approval_requests', lazy='dynamic'))
+    requester_contact = db.relationship('Contact', foreign_keys=[requester_contact_id])
+    manager_contact = db.relationship('Contact', foreign_keys=[manager_contact_id])
+    requesting_tech = db.relationship('User', foreign_keys=[requesting_tech_id])
+
 
 class Project(db.Model):
     id = db.Column(db.Integer, primary_key=True)

@@ -65,10 +65,27 @@
           <!-- Additional Information -->
           <div class="mb-4">
             <h6 class="text-muted mb-3"><i class="bi bi-chat-text me-1"></i>Additional Information</h6>
-            <div>
+            <div class="mb-3">
               <label class="form-label small fw-semibold">Notes</label>
               <textarea name="notes" class="form-control" rows="4" placeholder="Additional notes about this user...">{{ notes or '' }}</textarea>
               <div class="form-text">Any additional information about the user</div>
+            </div>
+            <div>
+              <label class="form-label small fw-semibold"><i class="bi bi-person-badge me-1"></i>Manager</label>
+              <div class="position-relative">
+                <input type="hidden" name="manager_id" id="manager_id" value="{{ manager_id or '' }}">
+                <input type="text" 
+                       class="form-control" 
+                       id="manager_search" 
+                       placeholder="Search for manager by name or email..."
+                       autocomplete="off"
+                       value="">
+                <div id="manager_dropdown" class="dropdown-menu w-100" style="max-height: 250px; overflow-y: auto;"></div>
+                <button type="button" class="btn btn-sm btn-outline-secondary mt-2 d-none" id="clear_manager">
+                  <i class="bi bi-x-lg me-1"></i>Clear Manager
+                </button>
+              </div>
+              <div class="form-text">Select a manager for approval workflows. Type to search users.</div>
             </div>
           </div>
 
@@ -86,4 +103,75 @@
     </div>
   </div>
 </div>
+
+<script>
+(function(){
+  // Manager search functionality
+  const managerSearch = document.getElementById('manager_search');
+  const managerDropdown = document.getElementById('manager_dropdown');
+  const managerIdInput = document.getElementById('manager_id');
+  const clearManagerBtn = document.getElementById('clear_manager');
+  let searchTimeout = null;
+
+  if(managerSearch && managerDropdown && managerIdInput){
+    managerSearch.addEventListener('input', function(){
+      clearTimeout(searchTimeout);
+      const q = this.value.trim();
+      if(q.length < 1){
+        managerDropdown.classList.remove('show');
+        return;
+      }
+      searchTimeout = setTimeout(function(){
+        fetch(`{{ url_for('users.search_contacts') }}?q=${encodeURIComponent(q)}`)
+          .then(r => r.json())
+          .then(data => {
+            managerDropdown.innerHTML = '';
+            if(data.length === 0){
+              managerDropdown.innerHTML = '<div class="dropdown-item text-muted">No users found</div>';
+            } else {
+              data.forEach(function(c){
+                const item = document.createElement('a');
+                item.href = '#';
+                item.className = 'dropdown-item';
+                item.textContent = c.display;
+                item.addEventListener('click', function(e){
+                  e.preventDefault();
+                  managerIdInput.value = c.id;
+                  managerSearch.value = c.display;
+                  managerDropdown.classList.remove('show');
+                  clearManagerBtn.classList.remove('d-none');
+                });
+                managerDropdown.appendChild(item);
+              });
+            }
+            managerDropdown.classList.add('show');
+          });
+      }, 300);
+    });
+
+    managerSearch.addEventListener('focus', function(){
+      if(this.value.trim().length >= 1 && managerDropdown.children.length > 0){
+        managerDropdown.classList.add('show');
+      }
+    });
+
+    document.addEventListener('click', function(e){
+      if(!managerSearch.contains(e.target) && !managerDropdown.contains(e.target)){
+        managerDropdown.classList.remove('show');
+      }
+    });
+
+    function clearManager(){
+      managerIdInput.value = '';
+      managerSearch.value = '';
+      managerDropdown.classList.remove('show');
+      clearManagerBtn.classList.add('d-none');
+    }
+
+    if(clearManagerBtn){
+      clearManagerBtn.addEventListener('click', clearManager);
+    }
+  }
+})();
+</script>
 {% endblock %}

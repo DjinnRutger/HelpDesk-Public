@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required
 from ..models import Contact, Ticket, Asset
 from sqlalchemy import func, case
@@ -6,6 +6,33 @@ from .. import db
 
 
 users_bp = Blueprint('users', __name__, url_prefix='/users')
+
+
+@users_bp.route('/api/search')
+@login_required
+def search_contacts():
+    """API endpoint for searching contacts (used for manager selection dropdown)."""
+    q = (request.args.get('q') or '').strip()
+    exclude_id = request.args.get('exclude_id', type=int)  # Exclude a contact from results (e.g., when editing self)
+    
+    query = Contact.query
+    if q:
+        like = f"%{q}%"
+        query = query.filter((Contact.name.ilike(like)) | (Contact.email.ilike(like)))
+    if exclude_id:
+        query = query.filter(Contact.id != exclude_id)
+    
+    contacts = query.order_by(func.lower(Contact.name).asc(), func.lower(Contact.email).asc()).limit(20).all()
+    
+    return jsonify([
+        {
+            'id': c.id,
+            'name': c.name or '',
+            'email': c.email,
+            'display': f"{c.name} ({c.email})" if c.name else c.email
+        }
+        for c in contacts
+    ])
 
 
 @users_bp.route('/')
@@ -40,14 +67,15 @@ def new_user():
         notes = request.form.get('notes')
         inventory_url = request.form.get('inventory_url')
         ninja_url = request.form.get('ninja_url')
+        manager_id = request.form.get('manager_id', type=int)
         if not email:
             flash('Email is required.', 'danger')
-            return render_template('users/new.html', name=name, email=email, notes=notes, inventory_url=inventory_url, ninja_url=ninja_url)
+            return render_template('users/new.html', name=name, email=email, notes=notes, inventory_url=inventory_url, ninja_url=ninja_url, manager_id=manager_id)
         # Ensure unique email
         if Contact.query.filter_by(email=email).first():
             flash('A user with that email already exists.', 'danger')
-            return render_template('users/new.html', name=name, email=email, notes=notes, inventory_url=inventory_url, ninja_url=ninja_url)
-        c = Contact(name=name or None, email=email, notes=notes, inventory_url=inventory_url, ninja_url=ninja_url)
+            return render_template('users/new.html', name=name, email=email, notes=notes, inventory_url=inventory_url, ninja_url=ninja_url, manager_id=manager_id)
+        c = Contact(name=name or None, email=email, notes=notes, inventory_url=inventory_url, ninja_url=ninja_url, manager_id=manager_id if manager_id else None)
         db.session.add(c)
         db.session.commit()
         flash('User added.', 'success')
@@ -75,6 +103,13 @@ def show_user(contact_id):
         c.notes = request.form.get('notes')
         c.inventory_url = request.form.get('inventory_url')
         c.ninja_url = request.form.get('ninja_url')
+        # Handle manager assignment
+        manager_id = request.form.get('manager_id', type=int)
+        # Prevent setting self as manager
+        if manager_id and manager_id != c.id:
+            c.manager_id = manager_id
+        elif manager_id == 0 or manager_id is None or request.form.get('manager_id') == '':
+            c.manager_id = None
         db.session.commit()
         flash('User info updated', 'success')
         return redirect(url_for('users.show_user', contact_id=c.id))
