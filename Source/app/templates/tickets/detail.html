@@ -430,25 +430,24 @@
     </div>
     <!-- Actions -->
     <div class="card shadow-sm mb-3">
-      <div class="card-header bg-body-tertiary">
+      <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
         <h6 class="mb-0"><i class="bi bi-gear me-1"></i>Actions</h6>
-      </div>
-      <div class="card-body position-relative">
-        <form id="deleteTicketForm" method="post" action="{{ url_for('tickets.delete_ticket', ticket_id=t.id) }}" class="d-none">
+        {% if notes|length == 0 and order_items|length == 0 and not t.assignee_id %}
+        <form id="deleteTicketForm" method="post" action="{{ url_for('tickets.delete_ticket', ticket_id=t.id) }}" class="d-inline">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         </form>
-        <button type="button" id="deleteTicketBtn" class="btn btn-sm btn-outline-danger position-absolute" style="top:.35rem; right:.35rem; padding:.15rem .4rem; line-height:1;" title="Delete Ticket" aria-label="Delete Ticket"
-          data-has-notes="{{ 1 if notes|length > 0 else 0 }}"
-          data-has-items="{{ 1 if order_items|length > 0 else 0 }}"
-          data-has-assignee="{{ 1 if t.assignee_id else 0 }}">
-          &times;
+        <button type="button" id="deleteTicketBtn" class="btn btn-sm btn-outline-danger" style="padding:.15rem .4rem; line-height:1;" title="Delete Ticket" aria-label="Delete Ticket">
+          <i class="bi bi-trash"></i>
         </button>
+        {% endif %}
+      </div>
+      <div class="card-body">
         <div class="d-grid gap-2">
-          <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#assignProcessModal" {% if t.status=='closed' %}disabled{% endif %}>Assign Process</button>
-          <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#assignTasksModal" {% if t.status=='closed' %}disabled{% endif %}>Assign Tasks</button>
-          <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addOrderItemModal">Add Order Item</button>
-          <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#mergeToProjectModal" {% if t.project_id %}disabled{% endif %}>Merge to Project</button>
-          <button type="button" class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#requestApprovalModal">
+          <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#assignProcessModal" {% if t.status=='closed' %}disabled{% endif %}><i class="bi bi-diagram-3 me-1"></i>Assign Process</button>
+          <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#assignTasksModal" {% if t.status=='closed' %}disabled{% endif %}><i class="bi bi-list-task me-1"></i>Assign Tasks</button>
+          <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addOrderItemModal"><i class="bi bi-cart-plus me-1"></i>Add Order Item</button>
+          <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#mergeToProjectModal" {% if t.project_id %}disabled{% endif %}><i class="bi bi-box-arrow-in-right me-1"></i>Merge to Project</button>
+          <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#requestApprovalModal">
             <i class="bi bi-check-circle me-1"></i>Request Approval
           </button>
         </div>
@@ -908,13 +907,6 @@
     const delBtn = document.getElementById('deleteTicketBtn');
     if (delBtn) {
       delBtn.addEventListener('click', function() {
-        const hasNotes = delBtn.getAttribute('data-has-notes') === '1';
-        const hasItems = delBtn.getAttribute('data-has-items') === '1';
-        const hasAssignee = delBtn.getAttribute('data-has-assignee') === '1';
-        if (hasNotes || hasItems || hasAssignee) {
-          alert('This ticket cannot be deleted because it has notes, order items, or is assigned. Close the ticket instead.');
-          return;
-        }
         if (confirm('Delete this ticket? This cannot be undone.')) {
           const f = document.getElementById('deleteTicketForm');
           if (f) f.submit();
@@ -1595,7 +1587,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 `<span class="text-success">${data.manager.name} (${data.manager.email})</span>` :
                 `<span class="text-danger">
                   <i class="bi bi-exclamation-triangle me-1"></i>No manager assigned
-                  <a href="{{ url_for('users.show_user', contact_id=0, edit='1') }}".replace('/0/', '/' + data.contact.id + '/') class="ms-2" target="_blank">Assign Manager</a>
+                  <a href="/users/${data.contact.id}?edit=1" class="ms-2">Assign Manager</a>
                 </span>`
               }
             </div>
