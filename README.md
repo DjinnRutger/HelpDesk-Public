@@ -5,15 +5,17 @@ A Flask-based HelpDesk and lightweight purchasing app using SQLite + SQLAlchemy,
 If running from executible jump to end of readme
 
 ## Security & Safety
-This app is compiled into a single executable for easy deployment. We've scanned the latest release (1.2.2) with VirusTotal (72 engines) and it came back 3/72 detections.
+This app is compiled into a single executable for easy deployment. We've scanned the latest release (1.5.1) with VirusTotal (72 engines) and it came back 3/72 detections.
 
-- [View Full VirusTotal Report] https://www.virustotal.com/gui/file/6cc3f74972f6e2b9a6ae0f6a7553fa9c313d292e80ea5b5ece4132a614ba1d9f?nocache=1
-- SHA-256 Hash: `6cc3f74972f6e2b9a6ae0f6a7553fa9c313d292e80ea5b5ece4132a614ba1d9f` (for verification)
+- [View Full VirusTotal Report] https://www.virustotal.com/gui/file/3b59a85d256ed1417eead90906350bae56026003cbd4de23259ba0c916fcffd4?nocache=1
+- SHA-256 Hash: `3b59a85d256ed1417eead90906350bae56026003cbd4de23259ba0c916fcffd4` (for verification)
 
 We recommend users verify downloads themselves via VT for peace of mind.
 
 
 ## Features	
+
+- **Approvals**: manager approval for Ticket orders/Notes.
 
 - **Tickets**: Email ingestion via Microsoft Graph, dashboard, notes, attachments, processes, tasks, scheduled recurring tickets
 
@@ -33,7 +35,7 @@ We recommend users verify downloads themselves via VT for peace of mind.
 
 	- Create draft POs from selected items; edit items in draft, then finalize
 
-	- PO PDF generation and email on finalize- 
+	- PO PDF generation and email on finalize-
 
 - **Admin**: - Ensure your Azure AD app has the necessary permissions (e.g., Mail.ReadWrite), and admin consent is granted.
 
@@ -54,6 +56,7 @@ We recommend users verify downloads themselves via VT for peace of mind.
 - **Theming**: Built-in themes (light, dark, ocean, fallout) with consistent UI across all pages- Asset detail pages show related tickets and full history
 
 - **SQLite by default**: Lightweight "ensure" migrations on startup for zero-config upgrades
+
 
 ## Requirements - Run from Source Code
 
@@ -81,7 +84,6 @@ On first run the following directories are created if not presant:
 - Databases - Main Database folder
 
 to upgrade to newest version, backup your database then remove HelpfulDjinn.exe. copy new HelpfulDjinn.exe and run. System will update database (if applicable) and start.
-<<<<<<< HEAD
 
 ## Snoozed Tickets Wake-up Notifications
 
@@ -94,4 +96,4 @@ Notes:
 - Email delivery uses Microsoft Graph. Configure MS_CLIENT_ID, MS_CLIENT_SECRET, MS_TENANT_ID, and MS_USER_EMAIL in Admin > Email Settings (or environment variables).
 - If no tech is assigned, the ticket is simply unsnoozed with a private system note.
 =======
->>>>>>> 5348acca801cc1836eb2afc774a4503303920f3e
+
