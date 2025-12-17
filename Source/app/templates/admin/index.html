@@ -391,7 +391,7 @@
         <div class="mb-4">
           <h6 class="fw-semibold mb-3"><i class="bi bi-hand-index me-1"></i>Manual Actions</h6>
           <div class="row g-2">
-            <div class="col-md-6">
+            <div class="col-md-4">
               <form method="post" action="{{ url_for('admin.backup_db') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button class="btn btn-outline-primary w-100" type="submit">
@@ -400,7 +400,16 @@
               </form>
               <div class="small text-muted mt-1">Creates a SQLite backup file</div>
             </div>
-            <div class="col-md-6">
+            <div class="col-md-4">
+              <form method="post" action="{{ url_for('admin.backup_attachments') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-outline-secondary w-100" type="submit">
+                  <i class="bi bi-file-earmark-zip me-2"></i>Backup Attachments
+                </button>
+              </form>
+              <div class="small text-muted mt-1">Downloads all attachments as ZIP</div>
+            </div>
+            <div class="col-md-4">
               <form method="post" action="{{ url_for('admin.restore_db') }}" enctype="multipart/form-data" onsubmit="return confirm('This will replace the current database with the uploaded backup. Continue?');">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="mb-1">

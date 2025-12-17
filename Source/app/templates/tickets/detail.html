@@ -98,6 +98,62 @@
       </div>
     </div>
 
+    {% if approval_requests %}
+    <!-- Approvals -->
+    <div class="card shadow-sm mt-3" id="approvalsWidget">
+      <div class="card-header bg-body-tertiary">
+        <h6 class="mb-0"><i class="bi bi-check-circle me-1"></i>Approvals</h6>
+      </div>
+      <div class="card-body">
+        <div class="small">
+          {% for ar in approval_requests %}
+          <div class="py-2 {% if not loop.last %}border-bottom{% endif %}">
+            <div class="d-flex align-items-center justify-content-between">
+              <div>
+                <span class="fw-semibold">{{ ar.manager_contact.name or ar.manager_contact.email }}</span>
+                <span class="text-muted">·</span>
+                {% if ar.status == 'pending' %}
+                  <span class="badge text-bg-warning">Pending</span>
+                {% elif ar.status == 'approved' %}
+                  <span class="badge text-bg-success">Approved</span>
+                {% elif ar.status == 'denied' %}
+                  <span class="badge text-bg-danger">Denied</span>
+                {% endif %}
+                <br>
+                <span class="text-muted" style="font-size: 0.75rem;">Sent {{ ar.created_at|cst_datetime('%m/%d/%Y %I:%M %p') }}</span>
+                {% if ar.responded_at %}
+                  <span class="text-muted" style="font-size: 0.75rem;">· Responded {{ ar.responded_at|cst_datetime('%m/%d/%Y %I:%M %p') }}</span>
+                {% endif %}
+              </div>
+              {% if ar.status == 'pending' %}
+              <form method="post" action="{{ url_for('tickets.resend_approval', ticket_id=t.id, approval_id=ar.id) }}" class="ms-2">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-outline-secondary" title="Resend approval request email">
+                  <i class="bi bi-arrow-repeat me-1"></i>Resend
+                </button>
+              </form>
+              {% endif %}
+            </div>
+            {% if ar.items_snapshot %}
+              <div class="text-muted mt-1" style="font-size: 0.75rem;"><i class="bi bi-cart me-1"></i>{{ ar.items_snapshot }}</div>
+            {% endif %}
+            {% if ar.request_note %}
+              <div class="text-muted fst-italic mt-1" style="font-size: 0.75rem;"><i class="bi bi-chat-left-text me-1"></i>{{ ar.request_note }}</div>
+            {% endif %}
+            {% if ar.response_note %}
+              <div class="mt-1" style="font-size: 0.75rem;">
+                <span class="{% if ar.status == 'approved' %}text-success{% elif ar.status == 'denied' %}text-danger{% else %}text-muted{% endif %}">
+                  <i class="bi bi-reply me-1"></i>{{ ar.response_note }}
+                </span>
+              </div>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
   {% if t.processes %}
     <!-- Processes -->
     <div class="card shadow-sm mt-3">

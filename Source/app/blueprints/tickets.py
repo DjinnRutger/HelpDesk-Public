@@ -54,13 +54,18 @@ def list_tickets():
         pass
     if q:
         like = f"%{q}%"
-        # Include legacy requester field (may contain email) in search
+        # Find ticket IDs that have notes matching the search term
+        tickets_with_matching_notes = db.session.query(TicketNote.ticket_id).filter(
+            TicketNote.content.ilike(like)
+        ).distinct().subquery()
+        # Include legacy requester field (may contain email) in search, plus notes
         query = query.filter(
             (Ticket.subject.ilike(like)) |
             (Ticket.body.ilike(like)) |
             (Ticket.requester_name.ilike(like)) |
             (Ticket.requester_email.ilike(like)) |
-            (Ticket.requester.ilike(like))
+            (Ticket.requester.ilike(like)) |
+            (Ticket.id.in_(tickets_with_matching_notes))
         )
     tickets = query.order_by(Ticket.created_at.desc()).limit(200).all()
     # Snoozed count for toggle badge
@@ -176,8 +181,8 @@ def new_ticket():
         # Form did not validate; surface errors so user can see issue.
         err_text = '; '.join([f"{field}: {', '.join(errs)}" for field, errs in form.errors.items()]) or 'Unknown validation error'
         flash(f'Ticket not saved: {err_text}', 'danger')
-    # Provide contacts for requester autocomplete
-    contacts = Contact.query.order_by(Contact.name.asc()).limit(500).all()
+    # Provide contacts for requester autocomplete (exclude archived users)
+    contacts = Contact.query.filter((Contact.archived == False) | (Contact.archived == None)).order_by(Contact.name.asc()).limit(500).all()
     return render_template('tickets/new.html', form=form, contacts=contacts)
 
 
@@ -493,7 +498,9 @@ def show_ticket(ticket_id):
             contact_assets = []
     # Contacts for requester autocomplete (limit to 500 for performance)
     contacts = Contact.query.order_by(Contact.name.asc()).limit(500).all()
-    return render_template('tickets/detail.html', t=t, notes=notes, tasks=tasks, tasks_by_list=tasks_by_list, order_items=order_items, note_form=note_form, update_form=update_form, assign_form=assign_form, task_form=task_form, contact=contact, techs=techs, merge_form=merge_form, contact_assets=contact_assets, contacts=contacts)
+    # Get approval requests for this ticket
+    approval_requests = ApprovalRequest.query.filter_by(ticket_id=t.id).order_by(ApprovalRequest.created_at.desc()).all()
+    return render_template('tickets/detail.html', t=t, notes=notes, tasks=tasks, tasks_by_list=tasks_by_list, order_items=order_items, note_form=note_form, update_form=update_form, assign_form=assign_form, task_form=task_form, contact=contact, techs=techs, merge_form=merge_form, contact_assets=contact_assets, contacts=contacts, approval_requests=approval_requests)
 
 
 @tickets_bp.route('/<int:ticket_id>/attachments/<path:filename>')
@@ -524,8 +531,11 @@ def recipient_search():
     results = []
     if q:
         like = f"%{q}%"
-        # Search Contacts and Users by name or email
-        contacts = Contact.query.filter(or_(Contact.name.ilike(like), Contact.email.ilike(like))).order_by(Contact.name.asc()).limit(10).all()
+        # Search Contacts and Users by name or email (exclude archived contacts)
+        contacts = Contact.query.filter(
+            or_(Contact.name.ilike(like), Contact.email.ilike(like)),
+            (Contact.archived == False) | (Contact.archived == None)
+        ).order_by(Contact.name.asc()).limit(10).all()
         users = User.query.filter(or_(User.name.ilike(like), User.email.ilike(like))).order_by(User.name.asc()).limit(10).all()
         seen = set()
         for c in contacts:
@@ -1030,6 +1040,15 @@ def request_approval(ticket_id):
     # Get order items for this ticket
     order_items = OrderItem.query.filter_by(ticket_id=t.id).all()
     
+    # Build items snapshot for display
+    items_snapshot_parts = []
+    for item in order_items:
+        part = f"{item.description} (x{item.quantity})"
+        if item.est_unit_cost:
+            part += f" - ${item.est_unit_cost:.2f}"
+        items_snapshot_parts.append(part)
+    items_snapshot = "; ".join(items_snapshot_parts) if items_snapshot_parts else None
+    
     # Create the approval request record
     approval = ApprovalRequest(
         ticket_id=t.id,
@@ -1038,31 +1057,10 @@ def request_approval(ticket_id):
         requesting_tech_id=current_user.id,
         status='pending',
         request_note=approval_note,
+        items_snapshot=items_snapshot,
     )
     db.session.add(approval)
     db.session.flush()  # Get the ID
-    
-    # Add a note to the ticket about the approval request
-    note_content = f"<p><strong>Approval Request Sent</strong></p>"
-    note_content += f"<p>Sent to: {manager.name or manager.email} ({manager.email})</p>"
-    if approval_note:
-        note_content += f"<p>Note: {approval_note}</p>"
-    if order_items:
-        note_content += "<p>Items:</p><ul>"
-        for item in order_items:
-            note_content += f"<li>{item.description} (x{item.quantity})"
-            if item.est_unit_cost:
-                note_content += f" - ${item.est_unit_cost:.2f} each"
-            note_content += "</li>"
-        note_content += "</ul>"
-    
-    note = TicketNote(
-        ticket_id=t.id,
-        author_id=current_user.id,
-        content=note_content,
-        is_private=True,
-    )
-    db.session.add(note)
     
     # Build email to manager
     tech_name = current_user.name or 'A technician'
@@ -1126,5 +1124,97 @@ def request_approval(ticket_id):
     except Exception as e:
         db.session.rollback()
         flash(f'Error sending approval request: {str(e)}', 'danger')
+    
+    return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
+
+
+@tickets_bp.route('/<int:ticket_id>/resend_approval/<int:approval_id>', methods=['POST'])
+@login_required
+def resend_approval(ticket_id, approval_id):
+    """Resend an existing approval request email to the manager."""
+    from ..services.ms_graph import send_mail
+    
+    t = Ticket.query.get_or_404(ticket_id)
+    approval = ApprovalRequest.query.get_or_404(approval_id)
+    
+    # Verify the approval belongs to this ticket
+    if approval.ticket_id != t.id:
+        flash('Invalid approval request.', 'danger')
+        return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
+    
+    # Don't allow resending if already responded
+    if approval.status != 'pending':
+        flash('This approval request has already been responded to.', 'warning')
+        return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
+    
+    manager = approval.manager_contact
+    if not manager or not manager.email:
+        flash('Manager has no email address configured.', 'danger')
+        return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
+    
+    contact = approval.requester_contact
+    
+    # Get order items for this ticket
+    order_items = OrderItem.query.filter_by(ticket_id=t.id).all()
+    
+    # Build email to manager
+    tech_name = current_user.name or 'A technician'
+    requester_name = contact.name if contact else (t.requester_name or t.requester_email or 'Unknown')
+    
+    subject = f"Reminder: Approval Request - Ticket#{t.id} - {t.subject}"
+    
+    # Build items list for email
+    items_html = ""
+    if order_items:
+        items_html = "<h3>Items Requested:</h3><ul>"
+        total_cost = 0
+        for item in order_items:
+            item_cost = (item.est_unit_cost or 0) * item.quantity
+            total_cost += item_cost
+            items_html += f"<li><strong>{item.description}</strong> (Qty: {item.quantity})"
+            if item.est_unit_cost:
+                items_html += f" - ${item.est_unit_cost:.2f} each = ${item_cost:.2f}"
+            items_html += "</li>"
+        items_html += f"</ul><p><strong>Estimated Total: ${total_cost:.2f}</strong></p>"
+    else:
+        items_html = "<p><em>No specific order items listed.</em></p>"
+    
+    email_body = f"""
+    <p>Hello {manager.name or 'Manager'},</p>
+    
+    <p>This is a reminder that <strong>{tech_name}</strong> is awaiting your approval for the following order for <strong>{requester_name}</strong>:</p>
+    
+    <hr>
+    <h3>Ticket Information:</h3>
+    <ul>
+        <li><strong>Ticket #:</strong> {t.id}</li>
+        <li><strong>Subject:</strong> {t.subject}</li>
+        <li><strong>Requester:</strong> {requester_name}</li>
+    </ul>
+    
+    {items_html}
+    
+    {f'<h3>Original Notes from Tech:</h3><p>{approval.request_note}</p>' if approval.request_note else ''}
+    
+    <hr>
+    <h3>How to Respond:</h3>
+    <p>Please <strong>reply to this email</strong> with one of the following:</p>
+    <ul>
+        <li><strong>Approved</strong> - to approve this request</li>
+        <li><strong>Denied</strong> - to deny this request (please include a reason)</li>
+    </ul>
+    
+    <p>Thank you,<br>Help Desk</p>
+    """
+    
+    # Send the email
+    try:
+        success = send_mail(manager.email, subject, email_body, to_name=manager.name)
+        if success:
+            flash(f'Approval reminder sent to {manager.name or manager.email}.', 'success')
+        else:
+            flash('Failed to resend approval request email.', 'danger')
+    except Exception as e:
+        flash(f'Error resending approval request: {str(e)}', 'danger')
     
     return redirect(url_for('tickets.show_ticket', ticket_id=t.id))

@@ -25,20 +25,26 @@
 <div class="card shadow-sm mb-3">
   <div class="card-body">
     <form method="get" class="row g-3 align-items-end">
-      <div class="col-md-8">
+      <div class="col-md-7">
         <label class="form-label small fw-semibold"><i class="bi bi-search me-1"></i>Search Users</label>
         <input type="text" class="form-control" name="q" placeholder="Search by name or email..." value="{{ q or '' }}">
       </div>
-      <div class="col-md-4">
+      <div class="col-md-5">
         <div class="d-flex gap-2">
           <button type="submit" class="btn btn-outline-primary">
             <i class="bi bi-search me-1"></i>Search
           </button>
           {% if q %}
-          <a href="{{ url_for('users.list_users') }}" class="btn btn-outline-secondary">
+          <a href="{{ url_for('users.list_users', show_all='1' if show_all else '0') }}" class="btn btn-outline-secondary">
             <i class="bi bi-x-lg me-1"></i>Clear
           </a>
           {% endif %}
+          <input type="hidden" name="show_all" value="{{ '1' if show_all else '0' }}">
+          <a href="{{ url_for('users.list_users', q=q, show_all='0' if show_all else '1') }}" 
+             class="btn btn-outline-secondary" 
+             title="{{ 'Hide archived users' if show_all else 'Show all users including archived' }}">
+            <i class="bi bi-eye{{ '' if show_all else '-slash' }}"></i>
+          </a>
         </div>
       </div>
     </form>
@@ -54,6 +60,9 @@
       Showing {{ contacts|length }} user{{ 's' if contacts|length != 1 else '' }} matching "{{ q }}"
     {% else %}
       Showing {{ contacts|length }} user{{ 's' if contacts|length != 1 else '' }} total
+    {% endif %}
+    {% if show_all %}
+      <span class="badge bg-secondary ms-1">Including archived</span>
     {% endif %}
   </div>
 </div>
@@ -74,12 +83,17 @@
           </thead>
           <tbody>
             {% for c in contacts %}
-            <tr class="user-row" data-href="{{ url_for('users.show_user', contact_id=c.id) }}" tabindex="0" role="button">
+            <tr class="user-row{{ ' table-secondary' if c.archived else '' }}" data-href="{{ url_for('users.show_user', contact_id=c.id) }}" tabindex="0" role="button">
               <td class="ps-3">
                 <div class="d-flex align-items-center">
                   <i class="bi bi-person-circle text-muted me-2 fs-5"></i>
                   <div>
-                    <div class="fw-semibold">{{ c.name or 'Unnamed User' }}</div>
+                    <div class="fw-semibold">
+                      {{ c.name or 'Unnamed User' }}
+                      {% if c.archived %}
+                        <span class="badge bg-secondary ms-1">Archived</span>
+                      {% endif %}
+                    </div>
                     {% if c.notes %}
                       <div class="small text-muted text-truncate" style="max-width: 200px;" title="{{ c.notes }}">{{ c.notes }}</div>
                     {% endif %}

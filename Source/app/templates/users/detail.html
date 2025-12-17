@@ -8,7 +8,12 @@
       <div class="d-flex align-items-center">
         <i class="bi bi-person-circle text-primary me-2 fs-4"></i>
         <div>
-          <h1 class="h5 mb-0">{{ contact.name or 'Unnamed User' }}</h1>
+          <h1 class="h5 mb-0">
+            {{ contact.name or 'Unnamed User' }}
+            {% if contact.archived %}
+              <span class="badge bg-secondary ms-1">Archived</span>
+            {% endif %}
+          </h1>
           <small class="text-muted">{{ contact.email }}</small>
         </div>
       </div>
@@ -162,9 +167,14 @@
             </div>
 
             <div class="d-flex justify-content-between align-items-center pt-3 border-top">
-              <button type="button" id="delete-user-btn" class="btn btn-outline-danger" data-has-assets="{{ '1' if assets|length > 0 else '0' }}">
-                <i class="bi bi-trash me-1"></i>Delete User
-              </button>
+              <div class="d-flex gap-2">
+                <button type="button" id="delete-user-btn" class="btn btn-outline-danger" data-has-assets="{{ '1' if assets|length > 0 else '0' }}">
+                  <i class="bi bi-trash me-1"></i>Delete User
+                </button>
+                <button type="button" id="archive-user-btn" class="btn btn-outline-{{ 'success' if contact.archived else 'warning' }}">
+                  <i class="bi bi-archive{{ '-fill' if contact.archived else '' }} me-1"></i>{{ 'Unarchive' if contact.archived else 'Archive' }}
+                </button>
+              </div>
               <div class="d-flex gap-2">
                 <a href="{{ url_for('users.show_user', contact_id=contact.id) }}" class="btn btn-outline-secondary">Cancel</a>
                 <button type="submit" class="btn btn-primary">
@@ -188,6 +198,35 @@
                   const f = document.createElement('form');
                   f.method = 'POST';
                   f.action = "{{ url_for('users.delete_user', contact_id=contact.id) }}";
+                  const csrf = document.createElement('input');
+                  csrf.type = 'hidden';
+                  csrf.name = 'csrf_token';
+                  csrf.value = '{{ csrf_token() }}';
+                  f.appendChild(csrf);
+                  document.body.appendChild(f);
+                  f.submit();
+                });
+              }
+
+              // Archive/Unarchive button handler
+              const archiveBtn = document.getElementById('archive-user-btn');
+              if(archiveBtn){
+                archiveBtn.addEventListener('click', function(){
+                  const isArchived = {{ 'true' if contact.archived else 'false' }};
+                  const hasAssets = {{ 'true' if assets|length > 0 else 'false' }};
+                  const action = isArchived ? 'unarchive' : 'archive';
+                  
+                  // Prevent archiving if user has assets (but allow unarchiving)
+                  if(!isArchived && hasAssets){
+                    alert('Please check in any assets before archiving this user.');
+                    return;
+                  }
+                  
+                  if(!confirm(`Are you sure you want to ${action} this user?`)) return;
+                  // Create and submit a form dynamically
+                  const f = document.createElement('form');
+                  f.method = 'POST';
+                  f.action = "{{ url_for('users.archive_user', contact_id=contact.id) }}";
                   const csrf = document.createElement('input');
                   csrf.type = 'hidden';
                   csrf.name = 'csrf_token';
@@ -287,8 +326,11 @@
       <div class="card-header bg-body-tertiary">
         <div class="d-flex align-items-center justify-content-between">
           <h6 class="mb-0"><i class="bi bi-laptop me-1"></i>Assigned Assets</h6>
-          {% if assets %}
-          <div class="dropdown">
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#assetLogModal">
+              <i class="bi bi-clock-history me-1"></i>Log
+            </button>
+            {% if assets %}
             <button type="button" id="enter-checkin-mode" class="btn btn-outline-primary btn-sm">
               <i class="bi bi-box-arrow-in-left me-1"></i>Check In
             </button>
@@ -306,8 +348,8 @@
                 </form>
               </div>
             </div>
+            {% endif %}
           </div>
-          {% endif %}
         </div>
       </div>
       <div class="card-body p-0">
@@ -480,4 +522,59 @@
     </div>
   </div>
 </div>
+
+<!-- Asset Log Modal -->
+<div class="modal fade" id="assetLogModal" tabindex="-1" aria-labelledby="assetLogModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="assetLogModalLabel"><i class="bi bi-clock-history me-2"></i>Asset Log</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div id="assetLogModalBody">
+        <div class="modal-body text-center py-4">
+          <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  const modal = document.getElementById('assetLogModal');
+  const modalBody = document.getElementById('assetLogModalBody');
+  const apiUrl = '{{ url_for("users.asset_log_api", contact_id=contact.id) }}';
+  
+  function loadAssetLogPage(page) {
+    modalBody.innerHTML = '<div class="modal-body text-center py-4"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div>';
+    fetch(apiUrl + '?page=' + page)
+      .then(r => r.text())
+      .then(html => {
+        modalBody.innerHTML = html;
+        // Attach click handlers to new pagination links
+        attachPaginationHandlers();
+      })
+      .catch(() => {
+        modalBody.innerHTML = '<div class="modal-body text-center py-4"><p class="text-danger">Failed to load asset log</p></div>';
+      });
+  }
+  
+  function attachPaginationHandlers() {
+    modalBody.querySelectorAll('.asset-log-page-link').forEach(link => {
+      link.addEventListener('click', function(e) {
+        e.preventDefault();
+        const page = this.getAttribute('data-page');
+        loadAssetLogPage(page);
+      });
+    });
+  }
+  
+  // Load first page when modal opens
+  modal.addEventListener('show.bs.modal', function() {
+    loadAssetLogPage(1);
+  });
+})();
+</script>
 {% endblock %}

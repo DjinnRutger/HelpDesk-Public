@@ -73,12 +73,16 @@ class Ticket(db.Model):
 
     @property
     def age_hours(self) -> float:
-        delta = (datetime.utcnow() - self.created_at)
+        # For closed tickets, calculate age from opened to closed, not to current time
+        end_time = self.closed_at if self.status == 'closed' and self.closed_at else datetime.utcnow()
+        delta = (end_time - self.created_at)
         return round(delta.total_seconds() / 3600.0, 2)
 
     @property
     def age_days(self) -> float:
-        delta = (datetime.utcnow() - self.created_at)
+        # For closed tickets, calculate age from opened to closed, not to current time
+        end_time = self.closed_at if self.status == 'closed' and self.closed_at else datetime.utcnow()
+        delta = (end_time - self.created_at)
         return round(delta.total_seconds() / 86400.0, 2)
 
     @property
@@ -236,6 +240,8 @@ class Contact(db.Model):
     # Manager relationship for approval workflows
     manager_id = db.Column(db.Integer, db.ForeignKey('contact.id'), nullable=True)
     manager = db.relationship('Contact', remote_side='Contact.id', backref='direct_reports', foreign_keys=[manager_id])
+    # Archived users are hidden from the default users list
+    archived = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -252,6 +258,8 @@ class ApprovalRequest(db.Model):
     status = db.Column(db.String(20), default='pending')
     # Note from tech when requesting approval
     request_note = db.Column(db.Text, nullable=True)
+    # Snapshot of items at time of request (short description)
+    items_snapshot = db.Column(db.Text, nullable=True)
     # Response note from manager (if any)
     response_note = db.Column(db.Text, nullable=True)
     responded_at = db.Column(db.DateTime, nullable=True)

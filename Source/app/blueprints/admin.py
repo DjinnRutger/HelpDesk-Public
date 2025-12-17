@@ -10,6 +10,7 @@ import sqlite3
 import io
 import tempfile
 import shutil
+import zipfile
 from datetime import datetime
 import os
 import requests
@@ -1688,6 +1689,51 @@ def email_delete_deny(deny_id):
 
 
 # --- Backup / Restore ---
+@admin_bp.route('/backup/attachments', methods=['POST'])
+@login_required
+def backup_attachments():
+    """Download a zip file of all attachment folders."""
+    if not admin_required():
+        return redirect(url_for('dashboard.index'))
+    try:
+        # Determine the attachments directory
+        attachments_subdir = (Setting.get('ATTACHMENTS_DIR_REL', 'attachments') or 'attachments').strip()
+        attachments_subdir = attachments_subdir.replace('\\', '/').lstrip('/') or 'attachments'
+        attachments_base = (Setting.get('ATTACHMENTS_BASE', 'instance') or 'instance').strip().lower()
+        base_root = current_app.instance_path if attachments_base == 'instance' else (current_app.static_folder or os.path.join(current_app.root_path, 'static'))
+        attachments_abs = os.path.join(base_root, attachments_subdir)
+        
+        if not os.path.exists(attachments_abs):
+            flash('Attachments directory does not exist.', 'warning')
+            return redirect(url_for('admin.index'))
+        
+        # Create zip file in memory
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            for root, dirs, files in os.walk(attachments_abs):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    # Calculate the archive name relative to the attachments directory
+                    # This preserves the folder structure (e.g., attachments/10/file.pdf)
+                    arcname = os.path.join(attachments_subdir, os.path.relpath(file_path, attachments_abs))
+                    zip_file.write(file_path, arcname)
+        
+        zip_buffer.seek(0)
+        filename = f"helpdesk-attachments-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.zip"
+        try:
+            current_app.logger.info('Attachments backup created: %s bytes', zip_buffer.getbuffer().nbytes)
+        except Exception:
+            pass
+        return send_file(zip_buffer, as_attachment=True, download_name=filename, mimetype='application/zip')
+    except Exception as e:
+        try:
+            current_app.logger.exception('Attachments backup failed: %s', e)
+        except Exception:
+            pass
+        flash('Attachments backup failed. See logs for details.', 'danger')
+        return redirect(url_for('admin.index'))
+
+
 @admin_bp.route('/backup', methods=['POST'])
 @login_required
 def backup_db():

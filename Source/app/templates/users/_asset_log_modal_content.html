@@ -1,0 +1,82 @@
+<div class="modal-body p-0">
+  {% if asset_log_entries %}
+    <div class="list-group list-group-flush">
+      {% for entry in asset_log_entries %}
+      <div class="list-group-item">
+        <div class="d-flex justify-content-between align-items-start">
+          <div class="flex-grow-1 me-2">
+            <div class="d-flex align-items-center mb-1">
+              {% if entry.action == 'checkout' %}
+                <i class="bi bi-box-arrow-right text-success me-2"></i>
+                <span class="fw-semibold text-success">Assigned</span>
+              {% elif entry.action == 'checkin' %}
+                <i class="bi bi-box-arrow-in-left text-warning me-2"></i>
+                <span class="fw-semibold text-warning">Unassigned</span>
+              {% else %}
+                <i class="bi bi-arrow-left-right text-secondary me-2"></i>
+                <span class="fw-semibold text-secondary">{{ entry.action|capitalize }}</span>
+              {% endif %}
+            </div>
+            <div class="small">
+              {% if entry.asset %}
+                <a href="{{ url_for('assets.detail', asset_id=entry.asset.id) }}" class="text-decoration-none">
+                  {{ entry.asset.name }}
+                  {% if entry.asset.asset_tag %}(#{{ entry.asset.asset_tag }}){% endif %}
+                </a>
+              {% else %}
+                <span class="text-muted">Asset #{{ entry.asset_id }}</span>
+              {% endif %}
+            </div>
+            {% if entry.user %}
+              <div class="small text-muted">
+                <i class="bi bi-person me-1"></i>By {{ entry.user.name or entry.user.email }}
+              </div>
+            {% endif %}
+          </div>
+          <div class="text-end">
+            <small class="text-muted">{{ entry.created_at|cst_datetime }}</small>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="text-center py-4">
+      <i class="bi bi-clock-history display-4 text-muted opacity-25"></i>
+      <p class="text-muted mb-0 mt-2">No asset history</p>
+    </div>
+  {% endif %}
+</div>
+{% if asset_log_pagination and asset_log_pagination.pages > 1 %}
+<div class="modal-footer justify-content-center">
+  <nav aria-label="Asset log pagination">
+    <ul class="pagination pagination-sm mb-0">
+      {% if asset_log_pagination.has_prev %}
+      <li class="page-item">
+        <a class="page-link asset-log-page-link" href="#" data-page="{{ asset_log_pagination.prev_num }}">
+          <i class="bi bi-chevron-left"></i> Previous
+        </a>
+      </li>
+      {% else %}
+      <li class="page-item disabled">
+        <span class="page-link"><i class="bi bi-chevron-left"></i> Previous</span>
+      </li>
+      {% endif %}
+      <li class="page-item disabled">
+        <span class="page-link">Page {{ asset_log_pagination.page }} of {{ asset_log_pagination.pages }}</span>
+      </li>
+      {% if asset_log_pagination.has_next %}
+      <li class="page-item">
+        <a class="page-link asset-log-page-link" href="#" data-page="{{ asset_log_pagination.next_num }}">
+          Next <i class="bi bi-chevron-right"></i>
+        </a>
+      </li>
+      {% else %}
+      <li class="page-item disabled">
+        <span class="page-link">Next <i class="bi bi-chevron-right"></i></span>
+      </li>
+      {% endif %}
+    </ul>
+  </nav>
+</div>
+{% endif %}

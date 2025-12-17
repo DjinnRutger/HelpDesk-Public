@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required
-from ..models import Contact, Ticket, Asset
-from sqlalchemy import func, case
+from ..models import Contact, Ticket, Asset, AssetAudit
+from sqlalchemy import func, case, or_
 from .. import db
 
 
@@ -39,10 +39,14 @@ def search_contacts():
 @login_required
 def list_users():
     q = (request.args.get('q') or '').strip()
+    show_all = request.args.get('show_all', '0') == '1'
     query = Contact.query
     if q:
         like = f"%{q}%"
         query = query.filter((Contact.name.ilike(like)) | (Contact.email.ilike(like)))
+    # By default, hide archived users unless show_all is enabled
+    if not show_all:
+        query = query.filter((Contact.archived == False) | (Contact.archived == None))
     # Order alphabetically by first name (first word in name), case-insensitive.
     # If no space in name, use the entire name; if name is NULL, fall back to email.
     first_name = case(
@@ -55,7 +59,7 @@ def list_users():
         .limit(500)
         .all()
     )
-    return render_template('users/list.html', contacts=contacts, q=q)
+    return render_template('users/list.html', contacts=contacts, q=q, show_all=show_all)
 
 
 @users_bp.route('/new', methods=['GET', 'POST'])
@@ -116,6 +120,7 @@ def show_user(contact_id):
     tickets = Ticket.query.filter((Ticket.requester_email == c.email) | (Ticket.requester_name == c.name)).order_by(Ticket.created_at.desc()).all()
     assets = Asset.query.filter_by(assigned_contact_id=c.id).order_by(Asset.name.asc()).all()
     edit = (request.args.get('edit') == '1')
+    
     return render_template('users/detail.html', contact=c, tickets=tickets, assets=assets, edit=edit)
 
 
@@ -140,3 +145,48 @@ def delete_user(contact_id):
         db.session.rollback()
         flash(f'Failed to delete user: {e}', 'danger')
         return redirect(url_for('users.show_user', contact_id=c.id, edit='1'))
+
+
+@users_bp.route('/<int:contact_id>/archive', methods=['POST'])
+@login_required
+def archive_user(contact_id):
+    """Toggle archive status for a contact."""
+    c = Contact.query.get_or_404(contact_id)
+    # Prevent archiving if user has assets checked out (but allow unarchiving)
+    if not c.archived:
+        asset_count = Asset.query.filter_by(assigned_contact_id=c.id).count()
+        if asset_count:
+            flash(f'Cannot archive: user has {asset_count} asset(s) checked out. Check them in first.', 'danger')
+            return redirect(url_for('users.show_user', contact_id=c.id, edit='1'))
+    c.archived = not c.archived
+    db.session.commit()
+    if c.archived:
+        flash('User has been archived.', 'success')
+    else:
+        flash('User has been unarchived.', 'success')
+    return redirect(url_for('users.show_user', contact_id=c.id, edit='1'))
+
+
+@users_bp.route('/<int:contact_id>/asset-log')
+@login_required
+def asset_log_api(contact_id):
+    """API endpoint for fetching asset log entries with pagination (returns HTML fragment)."""
+    c = Contact.query.get_or_404(contact_id)
+    contact_id_str = str(c.id)
+    page = request.args.get('page', 1, type=int)
+    per_page = 5
+    
+    asset_log_query = AssetAudit.query.filter(
+        AssetAudit.action.in_(['checkout', 'checkin']),
+        or_(
+            AssetAudit.old_value == contact_id_str,
+            AssetAudit.new_value == contact_id_str
+        )
+    ).order_by(AssetAudit.created_at.desc())
+    
+    pagination = asset_log_query.paginate(page=page, per_page=per_page, error_out=False)
+    
+    return render_template('users/_asset_log_modal_content.html', 
+                           contact=c,
+                           asset_log_entries=pagination.items,
+                           asset_log_pagination=pagination)

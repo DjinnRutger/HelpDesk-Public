@@ -488,7 +488,13 @@ def bulk_checkin_contact(contact_id):
         return redirect(url_for('users.show_user', contact_id=contact_id))
     changed = 0
     for a in assets:
+        prev_assigned = a.assigned_contact_id
+        prev_status = a.status or ''
         a.checkin()
+        # Log audit entry for each asset (same as individual checkin)
+        db.session.add(AssetAudit(asset_id=a.id, user_id=getattr(current_user,'id',None), action='checkin', field='assigned_contact_id', old_value=str(prev_assigned) if prev_assigned else None, new_value=None))
+        if (a.status or '') != prev_status:
+            db.session.add(AssetAudit(asset_id=a.id, user_id=getattr(current_user,'id',None), action='status_change', field='status', old_value=prev_status or None, new_value=a.status or None))
         changed += 1
     db.session.commit()
     flash(f'Checked in {changed} asset(s).', 'success')

@@ -481,9 +481,10 @@ def ensure_asset_picklists(engine):
 
 
 def ensure_contact_columns(engine):
-    """Ensure Contact table has manager_id column for approval workflows."""
+    """Ensure Contact table has manager_id and archived columns."""
     required = {
         'manager_id': 'INTEGER',
+        'archived': 'BOOLEAN',
     }
     with engine.connect() as conn:
         rows = conn.execute(text("PRAGMA table_info('contact')")).fetchall()
@@ -509,6 +510,7 @@ def ensure_approval_request_table(engine):
                     requesting_tech_id INTEGER NOT NULL,
                     status TEXT DEFAULT 'pending',
                     request_note TEXT,
+                    items_snapshot TEXT,
                     response_note TEXT,
                     responded_at DATETIME,
                     created_at DATETIME,
@@ -518,4 +520,10 @@ def ensure_approval_request_table(engine):
                     FOREIGN KEY (requesting_tech_id) REFERENCES user(id)
                 )
             """))
+        else:
+            # Check if items_snapshot column exists
+            cols = conn.execute(text("PRAGMA table_info(approval_request)"))
+            existing = {r[1] for r in cols.fetchall()}
+            if 'items_snapshot' not in existing:
+                conn.execute(text("ALTER TABLE approval_request ADD COLUMN items_snapshot TEXT"))
         conn.commit()
