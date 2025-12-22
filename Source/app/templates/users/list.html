@@ -76,9 +76,36 @@
         <table class="table table-hover mb-0">
           <thead class="table-light">
             <tr>
-              <th class="ps-3">User</th>
-              <th>Email</th>
-              <th>External Links</th>
+              <th class="ps-3">
+                <a href="{{ url_for('users.list_users', q=q, show_all='1' if show_all else '0', sort='name', order='desc' if sort == 'name' and order == 'asc' else 'asc') }}" class="text-decoration-none text-dark d-flex align-items-center">
+                  User
+                  {% if sort == 'name' %}
+                    <i class="bi bi-caret-{{ 'down' if order == 'asc' else 'up' }}-fill ms-1 text-primary"></i>
+                  {% else %}
+                    <i class="bi bi-caret-down ms-1 text-muted opacity-25"></i>
+                  {% endif %}
+                </a>
+              </th>
+              <th>
+                <a href="{{ url_for('users.list_users', q=q, show_all='1' if show_all else '0', sort='email', order='desc' if sort == 'email' and order == 'asc' else 'asc') }}" class="text-decoration-none text-dark d-flex align-items-center">
+                  Email
+                  {% if sort == 'email' %}
+                    <i class="bi bi-caret-{{ 'down' if order == 'asc' else 'up' }}-fill ms-1 text-primary"></i>
+                  {% else %}
+                    <i class="bi bi-caret-down ms-1 text-muted opacity-25"></i>
+                  {% endif %}
+                </a>
+              </th>
+              <th>
+                <a href="{{ url_for('users.list_users', q=q, show_all='1' if show_all else '0', sort='password', order='desc' if sort == 'password' and order == 'asc' else 'asc') }}" class="text-decoration-none text-dark d-flex align-items-center">
+                  Password Expires
+                  {% if sort == 'password' %}
+                    <i class="bi bi-caret-{{ 'down' if order == 'asc' else 'up' }}-fill ms-1 text-primary"></i>
+                  {% else %}
+                    <i class="bi bi-caret-down ms-1 text-muted opacity-25"></i>
+                  {% endif %}
+                </a>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -107,21 +134,19 @@
                 </div>
               </td>
               <td class="align-middle">
-                <div class="d-flex gap-1">
-                  {% if c.inventory_url %}
-                    <a href="{{ c.inventory_url }}" target="_blank" rel="noopener" class="btn btn-outline-secondary btn-sm" title="Inventory">
-                      <i class="bi bi-box-seam"></i>
-                    </a>
-                  {% endif %}
-                  {% if c.ninja_url %}
-                    <a href="{{ c.ninja_url }}" target="_blank" rel="noopener" class="btn btn-outline-secondary btn-sm" title="Ninja">
-                      <i class="bi bi-shield-check"></i>
-                    </a>
-                  {% endif %}
-                  {% if not c.inventory_url and not c.ninja_url %}
-                    <span class="text-muted small">—</span>
-                  {% endif %}
-                </div>
+                {% if c.password_expires_days is none %}
+                  <span class="text-muted small"><i class="bi bi-question-circle me-1"></i>Not checked</span>
+                {% elif c.password_expires_days == -1 %}
+                  <span class="badge bg-info"><i class="bi bi-infinity me-1"></i>Never expires</span>
+                {% elif c.password_expires_days == -999 %}
+                  <span class="badge bg-secondary"><i class="bi bi-x-circle me-1"></i>Not in AD</span>
+                {% elif c.password_expires_days < 0 %}
+                  <span class="badge bg-danger"><i class="bi bi-exclamation-triangle me-1"></i>Expired</span>
+                {% elif c.password_expires_days <= 14 %}
+                  <span class="badge bg-warning text-dark"><i class="bi bi-clock me-1"></i>{{ c.password_expires_days }} days</span>
+                {% else %}
+                  <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>{{ c.password_expires_days }} days</span>
+                {% endif %}
               </td>
             </tr>
             {% endfor %}

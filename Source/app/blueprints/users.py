@@ -40,6 +40,9 @@ def search_contacts():
 def list_users():
     q = (request.args.get('q') or '').strip()
     show_all = request.args.get('show_all', '0') == '1'
+    sort = request.args.get('sort', 'name')  # name, email, password
+    order = request.args.get('order', 'asc')  # asc, desc
+    
     query = Contact.query
     if q:
         like = f"%{q}%"
@@ -47,19 +50,60 @@ def list_users():
     # By default, hide archived users unless show_all is enabled
     if not show_all:
         query = query.filter((Contact.archived == False) | (Contact.archived == None))
-    # Order alphabetically by first name (first word in name), case-insensitive.
-    # If no space in name, use the entire name; if name is NULL, fall back to email.
-    first_name = case(
-        (func.instr(Contact.name, ' ') > 0, func.substr(Contact.name, 1, func.instr(Contact.name, ' ') - 1)),
-        else_=Contact.name
-    )
-    contacts = (
-        query
-        .order_by(func.lower(first_name).asc(), func.lower(Contact.name).asc(), func.lower(Contact.email).asc())
-        .limit(500)
-        .all()
-    )
-    return render_template('users/list.html', contacts=contacts, q=q, show_all=show_all)
+    
+    # Determine sort order
+    is_desc = order == 'desc'
+    
+    if sort == 'email':
+        # Sort by email
+        if is_desc:
+            query = query.order_by(func.lower(Contact.email).desc())
+        else:
+            query = query.order_by(func.lower(Contact.email).asc())
+    elif sort == 'password':
+        # Sort by password expiry - expiring soonest first (or expired), then OK, then never/not in AD/not checked
+        # password_expires_days: positive = days until expiry, 0 or negative = expired, -1 = never, -999 = not in AD, NULL = not checked
+        # For "expiring soon first": lower positive numbers first, then higher, then special values
+        if is_desc:
+            # Desc: Not checked, Not in AD, Never expires, OK (high to low), Expiring soon, Expired
+            query = query.order_by(
+                case(
+                    (Contact.password_expires_days.is_(None), 0),  # Not checked first
+                    (Contact.password_expires_days == -999, 1),    # Not in AD
+                    (Contact.password_expires_days == -1, 2),      # Never expires
+                    (Contact.password_expires_days >= 0, 3),       # Has expiry date
+                    else_=4                                        # Expired (negative, not -1 or -999)
+                ).asc(),
+                Contact.password_expires_days.desc().nullslast()
+            )
+        else:
+            # Asc: Expired first, Expiring soon, OK, Never expires, Not in AD, Not checked
+            query = query.order_by(
+                case(
+                    (Contact.password_expires_days.is_(None), 5),  # Not checked last
+                    (Contact.password_expires_days == -999, 4),    # Not in AD
+                    (Contact.password_expires_days == -1, 3),      # Never expires
+                    (Contact.password_expires_days < -1, 0),       # Expired (other negative values)
+                    else_=1                                        # Has positive expiry date
+                ).asc(),
+                case(
+                    (Contact.password_expires_days >= 0, Contact.password_expires_days),
+                    else_=9999
+                ).asc()
+            )
+    else:
+        # Default: sort by name (first name)
+        first_name = case(
+            (func.instr(Contact.name, ' ') > 0, func.substr(Contact.name, 1, func.instr(Contact.name, ' ') - 1)),
+            else_=Contact.name
+        )
+        if is_desc:
+            query = query.order_by(func.lower(first_name).desc(), func.lower(Contact.name).desc(), func.lower(Contact.email).desc())
+        else:
+            query = query.order_by(func.lower(first_name).asc(), func.lower(Contact.name).asc(), func.lower(Contact.email).asc())
+    
+    contacts = query.limit(500).all()
+    return render_template('users/list.html', contacts=contacts, q=q, show_all=show_all, sort=sort, order=order)
 
 
 @users_bp.route('/new', methods=['GET', 'POST'])
@@ -121,7 +165,8 @@ def show_user(contact_id):
     assets = Asset.query.filter_by(assigned_contact_id=c.id).order_by(Asset.name.asc()).all()
     edit = (request.args.get('edit') == '1')
     
-    return render_template('users/detail.html', contact=c, tickets=tickets, assets=assets, edit=edit)
+    from datetime import datetime
+    return render_template('users/detail.html', contact=c, tickets=tickets, assets=assets, edit=edit, now=datetime.utcnow())
 
 
 @users_bp.route('/<int:contact_id>/delete', methods=['POST'])

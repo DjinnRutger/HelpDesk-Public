@@ -242,6 +242,10 @@ class Contact(db.Model):
     manager = db.relationship('Contact', remote_side='Contact.id', backref='direct_reports', foreign_keys=[manager_id])
     # Archived users are hidden from the default users list
     archived = db.Column(db.Boolean, default=False)
+    # AD Password expiry tracking
+    password_expires_days = db.Column(db.Integer, nullable=True)  # Days until password expires (null=not checked, -1=never expires, negative=expired)
+    password_checked_at = db.Column(db.DateTime, nullable=True)  # Last time password expiry was checked
+    password_notification_sent_at = db.Column(db.DateTime, nullable=True)  # Last time a password expiry notification was sent
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -603,3 +607,30 @@ class EmailCheckEntry(db.Model):
     note = db.Column(db.String(500))
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
 
+
+# --- Email Templates ---
+class EmailTemplate(db.Model):
+    __tablename__ = 'email_templates'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False, unique=True)
+    subject = db.Column(db.String(300), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    notifications = db.relationship(
+        'PasswordExpiryNotification',
+        backref='template',
+        cascade='all, delete-orphan',
+        lazy='selectin'
+    )
+
+
+# --- Password Expiry Notifications ---
+class PasswordExpiryNotification(db.Model):
+    __tablename__ = 'password_expiry_notifications'
+    id = db.Column(db.Integer, primary_key=True)
+    days_before = db.Column(db.Integer, nullable=False)  # Days before expiry to send notification
+    template_id = db.Column(db.Integer, db.ForeignKey('email_templates.id'), nullable=False)
+    enabled = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)

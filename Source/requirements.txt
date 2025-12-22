@@ -27,3 +27,6 @@ reportlab==4.2.5
 
 # HTML sanitization
 bleach==6.1.0
+
+# LDAP/Active Directory integration
+ldap3==2.9.1

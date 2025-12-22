@@ -49,6 +49,18 @@ def index():
         'ftp_user': Setting.get('FTP_USER', ''),
         'ftp_base': Setting.get('FTP_BASE_DIR', ''),
         'ftp_subdir': Setting.get('FTP_SUBDIR', 'HDWish Data'),
+        # Active Directory settings
+        'ad_enabled': (Setting.get('AD_ENABLED', '0') or '0') in ('1','true','on','yes'),
+        'ad_server': Setting.get('AD_SERVER', ''),
+        'ad_port': Setting.get('AD_PORT', '389'),
+        'ad_use_ssl': (Setting.get('AD_USE_SSL', '0') or '0') in ('1','true','on','yes'),
+        'ad_start_tls': (Setting.get('AD_START_TLS', '0') or '0') in ('1','true','on','yes'),
+        'ad_base_dn': Setting.get('AD_BASE_DN', ''),
+        'ad_bind_dn': Setting.get('AD_BIND_DN', ''),
+        # AD Password Check settings
+        'ad_pwd_check_enabled': (Setting.get('AD_PWD_CHECK_ENABLED', '0') or '0') in ('1','true','on','yes'),
+        'ad_pwd_check_time': Setting.get('AD_PWD_CHECK_TIME', '07:00'),
+        'ad_pwd_warning_days': Setting.get('AD_PWD_WARNING_DAYS', '14'),
     }
     techs = User.query.order_by(User.created_at.desc()).all()
     templates = ProcessTemplate.query.order_by(ProcessTemplate.name.asc()).all()
@@ -1205,6 +1217,454 @@ def ftp_test():
     return redirect(url_for('admin.index'))
 
 
+# --- Active Directory Settings ---
+@admin_bp.route('/ad_settings', methods=['POST'])
+@login_required
+def ad_settings():
+    """Save Active Directory connection settings."""
+    ad_enabled = request.form.get('ad_enabled') in ('1', 'on', 'true', 'yes')
+    ad_server = (request.form.get('ad_server') or '').strip()
+    ad_port = (request.form.get('ad_port') or '389').strip()
+    ad_use_ssl = request.form.get('ad_use_ssl') in ('1', 'on', 'true', 'yes')
+    ad_start_tls = request.form.get('ad_start_tls') in ('1', 'on', 'true', 'yes')
+    ad_base_dn = (request.form.get('ad_base_dn') or '').strip()
+    ad_bind_dn = (request.form.get('ad_bind_dn') or '').strip()
+    ad_bind_password = request.form.get('ad_bind_password') or ''
+    
+    Setting.set('AD_ENABLED', '1' if ad_enabled else '0')
+    Setting.set('AD_SERVER', ad_server)
+    Setting.set('AD_PORT', ad_port)
+    Setting.set('AD_USE_SSL', '1' if ad_use_ssl else '0')
+    Setting.set('AD_START_TLS', '1' if ad_start_tls else '0')
+    Setting.set('AD_BASE_DN', ad_base_dn)
+    Setting.set('AD_BIND_DN', ad_bind_dn)
+    # Only update password if a new one is provided
+    if ad_bind_password:
+        Setting.set('AD_BIND_PASSWORD', ad_bind_password)
+    
+    flash('Active Directory settings saved.', 'success')
+    return redirect(url_for('admin.index'))
+
+
+@admin_bp.route('/ad_test', methods=['POST'])
+@login_required
+def ad_test():
+    """Test the Active Directory connection using provided or saved settings."""
+    try:
+        from ldap3 import Server, Connection, ALL, SUBTREE, Tls
+        import ssl
+    except ImportError:
+        return jsonify({'success': False, 'message': 'ldap3 package not installed. Please run: pip install ldap3'})
+    
+    # Get settings from form (for testing before save) or fall back to saved settings
+    ad_server = (request.form.get('ad_server') or Setting.get('AD_SERVER', '')).strip()
+    ad_port = int((request.form.get('ad_port') or Setting.get('AD_PORT', '389') or '389').strip())
+    ad_use_ssl = request.form.get('ad_use_ssl') in ('1', 'on', 'true', 'yes') if 'ad_use_ssl' in request.form else (Setting.get('AD_USE_SSL', '0') in ('1', 'true', 'on', 'yes'))
+    ad_start_tls = request.form.get('ad_start_tls') in ('1', 'on', 'true', 'yes') if 'ad_start_tls' in request.form else (Setting.get('AD_START_TLS', '0') in ('1', 'true', 'on', 'yes'))
+    ad_base_dn = (request.form.get('ad_base_dn') or Setting.get('AD_BASE_DN', '')).strip()
+    ad_bind_dn = (request.form.get('ad_bind_dn') or Setting.get('AD_BIND_DN', '')).strip()
+    ad_bind_password = request.form.get('ad_bind_password') or ''
+    
+    # If password is empty, use saved password
+    if not ad_bind_password:
+        ad_bind_password = Setting.get('AD_BIND_PASSWORD', '')
+    
+    if not ad_server:
+        return jsonify({'success': False, 'message': 'AD server is required.'})
+    
+    if not ad_bind_dn:
+        return jsonify({'success': False, 'message': 'Bind DN/Username is required.'})
+    
+    try:
+        # Configure TLS if needed
+        tls_config = None
+        if ad_use_ssl or ad_start_tls:
+            tls_config = Tls(validate=ssl.CERT_NONE)  # For self-signed certs; in production, consider CERT_REQUIRED
+        
+        # Create server object
+        server = Server(
+            ad_server,
+            port=ad_port,
+            use_ssl=ad_use_ssl,
+            tls=tls_config,
+            get_info=ALL,
+            connect_timeout=10
+        )
+        
+        # Create connection and bind
+        conn = Connection(
+            server,
+            user=ad_bind_dn,
+            password=ad_bind_password,
+            auto_bind=False,
+            raise_exceptions=True
+        )
+        
+        # Start TLS if configured (and not already using SSL)
+        if ad_start_tls and not ad_use_ssl:
+            conn.open()
+            conn.start_tls()
+        
+        # Bind to the server
+        if not conn.bind():
+            return jsonify({'success': False, 'message': f'Bind failed: {conn.result}'})
+        
+        # Test search if base DN is provided
+        search_info = ''
+        if ad_base_dn:
+            conn.search(
+                search_base=ad_base_dn,
+                search_filter='(objectClass=user)',
+                search_scope=SUBTREE,
+                attributes=['cn'],
+                size_limit=5
+            )
+            user_count = len(conn.entries)
+            search_info = f' Found {user_count} user(s) in sample search.'
+        
+        # Get server info
+        server_info = ''
+        if server.info:
+            naming_contexts = getattr(server.info, 'naming_contexts', None)
+            if naming_contexts:
+                server_info = f' Naming contexts: {", ".join(naming_contexts[:2])}...'
+        
+        conn.unbind()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Successfully connected and authenticated to {ad_server}:{ad_port}.{search_info}{server_info}'
+        })
+        
+    except Exception as e:
+        error_msg = str(e)
+        # Provide more helpful error messages for common issues
+        if 'invalidCredentials' in error_msg or '49' in error_msg:
+            error_msg = 'Invalid credentials. Check your Bind DN and password.'
+        elif 'LDAP_SERVER_DOWN' in error_msg or 'socket' in error_msg.lower():
+            error_msg = f'Cannot connect to {ad_server}:{ad_port}. Check server address and port.'
+        elif 'timeout' in error_msg.lower():
+            error_msg = f'Connection timed out. Server {ad_server}:{ad_port} may be unreachable.'
+        
+        return jsonify({'success': False, 'message': f'Connection failed: {error_msg}'})
+
+
+# --- AD Password Check Settings ---
+@admin_bp.route('/ad_password_settings', methods=['POST'])
+@login_required
+def ad_password_settings():
+    """Save AD password check schedule settings."""
+    ad_pwd_check_enabled = request.form.get('ad_pwd_check_enabled') in ('1', 'on', 'true', 'yes')
+    ad_pwd_check_time = (request.form.get('ad_pwd_check_time') or '07:00').strip()
+    ad_pwd_warning_days = (request.form.get('ad_pwd_warning_days') or '14').strip()
+    
+    Setting.set('AD_PWD_CHECK_ENABLED', '1' if ad_pwd_check_enabled else '0')
+    Setting.set('AD_PWD_CHECK_TIME', ad_pwd_check_time)
+    Setting.set('AD_PWD_WARNING_DAYS', ad_pwd_warning_days)
+    
+    # Update scheduler job for daily AD password check
+    try:
+        from .. import scheduler
+        from ..services.ad_password_check import run_ad_password_check
+        
+        if ad_pwd_check_enabled:
+            hh, mm = 7, 0
+            try:
+                parts = ad_pwd_check_time.split(':')
+                hh = int(parts[0] or 7)
+                mm = int(parts[1] or 0)
+            except Exception:
+                hh, mm = 7, 0
+            
+            app_obj = current_app._get_current_object()
+            scheduler.add_job(
+                func=lambda: run_ad_password_check(app_obj),
+                trigger='cron',
+                hour=hh,
+                minute=mm,
+                id='ad_password_check',
+                replace_existing=True
+            )
+        else:
+            try:
+                scheduler.remove_job('ad_password_check')
+            except Exception:
+                pass
+    except Exception as e:
+        current_app.logger.warning(f'Failed to update AD password check scheduler: {e}')
+    
+    flash('AD password check settings saved.', 'success')
+    return redirect(url_for('admin.index'))
+
+
+@admin_bp.route('/ad_password_check_now', methods=['POST'])
+@login_required
+def ad_password_check_now():
+    """Check AD password expiry for all contacts (users) in the system."""
+    from ..models import Contact
+    
+    # Check if debug mode is enabled
+    debug_mode = request.form.get('debug') in ('1', 'true', 'on', 'yes')
+    debug_info = {} if debug_mode else None
+    
+    # Check if AD is configured
+    ad_enabled = (Setting.get('AD_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes')
+    if not ad_enabled:
+        return jsonify({'error': 'Active Directory is not enabled. Configure it in AD Connect first.'})
+    
+    ad_server = Setting.get('AD_SERVER', '')
+    if not ad_server:
+        return jsonify({'error': 'AD server is not configured.'})
+    
+    try:
+        from ldap3 import Server, Connection, ALL, SUBTREE, Tls
+        import ssl
+    except ImportError:
+        return jsonify({'error': 'ldap3 package not installed. Please run: pip install ldap3'})
+    
+    # Get AD settings
+    ad_port = int(Setting.get('AD_PORT', '389') or '389')
+    ad_use_ssl = (Setting.get('AD_USE_SSL', '0') or '0') in ('1', 'true', 'on', 'yes')
+    ad_start_tls = (Setting.get('AD_START_TLS', '0') or '0') in ('1', 'true', 'on', 'yes')
+    ad_base_dn = Setting.get('AD_BASE_DN', '')
+    ad_bind_dn = Setting.get('AD_BIND_DN', '')
+    ad_bind_password = Setting.get('AD_BIND_PASSWORD', '')
+    warning_days = int(Setting.get('AD_PWD_WARNING_DAYS', '14') or '14')
+    
+    if debug_mode:
+        debug_info['settings'] = {
+            'ad_server': ad_server,
+            'ad_port': ad_port,
+            'ad_use_ssl': ad_use_ssl,
+            'ad_start_tls': ad_start_tls,
+            'ad_base_dn': ad_base_dn,
+            'ad_bind_dn': ad_bind_dn,
+            'warning_days': warning_days
+        }
+    
+    if not ad_base_dn:
+        return jsonify({'error': 'AD Base DN is not configured.'})
+    
+    try:
+        # Configure TLS if needed
+        tls_config = None
+        if ad_use_ssl or ad_start_tls:
+            tls_config = Tls(validate=ssl.CERT_NONE)
+        
+        # Create server and connection
+        server = Server(
+            ad_server,
+            port=ad_port,
+            use_ssl=ad_use_ssl,
+            tls=tls_config,
+            get_info=ALL,
+            connect_timeout=10
+        )
+        
+        conn = Connection(
+            server,
+            user=ad_bind_dn,
+            password=ad_bind_password,
+            auto_bind=False,
+            raise_exceptions=True
+        )
+        
+        if ad_start_tls and not ad_use_ssl:
+            conn.open()
+            conn.start_tls()
+        
+        if not conn.bind():
+            return jsonify({'error': f'Failed to bind to AD: {conn.result}'})
+        
+        # Get all contacts with email addresses (non-archived)
+        # Include contacts where archived is False OR NULL (for older records without this field set)
+        from sqlalchemy import or_
+        contacts = Contact.query.filter(
+            Contact.email.isnot(None),
+            Contact.email != '',
+            or_(Contact.archived == False, Contact.archived.is_(None))
+        ).all()
+        
+        results = []
+        found_count = 0
+        expiring_soon_count = 0
+        expired_count = 0
+        
+        from datetime import datetime, timedelta
+        
+        # Get domain max password age from AD (default to 90 days if not found)
+        max_pwd_age_days = 90
+        try:
+            # Query the domain policy for maxPwdAge
+            conn.search(
+                search_base=ad_base_dn,
+                search_filter='(objectClass=domain)',
+                search_scope=SUBTREE,
+                attributes=['maxPwdAge']
+            )
+            if conn.entries:
+                max_pwd_age = conn.entries[0].maxPwdAge.value
+                if max_pwd_age:
+                    # maxPwdAge is in 100-nanosecond intervals (negative value)
+                    # Convert to days
+                    max_pwd_age_days = abs(int(max_pwd_age)) / (10000000 * 60 * 60 * 24)
+        except Exception:
+            pass  # Use default if we can't get the policy
+        
+        if debug_mode:
+            debug_info['searches'] = []
+        
+        for contact in contacts:
+            email = contact.email.strip().lower()
+            user_result = {
+                'name': contact.name,
+                'email': email,
+                'found_in_ad': False,
+                'ad_username': None,
+                'password_expiry': None,
+                'days_until_expiry': None,
+                'is_expiring_soon': False,
+                'is_expired': False,
+                'never_expires': False
+            }
+            
+            # Escape special LDAP characters in email
+            from ldap3.utils.conv import escape_filter_chars
+            escaped_email = escape_filter_chars(email)
+            
+            # Search for user by multiple email-related attributes
+            # mail: primary email, userPrincipalName: UPN (often email format), proxyAddresses: all email aliases
+            search_filter = f'(|(mail={escaped_email})(userPrincipalName={escaped_email})(proxyAddresses=smtp:{escaped_email})(proxyAddresses=SMTP:{escaped_email}))'
+            
+            if debug_mode:
+                search_debug = {
+                    'contact_email': email,
+                    'escaped_email': escaped_email,
+                    'search_filter': search_filter,
+                    'search_base': ad_base_dn,
+                }
+            
+            conn.search(
+                search_base=ad_base_dn,
+                search_filter=search_filter,
+                search_scope=SUBTREE,
+                attributes=['sAMAccountName', 'userPrincipalName', 'pwdLastSet', 'userAccountControl', 'mail', 'cn', 'proxyAddresses']
+            )
+            
+            if debug_mode:
+                search_debug['entries_found'] = len(conn.entries)
+                search_debug['result'] = str(conn.result)
+                if conn.entries:
+                    # Show first entry details
+                    entry = conn.entries[0]
+                    search_debug['first_entry'] = {
+                        'dn': str(entry.entry_dn),
+                        'cn': str(entry.cn) if hasattr(entry, 'cn') else None,
+                        'mail': str(entry.mail) if hasattr(entry, 'mail') and entry.mail else None,
+                        'userPrincipalName': str(entry.userPrincipalName) if hasattr(entry, 'userPrincipalName') and entry.userPrincipalName else None,
+                        'sAMAccountName': str(entry.sAMAccountName) if hasattr(entry, 'sAMAccountName') and entry.sAMAccountName else None,
+                    }
+                debug_info['searches'].append(search_debug)
+            
+            if conn.entries:
+                entry = conn.entries[0]
+                user_result['found_in_ad'] = True
+                found_count += 1
+                
+                # Get username
+                user_result['ad_username'] = str(entry.sAMAccountName) if hasattr(entry, 'sAMAccountName') and entry.sAMAccountName else None
+                
+                # Check if password never expires (bit 65536 in userAccountControl)
+                uac = int(entry.userAccountControl.value) if hasattr(entry, 'userAccountControl') and entry.userAccountControl.value else 0
+                if uac & 0x10000:  # DONT_EXPIRE_PASSWORD flag
+                    user_result['never_expires'] = True
+                else:
+                    # Calculate password expiry
+                    pwd_last_set = entry.pwdLastSet.value if hasattr(entry, 'pwdLastSet') and entry.pwdLastSet.value else None
+                    
+                    if pwd_last_set:
+                        # pwdLastSet is a datetime in ldap3
+                        if isinstance(pwd_last_set, datetime):
+                            pwd_set_date = pwd_last_set
+                        else:
+                            # If it's a Windows FILETIME (100-nanosecond intervals since 1601)
+                            try:
+                                pwd_set_date = datetime(1601, 1, 1) + timedelta(microseconds=int(pwd_last_set) / 10)
+                            except Exception:
+                                pwd_set_date = None
+                        
+                        if pwd_set_date:
+                            expiry_date = pwd_set_date + timedelta(days=max_pwd_age_days)
+                            user_result['password_expiry'] = expiry_date.strftime('%Y-%m-%d %H:%M')
+                            
+                            # Make both datetimes timezone-naive for comparison
+                            now = datetime.utcnow()
+                            # If expiry_date is timezone-aware, convert to naive UTC
+                            if expiry_date.tzinfo is not None:
+                                expiry_date_naive = expiry_date.replace(tzinfo=None)
+                            else:
+                                expiry_date_naive = expiry_date
+                            days_until = (expiry_date_naive - now).days
+                            user_result['days_until_expiry'] = days_until
+                            
+                            if days_until < 0:
+                                user_result['is_expired'] = True
+                                expired_count += 1
+                            elif days_until <= warning_days:
+                                user_result['is_expiring_soon'] = True
+                                expiring_soon_count += 1
+            
+            # Save password expiry data to Contact record
+            now = datetime.utcnow()
+            if not user_result['found_in_ad']:
+                contact.password_expires_days = -999  # Not found in AD
+            elif user_result['never_expires']:
+                contact.password_expires_days = -1  # Never expires
+            elif user_result['days_until_expiry'] is not None:
+                contact.password_expires_days = user_result['days_until_expiry']
+            else:
+                contact.password_expires_days = None  # Could not determine
+            contact.password_checked_at = now
+            
+            results.append(user_result)
+        
+        # Commit all Contact updates
+        db.session.commit()
+        
+        conn.unbind()
+        
+        # Sort results: expired first, then expiring soon, then not found, then OK
+        def sort_key(r):
+            if r['is_expired']:
+                return (0, r.get('days_until_expiry') or 0)
+            if r['is_expiring_soon']:
+                return (1, r.get('days_until_expiry') or 0)
+            if not r['found_in_ad']:
+                return (3, 0)
+            return (2, r.get('days_until_expiry') or 999)
+        
+        results.sort(key=sort_key)
+        
+        return jsonify({
+            'results': results,
+            'summary': {
+                'total_users': len(contacts),
+                'found_in_ad': found_count,
+                'expiring_soon': expiring_soon_count,
+                'expired': expired_count,
+                'max_pwd_age_days': int(max_pwd_age_days)
+            },
+            'debug': debug_info
+        })
+        
+    except Exception as e:
+        import traceback
+        error_details = str(e)
+        if debug_mode:
+            error_details += '\n\nTraceback:\n' + traceback.format_exc()
+        return jsonify({'error': f'Error checking AD: {error_details}', 'debug': debug_info})
+
+
 @admin_bp.route('/import_check_now', methods=['POST'])
 @login_required
 def import_check_now():
@@ -1992,3 +2452,214 @@ def demo_disable():
             pass
         flash('Demo reset failed. See logs for details.', 'danger')
         return redirect(url_for('admin.index'))
+
+
+# --- Email Templates Routes ---
+
+@admin_bp.route('/email_templates_list')
+@login_required
+def email_templates_list():
+    """Return list of all email templates as JSON."""
+    from ..models import EmailTemplate
+    templates = EmailTemplate.query.order_by(EmailTemplate.name).all()
+    return jsonify({
+        'templates': [
+            {
+                'id': t.id,
+                'name': t.name,
+                'subject': t.subject,
+                'created_at': t.created_at.strftime('%Y-%m-%d %H:%M') if t.created_at else None,
+                'updated_at': t.updated_at.strftime('%Y-%m-%d %H:%M') if t.updated_at else None
+            }
+            for t in templates
+        ]
+    })
+
+
+@admin_bp.route('/email_template_get')
+@login_required
+def email_template_get():
+    """Get a single email template by ID."""
+    from ..models import EmailTemplate
+    template_id = request.args.get('id', type=int)
+    if not template_id:
+        return jsonify({'error': 'Template ID required'}), 400
+    
+    template = EmailTemplate.query.get(template_id)
+    if not template:
+        return jsonify({'error': 'Template not found'}), 404
+    
+    return jsonify({
+        'template': {
+            'id': template.id,
+            'name': template.name,
+            'subject': template.subject,
+            'body': template.body,
+            'created_at': template.created_at.strftime('%Y-%m-%d %H:%M') if template.created_at else None,
+            'updated_at': template.updated_at.strftime('%Y-%m-%d %H:%M') if template.updated_at else None
+        }
+    })
+
+
+@admin_bp.route('/email_template_save', methods=['POST'])
+@login_required
+def email_template_save():
+    """Create or update an email template."""
+    from ..models import EmailTemplate
+    
+    template_id = request.form.get('template_id', type=int)
+    name = request.form.get('name', '').strip()
+    subject = request.form.get('subject', '').strip()
+    body = request.form.get('body', '').strip()
+    
+    if not name:
+        return jsonify({'error': 'Template name is required'}), 400
+    if not subject:
+        return jsonify({'error': 'Email subject is required'}), 400
+    if not body:
+        return jsonify({'error': 'Email body is required'}), 400
+    
+    # Check for duplicate name (excluding current template if editing)
+    existing = EmailTemplate.query.filter(EmailTemplate.name == name).first()
+    if existing and (not template_id or existing.id != template_id):
+        return jsonify({'error': f'A template with the name "{name}" already exists'}), 400
+    
+    if template_id:
+        # Update existing
+        template = EmailTemplate.query.get(template_id)
+        if not template:
+            return jsonify({'error': 'Template not found'}), 404
+        template.name = name
+        template.subject = subject
+        template.body = body
+    else:
+        # Create new
+        template = EmailTemplate(
+            name=name,
+            subject=subject,
+            body=body,
+            created_at=datetime.utcnow()
+        )
+        db.session.add(template)
+    
+    db.session.commit()
+    return jsonify({'success': True, 'id': template.id})
+
+
+@admin_bp.route('/email_template_delete', methods=['POST'])
+@login_required
+def email_template_delete():
+    """Delete an email template."""
+    from ..models import EmailTemplate
+    
+    template_id = request.form.get('id', type=int)
+    if not template_id:
+        return jsonify({'error': 'Template ID required'}), 400
+    
+    template = EmailTemplate.query.get(template_id)
+    if not template:
+        return jsonify({'error': 'Template not found'}), 404
+    
+    # Check if template is in use by any password expiry notifications
+    if template.notifications:
+        return jsonify({'error': 'Cannot delete template - it is used by password expiry notifications'}), 400
+    
+    db.session.delete(template)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+# --- Password Expiry Notification Routes ---
+
+@admin_bp.route('/password_notifications_list')
+@login_required
+def password_notifications_list():
+    """Return list of all password expiry notification rules as JSON."""
+    from ..models import PasswordExpiryNotification, EmailTemplate
+    
+    notifications = PasswordExpiryNotification.query.order_by(PasswordExpiryNotification.days_before.desc()).all()
+    templates = EmailTemplate.query.order_by(EmailTemplate.name).all()
+    
+    return jsonify({
+        'notifications': [
+            {
+                'id': n.id,
+                'days_before': n.days_before,
+                'template_id': n.template_id,
+                'template_name': n.template.name if n.template else None,
+                'enabled': n.enabled
+            }
+            for n in notifications
+        ],
+        'templates': [
+            {'id': t.id, 'name': t.name}
+            for t in templates
+        ]
+    })
+
+
+@admin_bp.route('/password_notification_save', methods=['POST'])
+@login_required
+def password_notification_save():
+    """Create or update a password expiry notification rule."""
+    from ..models import PasswordExpiryNotification, EmailTemplate
+    
+    notification_id = request.form.get('notification_id', type=int)
+    days_before = request.form.get('days_before', type=int)
+    template_id = request.form.get('template_id', type=int)
+    enabled = request.form.get('enabled') in ('1', 'true', 'on', 'yes')
+    
+    if days_before is None or days_before < 1:
+        return jsonify({'error': 'Days before expiry must be at least 1'}), 400
+    if not template_id:
+        return jsonify({'error': 'Email template is required'}), 400
+    
+    # Verify template exists
+    template = EmailTemplate.query.get(template_id)
+    if not template:
+        return jsonify({'error': 'Selected email template not found'}), 404
+    
+    # Check for duplicate days_before (excluding current notification if editing)
+    existing = PasswordExpiryNotification.query.filter(PasswordExpiryNotification.days_before == days_before).first()
+    if existing and (not notification_id or existing.id != notification_id):
+        return jsonify({'error': f'A notification for {days_before} days before already exists'}), 400
+    
+    if notification_id:
+        # Update existing
+        notification = PasswordExpiryNotification.query.get(notification_id)
+        if not notification:
+            return jsonify({'error': 'Notification not found'}), 404
+        notification.days_before = days_before
+        notification.template_id = template_id
+        notification.enabled = enabled
+    else:
+        # Create new
+        notification = PasswordExpiryNotification(
+            days_before=days_before,
+            template_id=template_id,
+            enabled=enabled,
+            created_at=datetime.utcnow()
+        )
+        db.session.add(notification)
+    
+    db.session.commit()
+    return jsonify({'success': True, 'id': notification.id})
+
+
+@admin_bp.route('/password_notification_delete', methods=['POST'])
+@login_required
+def password_notification_delete():
+    """Delete a password expiry notification rule."""
+    from ..models import PasswordExpiryNotification
+    
+    notification_id = request.form.get('id', type=int)
+    if not notification_id:
+        return jsonify({'error': 'Notification ID required'}), 400
+    
+    notification = PasswordExpiryNotification.query.get(notification_id)
+    if not notification:
+        return jsonify({'error': 'Notification not found'}), 404
+    
+    db.session.delete(notification)
+    db.session.commit()
+    return jsonify({'success': True})

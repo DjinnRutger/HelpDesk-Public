@@ -321,6 +321,61 @@
 
   <!-- Sidebar -->
   <div class="col-lg-4">
+    <!-- Password Expiry Card -->
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-body-tertiary">
+        <h6 class="mb-0"><i class="bi bi-key me-1"></i>Password</h6>
+      </div>
+      <div class="card-body text-center py-4">
+        {% if contact.password_expires_days is none %}
+          <div class="text-muted">
+            <i class="bi bi-question-circle display-6 d-block mb-2 opacity-50"></i>
+            <span class="small">Not checked</span>
+          </div>
+        {% elif contact.password_expires_days == -1 %}
+          <div class="text-info">
+            <i class="bi bi-infinity display-4 d-block mb-2"></i>
+            <span class="fw-semibold">Never Expires</span>
+          </div>
+        {% elif contact.password_expires_days == -999 %}
+          <div class="text-secondary">
+            <i class="bi bi-x-circle display-4 d-block mb-2"></i>
+            <span class="fw-semibold">Not in AD</span>
+          </div>
+        {% elif contact.password_expires_days < 0 %}
+          <div class="text-danger">
+            <i class="bi bi-exclamation-triangle display-4 d-block mb-2"></i>
+            <span class="fw-semibold">Expired</span>
+            <div class="small text-muted mt-1">{{ (contact.password_expires_days * -1) }} days ago</div>
+          </div>
+        {% elif contact.password_expires_days <= 14 %}
+          <div class="text-warning">
+            <i class="bi bi-clock display-4 d-block mb-2"></i>
+            <span class="display-6 fw-bold">{{ contact.password_expires_days }}</span>
+            <span class="fw-semibold d-block">days to expire</span>
+          </div>
+        {% else %}
+          <div class="text-success">
+            <i class="bi bi-check-circle display-4 d-block mb-2"></i>
+            <span class="display-6 fw-bold">{{ contact.password_expires_days }}</span>
+            <span class="fw-semibold d-block">days to expire</span>
+          </div>
+        {% endif %}
+        {% if contact.password_checked_at %}
+          <div class="small text-muted mt-2">
+            <i class="bi bi-clock-history me-1"></i>Checked {{ contact.password_checked_at.strftime('%b %d, %Y %H:%M') }}
+          </div>
+        {% endif %}
+        {% if contact.password_notification_sent_at %}
+          {% set days_since_notification = ((now - contact.password_notification_sent_at).days) %}
+          <div class="small text-info mt-1">
+            <i class="bi bi-envelope-check me-1"></i>Notification sent 
+            {% if days_since_notification == 0 %}today{% elif days_since_notification == 1 %}yesterday{% else %}{{ days_since_notification }} days ago{% endif %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
     <!-- Assets Card -->
     <div class="card shadow-sm" id="assets-card">
       <div class="card-header bg-body-tertiary">

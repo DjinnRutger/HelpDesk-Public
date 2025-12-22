@@ -86,6 +86,12 @@
                   <span class="d-block">Backup</span>
                 </button>
               </div>
+              <div class="col-6 col-md-3">
+                <button class="btn btn-outline-primary w-100 h-100 py-3" data-bs-toggle="modal" data-bs-target="#adConnectModal">
+                  <i class="bi bi-diagram-3 d-block fs-3 mb-2"></i>
+                  <span class="d-block">AD Connect</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -127,6 +133,18 @@
                 <button class="btn btn-outline-success w-100 h-100 py-3" data-bs-toggle="modal" data-bs-target="#assetsModal">
                   <i class="bi bi-laptop d-block fs-3 mb-2"></i>
                   <span class="d-block">Assets</span>
+                </button>
+              </div>
+              <div class="col-6 col-md-4">
+                <button class="btn btn-outline-success w-100 h-100 py-3" data-bs-toggle="modal" data-bs-target="#adPasswordsModal">
+                  <i class="bi bi-key d-block fs-3 mb-2"></i>
+                  <span class="d-block">AD Passwords</span>
+                </button>
+              </div>
+              <div class="col-6 col-md-4">
+                <button class="btn btn-outline-success w-100 h-100 py-3" data-bs-toggle="modal" data-bs-target="#emailTemplatesModal">
+                  <i class="bi bi-envelope-paper d-block fs-3 mb-2"></i>
+                  <span class="d-block">Email Templates</span>
                 </button>
               </div>
             </div>
@@ -2408,5 +2426,685 @@ function deleteScheduledTicket(id) {
     </div>
   </div>
 </div>
+
+<!-- AD Connect Modal -->
+<div class="modal fade" id="adConnectModal" tabindex="-1" aria-labelledby="adConnectModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title" id="adConnectModalLabel">
+          <i class="bi bi-diagram-3 me-2"></i>Active Directory Connection
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3">Configure your Active Directory/LDAP connection to enable password expiry monitoring for users.</p>
+        <form id="adSettingsForm" method="post" action="{{ url_for('admin.ad_settings') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" id="adEnabled" name="ad_enabled" {% if settings.ad_enabled %}checked{% endif %}>
+            <label class="form-check-label" for="adEnabled">Enable Active Directory Integration</label>
+          </div>
+          <div class="row g-3">
+            <div class="col-md-8">
+              <label class="form-label small fw-semibold">AD Server / Domain Controller</label>
+              <input type="text" class="form-control" name="ad_server" id="adServer" value="{{ settings.ad_server or '' }}" placeholder="dc.example.com or 192.168.1.10">
+              <div class="form-text">Hostname or IP address of your Active Directory domain controller.</div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Port</label>
+              <input type="number" class="form-control" name="ad_port" id="adPort" value="{{ settings.ad_port or '389' }}" min="1" max="65535">
+              <div class="form-text">389 (LDAP) or 636 (LDAPS)</div>
+            </div>
+            <div class="col-md-6">
+              <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" id="adUseSSL" name="ad_use_ssl" {% if settings.ad_use_ssl %}checked{% endif %}>
+                <label class="form-check-label" for="adUseSSL">Use SSL/TLS (LDAPS)</label>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" id="adStartTLS" name="ad_start_tls" {% if settings.ad_start_tls %}checked{% endif %}>
+                <label class="form-check-label" for="adStartTLS">Use StartTLS</label>
+              </div>
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold">Base DN (Search Base)</label>
+              <input type="text" class="form-control" name="ad_base_dn" id="adBaseDN" value="{{ settings.ad_base_dn or '' }}" placeholder="DC=example,DC=com">
+              <div class="form-text">The base distinguished name for searches (e.g., DC=company,DC=local).</div>
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold">Bind DN / Username</label>
+              <input type="text" class="form-control" name="ad_bind_dn" id="adBindDN" value="{{ settings.ad_bind_dn or '' }}" placeholder="CN=ServiceAccount,OU=Users,DC=example,DC=com or user@domain.com">
+              <div class="form-text">Service account to bind to AD. Can be full DN or UPN format (user@domain.com).</div>
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold">Bind Password</label>
+              <input type="password" class="form-control" name="ad_bind_password" id="adBindPassword" value="" placeholder="•••••• (leave blank to keep existing)">
+              <div class="form-text">Password for the service account. Leave blank to keep the existing password.</div>
+            </div>
+          </div>
+          <div class="d-flex gap-2 mt-4">
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-check-lg me-1"></i>Save Settings
+            </button>
+            <button type="button" class="btn btn-outline-secondary" id="adTestBtn" onclick="testADConnection()">
+              <i class="bi bi-plug me-1"></i>Test Connection
+            </button>
+          </div>
+        </form>
+        <div id="adTestResult" class="mt-3" style="display:none;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function testADConnection() {
+  const btn = document.getElementById('adTestBtn');
+  const resultDiv = document.getElementById('adTestResult');
+  const originalText = btn.innerHTML;
+  
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Testing...';
+  resultDiv.style.display = 'none';
+  
+  const formData = new FormData();
+  formData.append('csrf_token', '{{ csrf_token() }}');
+  formData.append('ad_server', document.getElementById('adServer').value);
+  formData.append('ad_port', document.getElementById('adPort').value);
+  formData.append('ad_use_ssl', document.getElementById('adUseSSL').checked ? '1' : '0');
+  formData.append('ad_start_tls', document.getElementById('adStartTLS').checked ? '1' : '0');
+  formData.append('ad_base_dn', document.getElementById('adBaseDN').value);
+  formData.append('ad_bind_dn', document.getElementById('adBindDN').value);
+  formData.append('ad_bind_password', document.getElementById('adBindPassword').value);
+  
+  fetch('{{ url_for("admin.ad_test") }}', {
+    method: 'POST',
+    body: formData
+  })
+  .then(response => response.json())
+  .then(data => {
+    btn.disabled = false;
+    btn.innerHTML = originalText;
+    resultDiv.style.display = 'block';
+    if (data.success) {
+      resultDiv.className = 'mt-3 alert alert-success';
+      resultDiv.innerHTML = '<i class="bi bi-check-circle me-2"></i>' + data.message;
+    } else {
+      resultDiv.className = 'mt-3 alert alert-danger';
+      resultDiv.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + data.message;
+    }
+  })
+  .catch(err => {
+    btn.disabled = false;
+    btn.innerHTML = originalText;
+    resultDiv.style.display = 'block';
+    resultDiv.className = 'mt-3 alert alert-danger';
+    resultDiv.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>Error testing connection: ' + err;
+  });
+}
+</script>
+
+<!-- AD Passwords Modal -->
+<div class="modal fade" id="adPasswordsModal" tabindex="-1" aria-labelledby="adPasswordsModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title" id="adPasswordsModalLabel">
+          <i class="bi bi-key me-2"></i>AD Password Expiry Check
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        {% if not settings.ad_enabled %}
+        <div class="alert alert-warning">
+          <i class="bi bi-exclamation-triangle me-2"></i>
+          Active Directory is not configured. Please configure AD connection in <strong>System/Setup → AD Connect</strong> first.
+        </div>
+        {% else %}
+        <p class="text-muted small mb-3">Check user password expiry dates against Active Directory. This is read-only and will not modify any AD data.</p>
+        
+        <!-- Schedule Settings -->
+        <div class="card mb-4">
+          <div class="card-header bg-light">
+            <h6 class="mb-0"><i class="bi bi-clock me-2"></i>Scheduled Check</h6>
+          </div>
+          <div class="card-body">
+            <form id="adPasswordScheduleForm" method="post" action="{{ url_for('admin.ad_password_settings') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <div class="row g-3 align-items-end">
+                <div class="col-md-4">
+                  <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="adPwdCheckEnabled" name="ad_pwd_check_enabled" {% if settings.ad_pwd_check_enabled %}checked{% endif %}>
+                    <label class="form-check-label" for="adPwdCheckEnabled">Enable daily password check</label>
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label small">Check Time</label>
+                  <input type="time" class="form-control" name="ad_pwd_check_time" value="{{ settings.ad_pwd_check_time or '07:00' }}">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label small">Warning Days Before Expiry</label>
+                  <input type="number" class="form-control" name="ad_pwd_warning_days" value="{{ settings.ad_pwd_warning_days or '14' }}" min="1" max="90">
+                </div>
+                <div class="col-md-2">
+                  <button type="submit" class="btn btn-primary w-100">
+                    <i class="bi bi-check-lg me-1"></i>Save
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Email Notifications -->
+        <div class="card mb-4">
+          <div class="card-header bg-light">
+            <h6 class="mb-0"><i class="bi bi-envelope me-2"></i>Email Notifications</h6>
+          </div>
+          <div class="card-body">
+            <p class="text-muted small mb-3">Configure when to send password expiry warnings. Create email templates in <strong>Manage → Email Templates</strong> first.</p>
+            
+            <div id="pwdNotificationsListView">
+              <div class="d-flex justify-content-between align-items-center mb-3">
+                <span class="small fw-medium">Notification Rules</span>
+                <button type="button" class="btn btn-outline-success btn-sm" onclick="showPwdNotificationForm()">
+                  <i class="bi bi-plus-lg me-1"></i>Add Rule
+                </button>
+              </div>
+              
+              <div id="pwdNotificationsList">
+                <div class="text-center py-3 text-muted small">
+                  <i class="bi bi-hourglass-split me-2"></i>Loading...
+                </div>
+              </div>
+            </div>
+            
+            <!-- Notification Form (hidden by default) -->
+            <div id="pwdNotificationsFormView" style="display: none;">
+              <form id="pwdNotificationForm" class="row g-2 align-items-end">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="notification_id" id="pwdNotificationId" value="">
+                
+                <div class="col-md-3">
+                  <label class="form-label small">Days Before Expiry</label>
+                  <input type="number" class="form-control form-control-sm" id="pwdNotificationDays" name="days_before" min="1" max="90" required placeholder="e.g., 7">
+                </div>
+                
+                <div class="col-md-4">
+                  <label class="form-label small">Email Template</label>
+                  <select class="form-select form-select-sm" id="pwdNotificationTemplate" name="template_id" required>
+                    <option value="">Select template...</option>
+                  </select>
+                </div>
+                
+                <div class="col-md-2">
+                  <div class="form-check form-switch mt-4">
+                    <input class="form-check-input" type="checkbox" id="pwdNotificationEnabled" name="enabled" checked>
+                    <label class="form-check-label small" for="pwdNotificationEnabled">Enabled</label>
+                  </div>
+                </div>
+                
+                <div class="col-md-3 d-flex gap-1">
+                  <button type="submit" class="btn btn-success btn-sm flex-fill">
+                    <i class="bi bi-check-lg me-1"></i>Save
+                  </button>
+                  <button type="button" class="btn btn-outline-secondary btn-sm" onclick="hidePwdNotificationForm()">
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <!-- Manual Check -->
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h6 class="mb-0">Password Status for Users</h6>
+          <div class="d-flex align-items-center gap-3">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="adPwdDebugMode">
+              <label class="form-check-label small" for="adPwdDebugMode">Debug Mode</label>
+            </div>
+            <button type="button" class="btn btn-outline-primary" id="adPwdCheckNowBtn" onclick="checkADPasswordsNow()">
+              <i class="bi bi-arrow-clockwise me-1"></i>Check Now
+            </button>
+          </div>
+        </div>
+        
+        <div id="adPwdCheckResult">
+          <div class="text-muted text-center py-4">
+            <i class="bi bi-info-circle me-2"></i>Click "Check Now" to query Active Directory for user password status.
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function checkADPasswordsNow() {
+  const btn = document.getElementById('adPwdCheckNowBtn');
+  const resultDiv = document.getElementById('adPwdCheckResult');
+  const debugMode = document.getElementById('adPwdDebugMode').checked;
+  const originalText = btn.innerHTML;
+  
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Checking...';
+  
+  const formData = new FormData();
+  formData.append('csrf_token', '{{ csrf_token() }}');
+  formData.append('debug', debugMode ? '1' : '0');
+  
+  fetch('{{ url_for("admin.ad_password_check_now") }}', {
+    method: 'POST',
+    body: formData
+  })
+  .then(response => response.json())
+  .then(data => {
+    btn.disabled = false;
+    btn.innerHTML = originalText;
+    
+    if (data.error) {
+      resultDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>' + data.error + '</div>';
+      return;
+    }
+    
+    let html = '';
+    
+    // Summary
+    if (data.summary) {
+      html += '<div class="alert alert-info mb-3">';
+      html += '<i class="bi bi-info-circle me-2"></i>';
+      html += 'Checked <strong>' + data.summary.total_users + '</strong> users. ';
+      html += 'Found <strong>' + data.summary.found_in_ad + '</strong> in AD. ';
+      if (data.summary.expiring_soon > 0) {
+        html += '<span class="text-warning"><strong>' + data.summary.expiring_soon + '</strong> expiring soon.</span> ';
+      }
+      if (data.summary.expired > 0) {
+        html += '<span class="text-danger"><strong>' + data.summary.expired + '</strong> already expired.</span>';
+      }
+      html += '</div>';
+    }
+    
+    // Results table
+    if (data.results && data.results.length > 0) {
+      html += '<div class="table-responsive"><table class="table table-sm table-hover">';
+      html += '<thead class="table-light"><tr>';
+      html += '<th>User</th><th>Email</th><th>AD Account</th><th>Password Expires</th><th>Status</th>';
+      html += '</tr></thead><tbody>';
+      
+      data.results.forEach(function(user) {
+        let statusBadge = '';
+        let rowClass = '';
+        
+        if (!user.found_in_ad) {
+          statusBadge = '<span class="badge bg-secondary">Not in AD</span>';
+        } else if (user.never_expires) {
+          statusBadge = '<span class="badge bg-info">Never Expires</span>';
+        } else if (user.is_expired) {
+          statusBadge = '<span class="badge bg-danger">Expired</span>';
+          rowClass = 'table-danger';
+        } else if (user.is_expiring_soon) {
+          statusBadge = '<span class="badge bg-warning text-dark">Expiring Soon (' + user.days_until_expiry + ' days)</span>';
+          rowClass = 'table-warning';
+        } else {
+          statusBadge = '<span class="badge bg-success">OK (' + user.days_until_expiry + ' days)</span>';
+        }
+        
+        html += '<tr class="' + rowClass + '">';
+        html += '<td>' + (user.name || '—') + '</td>';
+        html += '<td><code class="small">' + user.email + '</code></td>';
+        html += '<td>' + (user.ad_username || '—') + '</td>';
+        html += '<td>' + (user.password_expiry || '—') + '</td>';
+        html += '<td>' + statusBadge + '</td>';
+        if (debugMode && user.debug_info) {
+          html += '<td class="small text-muted">' + user.debug_info + '</td>';
+        }
+        html += '</tr>';
+      });
+      
+      html += '</tbody></table></div>';
+    } else {
+      html += '<div class="text-muted text-center py-3">No users found to check.</div>';
+    }
+    
+    // Debug info section
+    if (debugMode && data.debug) {
+      html += '<div class="card mt-3 border-warning">';
+      html += '<div class="card-header bg-warning text-dark"><i class="bi bi-bug me-2"></i>Debug Information</div>';
+      html += '<div class="card-body"><pre class="mb-0 small" style="max-height: 400px; overflow: auto;">' + JSON.stringify(data.debug, null, 2) + '</pre></div>';
+      html += '</div>';
+    }
+    
+    resultDiv.innerHTML = html;
+  })
+  .catch(err => {
+    btn.disabled = false;
+    btn.innerHTML = originalText;
+    resultDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>Error: ' + err + '</div>';
+  });
+}
+
+// Load password notifications when AD Passwords modal opens
+document.getElementById('adPasswordsModal').addEventListener('shown.bs.modal', function() {
+  loadPwdNotifications();
+});
+
+function loadPwdNotifications() {
+  fetch('{{ url_for("admin.password_notifications_list") }}')
+    .then(response => response.json())
+    .then(data => {
+      const container = document.getElementById('pwdNotificationsList');
+      const templateSelect = document.getElementById('pwdNotificationTemplate');
+      
+      // Populate template dropdown
+      templateSelect.innerHTML = '<option value="">Select template...</option>';
+      if (data.templates) {
+        data.templates.forEach(function(t) {
+          templateSelect.innerHTML += '<option value="' + t.id + '">' + t.name + '</option>';
+        });
+      }
+      
+      if (data.notifications && data.notifications.length > 0) {
+        let html = '<div class="table-responsive"><table class="table table-sm table-hover mb-0">';
+        html += '<thead class="table-light"><tr><th>Days Before</th><th>Email Template</th><th>Status</th><th class="text-end">Actions</th></tr></thead><tbody>';
+        
+        data.notifications.forEach(function(n) {
+          html += '<tr>';
+          html += '<td><strong>' + n.days_before + '</strong> day' + (n.days_before != 1 ? 's' : '') + '</td>';
+          html += '<td>' + (n.template_name || '<em class="text-muted">Unknown</em>') + '</td>';
+          html += '<td>';
+          if (n.enabled) {
+            html += '<span class="badge bg-success">Enabled</span>';
+          } else {
+            html += '<span class="badge bg-secondary">Disabled</span>';
+          }
+          html += '</td>';
+          html += '<td class="text-end">';
+          html += '<button class="btn btn-sm btn-outline-primary me-1" onclick=\'editPwdNotification(' + JSON.stringify(n) + ')\' title="Edit"><i class="bi bi-pencil"></i></button>';
+          html += '<button class="btn btn-sm btn-outline-danger" onclick="deletePwdNotification(' + n.id + ', ' + n.days_before + ')" title="Delete"><i class="bi bi-trash"></i></button>';
+          html += '</td></tr>';
+        });
+        
+        html += '</tbody></table></div>';
+        container.innerHTML = html;
+      } else {
+        container.innerHTML = '<div class="text-center py-3 text-muted small"><i class="bi bi-inbox me-2"></i>No notification rules configured. Click "Add Rule" to create one.</div>';
+      }
+    })
+    .catch(err => {
+      document.getElementById('pwdNotificationsList').innerHTML = '<div class="alert alert-danger small"><i class="bi bi-exclamation-triangle me-2"></i>Error: ' + err + '</div>';
+    });
+}
+
+function showPwdNotificationForm(notification) {
+  document.getElementById('pwdNotificationsListView').querySelector('.d-flex').style.display = 'none';
+  document.getElementById('pwdNotificationsList').style.display = 'none';
+  document.getElementById('pwdNotificationsFormView').style.display = 'block';
+  
+  if (notification) {
+    document.getElementById('pwdNotificationId').value = notification.id;
+    document.getElementById('pwdNotificationDays').value = notification.days_before;
+    document.getElementById('pwdNotificationTemplate').value = notification.template_id;
+    document.getElementById('pwdNotificationEnabled').checked = notification.enabled;
+  } else {
+    document.getElementById('pwdNotificationForm').reset();
+    document.getElementById('pwdNotificationId').value = '';
+    document.getElementById('pwdNotificationEnabled').checked = true;
+  }
+}
+
+function hidePwdNotificationForm() {
+  document.getElementById('pwdNotificationsFormView').style.display = 'none';
+  document.getElementById('pwdNotificationsListView').querySelector('.d-flex').style.display = 'flex';
+  document.getElementById('pwdNotificationsList').style.display = 'block';
+  loadPwdNotifications();
+}
+
+function editPwdNotification(notification) {
+  showPwdNotificationForm(notification);
+}
+
+function deletePwdNotification(id, days) {
+  if (!confirm('Delete the notification rule for ' + days + ' days before expiry?')) return;
+  
+  const formData = new FormData();
+  formData.append('csrf_token', '{{ csrf_token() }}');
+  formData.append('id', id);
+  
+  fetch('{{ url_for("admin.password_notification_delete") }}', {
+    method: 'POST',
+    body: formData
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      loadPwdNotifications();
+    } else {
+      alert('Error: ' + (data.error || 'Unknown error'));
+    }
+  })
+  .catch(err => alert('Error: ' + err));
+}
+
+document.getElementById('pwdNotificationForm').addEventListener('submit', function(e) {
+  e.preventDefault();
+  
+  const formData = new FormData(this);
+  // Ensure enabled checkbox value is sent correctly
+  if (!document.getElementById('pwdNotificationEnabled').checked) {
+    formData.set('enabled', '0');
+  } else {
+    formData.set('enabled', '1');
+  }
+  
+  fetch('{{ url_for("admin.password_notification_save") }}', {
+    method: 'POST',
+    body: formData
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      hidePwdNotificationForm();
+    } else {
+      alert('Error: ' + (data.error || 'Unknown error'));
+    }
+  })
+  .catch(err => alert('Error: ' + err));
+});
+</script>
+
+<!-- Email Templates Modal -->
+<div class="modal fade" id="emailTemplatesModal" tabindex="-1" aria-labelledby="emailTemplatesModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title" id="emailTemplatesModalLabel">
+          <i class="bi bi-envelope-paper me-2"></i>Email Templates
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3">Create and manage email templates for notifications. Use placeholders like <code>{{'{{'}}name{{'}}'}}</code>, <code>{{'{{'}}email{{'}}'}}</code>, <code>{{'{{'}}days{{'}}'}}</code> in templates.</p>
+        
+        <!-- Template List View -->
+        <div id="emailTemplatesListView">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h6 class="mb-0">Saved Templates</h6>
+            <button type="button" class="btn btn-success btn-sm" onclick="showEmailTemplateForm()">
+              <i class="bi bi-plus-lg me-1"></i>New Template
+            </button>
+          </div>
+          
+          <div id="emailTemplatesList">
+            <div class="text-center py-4 text-muted">
+              <i class="bi bi-hourglass-split me-2"></i>Loading templates...
+            </div>
+          </div>
+        </div>
+        
+        <!-- Template Form View (hidden by default) -->
+        <div id="emailTemplatesFormView" style="display: none;">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h6 class="mb-0" id="emailTemplateFormTitle">New Template</h6>
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="showEmailTemplatesList()">
+              <i class="bi bi-arrow-left me-1"></i>Back to List
+            </button>
+          </div>
+          
+          <form id="emailTemplateForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="template_id" id="emailTemplateId" value="">
+            
+            <div class="mb-3">
+              <label class="form-label">Template Name <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" id="emailTemplateName" name="name" required placeholder="e.g., Password Expiry Warning">
+            </div>
+            
+            <div class="mb-3">
+              <label class="form-label">Email Subject <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" id="emailTemplateSubject" name="subject" required placeholder="e.g., Your password will expire in {{'{{'}}days{{'}}'}} days">
+            </div>
+            
+            <div class="mb-3">
+              <label class="form-label">Email Body <span class="text-danger">*</span></label>
+              <textarea class="form-control" id="emailTemplateBody" name="body" rows="10" required placeholder="Dear {{'{{'}}name{{'}}'}},&#10;&#10;Your password for {{'{{'}}email{{'}}'}} will expire in {{'{{'}}days{{'}}'}} days.&#10;&#10;Please change your password before it expires."></textarea>
+              <div class="form-text">
+                Available placeholders: <code>{{'{{'}}name{{'}}'}}</code> (user's name), <code>{{'{{'}}email{{'}}'}}</code> (user's email), <code>{{'{{'}}days{{'}}'}}</code> (days until expiry), <code>{{'{{'}}expiry_date{{'}}'}}</code> (expiry date)
+              </div>
+            </div>
+            
+            <div class="d-flex gap-2">
+              <button type="submit" class="btn btn-primary">
+                <i class="bi bi-check-lg me-1"></i>Save Template
+              </button>
+              <button type="button" class="btn btn-outline-secondary" onclick="showEmailTemplatesList()">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Load templates when modal opens
+document.getElementById('emailTemplatesModal').addEventListener('shown.bs.modal', function() {
+  loadEmailTemplates();
+});
+
+function loadEmailTemplates() {
+  fetch('{{ url_for("admin.email_templates_list") }}')
+    .then(response => response.json())
+    .then(data => {
+      const container = document.getElementById('emailTemplatesList');
+      
+      if (data.templates && data.templates.length > 0) {
+        let html = '<div class="table-responsive"><table class="table table-sm table-hover">';
+        html += '<thead class="table-light"><tr><th>Name</th><th>Subject</th><th>Updated</th><th class="text-end">Actions</th></tr></thead><tbody>';
+        
+        data.templates.forEach(function(template) {
+          html += '<tr>';
+          html += '<td><strong>' + template.name + '</strong></td>';
+          html += '<td class="text-muted small">' + template.subject + '</td>';
+          html += '<td class="small">' + (template.updated_at || template.created_at || '—') + '</td>';
+          html += '<td class="text-end">';
+          html += '<button class="btn btn-sm btn-outline-primary me-1" onclick="editEmailTemplate(' + template.id + ')" title="Edit"><i class="bi bi-pencil"></i></button>';
+          html += '<button class="btn btn-sm btn-outline-danger" onclick="deleteEmailTemplate(' + template.id + ', \'' + template.name.replace(/'/g, "\\'") + '\')" title="Delete"><i class="bi bi-trash"></i></button>';
+          html += '</td></tr>';
+        });
+        
+        html += '</tbody></table></div>';
+        container.innerHTML = html;
+      } else {
+        container.innerHTML = '<div class="text-center py-4 text-muted"><i class="bi bi-inbox me-2"></i>No email templates created yet. Click "New Template" to create one.</div>';
+      }
+    })
+    .catch(err => {
+      document.getElementById('emailTemplatesList').innerHTML = '<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>Error loading templates: ' + err + '</div>';
+    });
+}
+
+function showEmailTemplateForm(template) {
+  document.getElementById('emailTemplatesListView').style.display = 'none';
+  document.getElementById('emailTemplatesFormView').style.display = 'block';
+  
+  if (template) {
+    document.getElementById('emailTemplateFormTitle').textContent = 'Edit Template';
+    document.getElementById('emailTemplateId').value = template.id;
+    document.getElementById('emailTemplateName').value = template.name;
+    document.getElementById('emailTemplateSubject').value = template.subject;
+    document.getElementById('emailTemplateBody').value = template.body;
+  } else {
+    document.getElementById('emailTemplateFormTitle').textContent = 'New Template';
+    document.getElementById('emailTemplateForm').reset();
+    document.getElementById('emailTemplateId').value = '';
+  }
+}
+
+function showEmailTemplatesList() {
+  document.getElementById('emailTemplatesFormView').style.display = 'none';
+  document.getElementById('emailTemplatesListView').style.display = 'block';
+  loadEmailTemplates();
+}
+
+function editEmailTemplate(id) {
+  fetch('{{ url_for("admin.email_template_get") }}?id=' + id)
+    .then(response => response.json())
+    .then(data => {
+      if (data.template) {
+        showEmailTemplateForm(data.template);
+      } else {
+        alert('Error loading template');
+      }
+    })
+    .catch(err => alert('Error: ' + err));
+}
+
+function deleteEmailTemplate(id, name) {
+  if (!confirm('Are you sure you want to delete the template "' + name + '"?')) return;
+  
+  const formData = new FormData();
+  formData.append('csrf_token', '{{ csrf_token() }}');
+  formData.append('id', id);
+  
+  fetch('{{ url_for("admin.email_template_delete") }}', {
+    method: 'POST',
+    body: formData
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      loadEmailTemplates();
+    } else {
+      alert('Error deleting template: ' + (data.error || 'Unknown error'));
+    }
+  })
+  .catch(err => alert('Error: ' + err));
+}
+
+document.getElementById('emailTemplateForm').addEventListener('submit', function(e) {
+  e.preventDefault();
+  
+  const formData = new FormData(this);
+  
+  fetch('{{ url_for("admin.email_template_save") }}', {
+    method: 'POST',
+    body: formData
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      showEmailTemplatesList();
+    } else {
+      alert('Error saving template: ' + (data.error || 'Unknown error'));
+    }
+  })
+  .catch(err => alert('Error: ' + err));
+});
+</script>
 
 {% endblock %}

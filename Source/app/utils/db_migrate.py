@@ -481,10 +481,13 @@ def ensure_asset_picklists(engine):
 
 
 def ensure_contact_columns(engine):
-    """Ensure Contact table has manager_id and archived columns."""
+    """Ensure Contact table has manager_id, archived, and password expiry columns."""
     required = {
         'manager_id': 'INTEGER',
         'archived': 'BOOLEAN',
+        'password_expires_days': 'INTEGER',
+        'password_checked_at': 'DATETIME',
+        'password_notification_sent_at': 'DATETIME',
     }
     with engine.connect() as conn:
         rows = conn.execute(text("PRAGMA table_info('contact')")).fetchall()
@@ -526,4 +529,37 @@ def ensure_approval_request_table(engine):
             existing = {r[1] for r in cols.fetchall()}
             if 'items_snapshot' not in existing:
                 conn.execute(text("ALTER TABLE approval_request ADD COLUMN items_snapshot TEXT"))
+        conn.commit()
+
+
+def ensure_email_templates_tables(engine):
+    """Create EmailTemplate and PasswordExpiryNotification tables if they don't exist."""
+    with engine.connect() as conn:
+        # Create email_templates table
+        rows = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='email_templates'"))
+        if not rows.fetchone():
+            conn.execute(text("""
+                CREATE TABLE email_templates (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE,
+                    subject TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    created_at DATETIME,
+                    updated_at DATETIME
+                )
+            """))
+        
+        # Create password_expiry_notifications table
+        rows = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='password_expiry_notifications'"))
+        if not rows.fetchone():
+            conn.execute(text("""
+                CREATE TABLE password_expiry_notifications (
+                    id INTEGER PRIMARY KEY,
+                    days_before INTEGER NOT NULL,
+                    template_id INTEGER NOT NULL,
+                    enabled BOOLEAN DEFAULT 1,
+                    created_at DATETIME,
+                    FOREIGN KEY (template_id) REFERENCES email_templates(id)
+                )
+            """))
         conn.commit()

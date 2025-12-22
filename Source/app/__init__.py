@@ -174,6 +174,7 @@ def create_app():
                 ensure_scheduled_tickets_table,
                 ensure_contact_columns,
                 ensure_approval_request_table,
+                ensure_email_templates_tables,
             )
             ensure_ticket_columns(db.engine)
             ensure_user_columns(db.engine)
@@ -190,6 +191,7 @@ def create_app():
             ensure_scheduled_tickets_table(db.engine)
             ensure_contact_columns(db.engine)
             ensure_approval_request_table(db.engine)
+            ensure_email_templates_tables(db.engine)
             # Ensure AssetAudit table (runtime lightweight migration with pre-backup for SQLite)
             from sqlalchemy import inspect
             insp = inspect(db.engine)
@@ -425,6 +427,36 @@ def create_app():
         # Check for snooze wake-ups every minute
         try:
             scheduler.add_job(func=lambda: process_wakeups(app), trigger="interval", minutes=1, id="snooze_wakeup", replace_existing=True)
+        except Exception:
+            pass
+
+        # Schedule AD Password Check job if enabled
+        try:
+            from .models import Setting as _Setting
+            from .services.ad_password_check import run_ad_password_check
+            ad_pwd_check_enabled = (_Setting.get('AD_PWD_CHECK_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes')
+            ad_pwd_check_time = _Setting.get('AD_PWD_CHECK_TIME', '07:00') or '07:00'
+            hh, mm = 7, 0
+            try:
+                parts = ad_pwd_check_time.split(':')
+                hh = int(parts[0] or 7)
+                mm = int(parts[1] or 0)
+            except Exception:
+                hh, mm = 7, 0
+            if ad_pwd_check_enabled:
+                scheduler.add_job(
+                    func=lambda: run_ad_password_check(app),
+                    trigger='cron',
+                    hour=hh,
+                    minute=mm,
+                    id='ad_password_check',
+                    replace_existing=True
+                )
+            else:
+                try:
+                    scheduler.remove_job('ad_password_check')
+                except Exception:
+                    pass
         except Exception:
             pass
 
