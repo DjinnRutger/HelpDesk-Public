@@ -10,10 +10,21 @@ class Setting(db.Model):
     @staticmethod
     def get(key: str, default=None):
         s = Setting.query.filter_by(key=key).first()
-        return s.value if s else default
+        if not s:
+            return default
+        value = s.value
+        # Automatically decrypt sensitive settings
+        from .utils.security import SENSITIVE_SETTING_KEYS, decrypt_value
+        if key in SENSITIVE_SETTING_KEYS and value:
+            value = decrypt_value(value)
+        return value if value else default
 
     @staticmethod
     def set(key: str, value: str):
+        # Automatically encrypt sensitive settings
+        from .utils.security import SENSITIVE_SETTING_KEYS, encrypt_value
+        if key in SENSITIVE_SETTING_KEYS and value:
+            value = encrypt_value(value)
         s = Setting.query.filter_by(key=key).first()
         if not s:
             s = Setting(key=key, value=value)
@@ -21,6 +32,12 @@ class Setting(db.Model):
         else:
             s.value = value
         db.session.commit()
+
+    @staticmethod
+    def get_raw(key: str, default=None):
+        """Get the raw (possibly encrypted) value without decryption."""
+        s = Setting.query.filter_by(key=key).first()
+        return s.value if s else default
 
 
 class User(UserMixin, db.Model):

@@ -22,66 +22,190 @@ def run_auto_backup(app: Flask) -> None:
 
     When running frozen (PyInstaller onefile), place default backups in
     ./backups next to the executable for persistence.
+    
+    On failure, creates a system ticket with debug information.
     """
     with app.app_context():
+        error_details = []
+        backup_success = False
+        retention_success = False
+        dest_path = None
+        backup_dir = None
+        keep = 7
+        
         try:
-            from .models import Setting as _Setting  # type: ignore
+            from .models import Setting as _Setting, Ticket as _Ticket, User as _User  # type: ignore
+            from datetime import datetime as __dt
+            
             # Only support SQLite backups
             if db.engine.dialect.name != 'sqlite':
-                return
+                error_details.append(f"Unsupported database dialect: {db.engine.dialect.name}. Only SQLite is supported.")
+                raise ValueError("Unsupported database")
+            
             # Resolve backup directory
             if getattr(sys, 'frozen', False):
                 try:
                     exe_dir = Path(sys.executable).resolve().parent
                     default_dir = str(exe_dir / 'backups')
-                except Exception:
+                except Exception as e:
+                    error_details.append(f"Failed to resolve frozen executable path: {type(e).__name__}: {e}")
                     default_dir = os.path.join(app.instance_path, 'backups')
             else:
                 default_dir = os.path.join(app.instance_path, 'backups')
+            
             backup_dir = (_Setting.get('AUTO_BACKUP_DIR', default_dir) or default_dir).strip()
+            
+            # Create backup directory
             try:
                 os.makedirs(backup_dir, exist_ok=True)
-            except Exception:
-                return
-            # Create backup using sqlite backup for consistency
-            from datetime import datetime as __dt
+            except Exception as e:
+                error_details.append(f"Failed to create backup directory '{backup_dir}': {type(e).__name__}: {e}")
+                raise
+            
+            # Get database path
             db_path = db.engine.url.database
             if not db_path:
-                return
+                error_details.append("Database path is empty or None.")
+                raise ValueError("No database path")
+            
+            if not os.path.exists(db_path):
+                error_details.append(f"Database file not found: {db_path}")
+                raise FileNotFoundError(f"Database file not found: {db_path}")
+            
+            # Create backup filename with timestamp
             ts = __dt.utcnow().strftime('%Y%m%d-%H%M%S')
             filename = f"helpdesk-autobackup-{ts}.db"
             dest_path = os.path.join(backup_dir, filename)
+            
+            # Attempt backup using sqlite backup API for consistency
             import sqlite3 as _sqlite3
+            backup_error = None
             try:
                 with _sqlite3.connect(db_path) as src, _sqlite3.connect(dest_path) as dst:
                     src.backup(dst)
-            except Exception:
+                backup_success = True
+            except Exception as e:
+                backup_error = f"SQLite backup API failed: {type(e).__name__}: {e}"
                 # If direct backup fails, try copy as fallback
                 try:
                     import shutil as _sh
                     _sh.copyfile(db_path, dest_path)
+                    backup_success = True
+                    error_details.append(f"{backup_error}. Fallback file copy succeeded.")
+                except Exception as e2:
+                    error_details.append(f"{backup_error}. Fallback file copy also failed: {type(e2).__name__}: {e2}")
+                    raise
+            
+            # Verify backup was created
+            if not os.path.exists(dest_path):
+                error_details.append(f"Backup file was not created at: {dest_path}")
+                backup_success = False
+                raise FileNotFoundError("Backup file not created")
+            
+            backup_size = os.path.getsize(dest_path)
+            if backup_size == 0:
+                error_details.append(f"Backup file is empty (0 bytes): {dest_path}")
+                backup_success = False
+                try:
+                    os.remove(dest_path)
                 except Exception:
-                    return
+                    pass
+                raise ValueError("Backup file is empty")
+            
             # Enforce retention
             try:
                 keep = int(_Setting.get('AUTO_BACKUP_RETENTION', '7') or '7')
-            except Exception:
+                if keep < 1:
+                    keep = 1  # Must keep at least one backup
+            except Exception as e:
+                error_details.append(f"Failed to parse retention setting: {type(e).__name__}: {e}. Using default of 7.")
                 keep = 7
+            
             try:
                 entries = sorted(
                     [f for f in os.listdir(backup_dir) if f.lower().endswith('.db') and 'autobackup' in f.lower()],
                     reverse=True
                 )
-                for f in entries[keep:]:
+                
+                files_to_delete = entries[keep:]
+                deleted_count = 0
+                delete_errors = []
+                
+                for f in files_to_delete:
+                    file_path = os.path.join(backup_dir, f)
                     try:
-                        os.remove(os.path.join(backup_dir, f))
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-        except Exception:
-            # If settings or engine not ready, skip
-            pass
+                        os.remove(file_path)
+                        deleted_count += 1
+                    except Exception as e:
+                        delete_errors.append(f"Failed to delete '{f}': {type(e).__name__}: {e}")
+                
+                if delete_errors:
+                    error_details.append(f"Retention cleanup errors: {'; '.join(delete_errors)}")
+                    retention_success = False
+                else:
+                    retention_success = True
+                    
+            except Exception as e:
+                error_details.append(f"Retention enforcement failed: {type(e).__name__}: {e}")
+                retention_success = False
+            
+        except Exception as e:
+            # Catch-all for any unhandled errors
+            if not any(str(e) in detail for detail in error_details):
+                error_details.append(f"Unhandled error during backup: {type(e).__name__}: {e}")
+        
+        # Create error ticket if backup failed
+        if not backup_success and error_details:
+            try:
+                from .models import Setting as _Setting, Ticket as _Ticket, User as _User
+                from datetime import datetime as __dt
+                
+                # Build debug info
+                debug_info = [
+                    "=== Auto Backup Failure Report ===",
+                    f"Timestamp: {__dt.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}",
+                    f"Backup Directory: {backup_dir or 'Not determined'}",
+                    f"Destination Path: {dest_path or 'Not determined'}",
+                    f"Retention Setting: {keep}",
+                    f"Backup Success: {backup_success}",
+                    f"Retention Success: {retention_success}",
+                    "",
+                    "=== Error Details ===",
+                ]
+                debug_info.extend(error_details)
+                
+                # Add system info
+                debug_info.extend([
+                    "",
+                    "=== System Info ===",
+                    f"Frozen (PyInstaller): {getattr(sys, 'frozen', False)}",
+                    f"Python Version: {sys.version}",
+                    f"Instance Path: {app.instance_path}",
+                ])
+                
+                # Find an admin user to assign the ticket to (or leave unassigned)
+                admin_user = _User.query.filter_by(role='admin', is_active=True).first()
+                
+                # Create the error ticket
+                error_ticket = _Ticket(
+                    subject="[SYSTEM] Auto Backup Failed",
+                    requester_name="System",
+                    requester_email="system@helpdesk.local",
+                    body="\n".join(debug_info),
+                    status="open",
+                    priority="high",
+                    source="system",
+                    assignee_id=admin_user.id if admin_user else None,
+                )
+                db.session.add(error_ticket)
+                db.session.commit()
+                
+            except Exception as ticket_error:
+                # Log to console if ticket creation also fails
+                import traceback
+                print(f"[AUTO BACKUP] Failed to create error ticket: {ticket_error}")
+                print(f"[AUTO BACKUP] Original errors: {error_details}")
+                traceback.print_exc()
 
 
 def create_app():
@@ -229,6 +353,26 @@ def create_app():
                 db.session.commit()
         except Exception:
             pass
+
+        # Migrate unencrypted sensitive settings to encrypted format
+        try:
+            from .utils.security import SENSITIVE_SETTING_KEYS, is_encrypted, encrypt_value
+            migrated_count = 0
+            for key in SENSITIVE_SETTING_KEYS:
+                raw_val = Setting.get_raw(key)
+                if raw_val and not is_encrypted(raw_val):
+                    # Value exists but is not encrypted - encrypt it
+                    encrypted_val = encrypt_value(raw_val)
+                    s = Setting.query.filter_by(key=key).first()
+                    if s:
+                        s.value = encrypted_val
+                        migrated_count += 1
+            if migrated_count:
+                db.session.commit()
+                app.logger.info(f'Migrated {migrated_count} sensitive setting(s) to encrypted storage')
+        except Exception as e:
+            app.logger.warning(f'Failed to migrate sensitive settings: {e}')
+
         # Bootstrap admin user if not exists (only if NOT in setup mode)
         from .utils.security import hash_password
         admin_email = os.getenv("ADMIN_EMAIL")
