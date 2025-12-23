@@ -2,13 +2,14 @@
 
 This service runs daily to check Active Directory for expiring passwords
 and creates a ticket if any users have passwords expiring within the warning threshold.
+It also sends email notifications to users based on configured notification rules and templates.
 """
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from typing import List, Dict, Any
 from flask import current_app
 
 from .. import db
-from ..models import Setting, Ticket, Contact
+from ..models import Setting, Ticket, Contact, PasswordExpiryNotification
 
 
 def run_ad_password_check(app=None) -> None:
@@ -59,6 +60,9 @@ def run_ad_password_check(app=None) -> None:
         expiring_users = _check_ad_passwords(logger)
         
         if expiring_users:
+            # Send individual email notifications based on notification rules
+            _send_password_expiry_notifications(expiring_users, logger)
+            # Create summary ticket for helpdesk
             _create_expiring_passwords_ticket(expiring_users, logger)
         elif logger:
             logger.info('AD Password Check: No expiring passwords found within warning threshold')
@@ -216,6 +220,11 @@ def _check_ad_passwords(logger) -> List[Dict[str, Any]]:
                 contact.password_expires_days = -1
             elif days_until_expiry is not None:
                 contact.password_expires_days = days_until_expiry
+                # If password was reset (days_until > warning threshold), clear notification tracking
+                # so they can receive new notifications when their password is about to expire again
+                if days_until_expiry > warning_days and contact.last_notification_days_before is not None:
+                    contact.last_notification_days_before = None
+                    contact.password_notification_sent_at = None
             else:
                 contact.password_expires_days = None
             contact.password_checked_at = now
@@ -260,6 +269,141 @@ def _check_ad_passwords(logger) -> List[Dict[str, Any]]:
         if logger:
             logger.exception(f'AD Password Check error: {e}')
         return []
+
+
+def _send_password_expiry_notifications(expiring_users: List[Dict[str, Any]], logger) -> None:
+    """Send email notifications to users based on configured notification rules and templates.
+    
+    For each user with an expiring password, checks the notification rules to see if
+    an email should be sent. Only sends if:
+    1. There's an enabled notification rule matching the user's days_until_expiry
+    2. The user hasn't already received a notification for this tier (days_before)
+    """
+    from .ms_graph import send_mail
+    
+    # Get all enabled notification rules, sorted by days_before descending
+    # (so we check higher thresholds first, e.g., 10 days before 5 days)
+    notification_rules = PasswordExpiryNotification.query.filter(
+        PasswordExpiryNotification.enabled == True
+    ).order_by(PasswordExpiryNotification.days_before.desc()).all()
+    
+    if not notification_rules:
+        if logger:
+            logger.info('AD Password Check: No notification rules configured, skipping email notifications')
+        return
+    
+    # Get days_before values for quick lookup
+    rule_days = [rule.days_before for rule in notification_rules]
+    
+    if logger:
+        logger.info(f'AD Password Check: Found {len(notification_rules)} notification rules: {rule_days}')
+    
+    emails_sent = 0
+    emails_skipped = 0
+    now = datetime.utcnow()
+    
+    for user in expiring_users:
+        contact_id = user.get('contact_id')
+        if not contact_id:
+            continue
+        
+        contact = Contact.query.get(contact_id)
+        if not contact or not contact.email:
+            continue
+        
+        days_until = user['days_until_expiry']
+        
+        # Find the applicable notification rule for this user
+        # The rule that applies is the highest days_before that is >= days_until_expiry
+        # E.g., if user has 7 days left and rules are [10, 5, 1], the 10-day rule applies
+        applicable_rule = None
+        for rule in notification_rules:
+            if days_until <= rule.days_before:
+                applicable_rule = rule
+                break  # First match (highest days) wins
+        
+        if not applicable_rule:
+            # User's days_until_expiry is greater than all notification thresholds
+            if logger:
+                logger.debug(f'AD Password Check: {contact.email} has {days_until} days, no rule applies')
+            continue
+        
+        # Check if we've already sent a notification for this tier
+        if contact.last_notification_days_before is not None:
+            if contact.last_notification_days_before <= applicable_rule.days_before:
+                # Already sent this tier or a lower (more urgent) one
+                if logger:
+                    logger.debug(f'AD Password Check: {contact.email} already notified at {contact.last_notification_days_before}-day tier')
+                emails_skipped += 1
+                continue
+        
+        # Get the email template
+        template = applicable_rule.template
+        if not template:
+            if logger:
+                logger.warning(f'AD Password Check: Rule {applicable_rule.days_before}-day has no template')
+            continue
+        
+        # Build the email with template placeholders replaced
+        subject = _replace_template_placeholders(template.subject, user, contact)
+        body = _replace_template_placeholders(template.body, user, contact)
+        
+        # Send the email
+        try:
+            success = send_mail(
+                to_address=contact.email,
+                subject=subject,
+                html_body=body,
+                to_name=contact.name
+            )
+            
+            if success:
+                # Update contact to record the notification was sent
+                contact.password_notification_sent_at = now
+                contact.last_notification_days_before = applicable_rule.days_before
+                emails_sent += 1
+                if logger:
+                    logger.info(f'AD Password Check: Sent {applicable_rule.days_before}-day notification to {contact.email}')
+            else:
+                if logger:
+                    logger.warning(f'AD Password Check: Failed to send email to {contact.email}')
+        except Exception as e:
+            if logger:
+                logger.exception(f'AD Password Check: Error sending email to {contact.email}: {e}')
+    
+    # Commit all contact updates
+    db.session.commit()
+    
+    if logger:
+        logger.info(f'AD Password Check: Sent {emails_sent} notification emails, skipped {emails_skipped} (already notified)')
+
+
+def _replace_template_placeholders(text: str, user: Dict[str, Any], contact: Contact) -> str:
+    """Replace template placeholders with actual values.
+    
+    Available placeholders:
+    - {{name}} or {{user_name}} - Contact's name
+    - {{email}} or {{user_email}} - Contact's email
+    - {{days}} or {{days_until_expiry}} - Days until password expires
+    - {{expiry_date}} - Password expiry date
+    - {{ad_username}} - AD username (sAMAccountName)
+    """
+    replacements = {
+        '{{name}}': contact.name or '',
+        '{{user_name}}': contact.name or '',
+        '{{email}}': contact.email or '',
+        '{{user_email}}': contact.email or '',
+        '{{days}}': str(user.get('days_until_expiry', '')),
+        '{{days_until_expiry}}': str(user.get('days_until_expiry', '')),
+        '{{expiry_date}}': user.get('expiry_date', ''),
+        '{{ad_username}}': user.get('ad_username', ''),
+    }
+    
+    result = text
+    for placeholder, value in replacements.items():
+        result = result.replace(placeholder, value or '')
+    
+    return result
 
 
 def _create_expiring_passwords_ticket(expiring_users: List[Dict[str, Any]], logger) -> None:
@@ -338,15 +482,8 @@ def _create_expiring_passwords_ticket(expiring_users: List[Dict[str, Any]], logg
     db.session.add(ticket)
     db.session.commit()
     
-    # Mark all notified users with the notification timestamp
-    now = datetime.utcnow()
-    contact_ids = [u['contact_id'] for u in expiring_users if u.get('contact_id')]
-    if contact_ids:
-        Contact.query.filter(Contact.id.in_(contact_ids)).update(
-            {'password_notification_sent_at': now},
-            synchronize_session=False
-        )
-        db.session.commit()
+    # Note: Individual user email notifications and contact tracking are now handled 
+    # in _send_password_expiry_notifications() which runs before this function
     
     if logger:
         logger.info(f'AD Password Check: Created ticket #{ticket.id} for {len(expiring_users)} users with expiring passwords')
