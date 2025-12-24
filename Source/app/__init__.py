@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 csrf = CSRFProtect()
 db = SQLAlchemy()
 login_manager = LoginManager()
-scheduler = BackgroundScheduler()
+scheduler = BackgroundScheduler(timezone='America/Chicago')
 
 
 def run_auto_backup(app: Flask) -> None:
@@ -594,7 +594,8 @@ def create_app():
                     hour=hh,
                     minute=mm,
                     id='ad_password_check',
-                    replace_existing=True
+                    replace_existing=True,
+                    timezone='America/Chicago'
                 )
             else:
                 try:
@@ -617,7 +618,7 @@ def create_app():
             except Exception:
                 hh, mm = 23, 0
             if enabled:
-                scheduler.add_job(func=lambda: run_auto_backup(app), trigger='cron', hour=hh, minute=mm, id='auto_backup', replace_existing=True)
+                scheduler.add_job(func=lambda: run_auto_backup(app), trigger='cron', hour=hh, minute=mm, id='auto_backup', replace_existing=True, timezone='America/Chicago')
             else:
                 try:
                     scheduler.remove_job('auto_backup')
@@ -639,7 +640,8 @@ def create_app():
                     hour=3,
                     minute=0,
                     id='email_log_cleanup',
-                    replace_existing=True
+                    replace_existing=True,
+                    timezone='America/Chicago'
                 )
             else:
                 try:
@@ -674,7 +676,8 @@ def create_app():
                         hour=hh,
                         minute=mm,
                         id='asset_spot_check',
-                        replace_existing=True
+                        replace_existing=True,
+                        timezone='America/Chicago'
                     )
                 else:  # monthly
                     day_of_month = int(_Setting.get('ASSET_SPOT_CHECK_DAY_OF_MONTH', '1') or '1')
@@ -685,7 +688,8 @@ def create_app():
                         hour=hh,
                         minute=mm,
                         id='asset_spot_check',
-                        replace_existing=True
+                        replace_existing=True,
+                        timezone='America/Chicago'
                     )
             else:
                 try:

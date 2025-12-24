@@ -1484,7 +1484,8 @@ def ad_password_settings():
                 hour=hh,
                 minute=mm,
                 id='ad_password_check',
-                replace_existing=True
+                replace_existing=True,
+                timezone='America/Chicago'
             )
         else:
             try:
@@ -2267,7 +2268,8 @@ def email_log_retention_settings():
                 hour=3,
                 minute=0,
                 id='email_log_cleanup',
-                replace_existing=True
+                replace_existing=True,
+                timezone='America/Chicago'
             )
         except Exception:
             pass
@@ -2542,7 +2544,7 @@ def backup_settings():
         # Capture real app object for later job execution
         app_obj = current_app._get_current_object()
         if enabled:
-            scheduler.add_job(func=lambda: run_auto_backup(app_obj), trigger='cron', hour=hh, minute=mm, id='auto_backup', replace_existing=True)
+            scheduler.add_job(func=lambda: run_auto_backup(app_obj), trigger='cron', hour=hh, minute=mm, id='auto_backup', replace_existing=True, timezone='America/Chicago')
         else:
             try:
                 scheduler.remove_job('auto_backup')
@@ -2632,7 +2634,8 @@ def asset_spot_check_settings():
                     hour=hh,
                     minute=mm,
                     id='asset_spot_check',
-                    replace_existing=True
+                    replace_existing=True,
+                    timezone='America/Chicago'
                 )
             else:  # monthly
                 scheduler.add_job(
@@ -2642,7 +2645,8 @@ def asset_spot_check_settings():
                     hour=hh,
                     minute=mm,
                     id='asset_spot_check',
-                    replace_existing=True
+                    replace_existing=True,
+                    timezone='America/Chicago'
                 )
         else:
             try:
