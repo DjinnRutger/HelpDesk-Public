@@ -166,6 +166,136 @@ def index():
     )
 
 
+@admin_bp.route('/app-logs')
+@login_required
+def app_logs():
+    """Show application logs with filtering and pagination."""
+    import os
+    from collections import deque
+    
+    # Get the log file path from config
+    log_file = current_app.config.get('LOG_FILE_PATH', '')
+    
+    # Filters
+    level_filter = (request.args.get('level') or '').strip().upper()
+    search_query = (request.args.get('q') or '').strip()
+    
+    # Pagination
+    try:
+        lines_count = int(request.args.get('lines') or 500)
+    except Exception:
+        lines_count = 500
+    if lines_count < 100:
+        lines_count = 100
+    if lines_count > 5000:
+        lines_count = 5000
+    
+    logs = []
+    log_exists = False
+    error_message = None
+    
+    if log_file and os.path.exists(log_file):
+        log_exists = True
+        try:
+            # Read last N lines efficiently
+            with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
+                # Use deque to keep only last N lines
+                all_lines = deque(f, maxlen=lines_count)
+            
+            for line in all_lines:
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # Parse log line: "2024-12-24 10:30:00 - INFO - message"
+                entry = {'raw': line, 'level': 'INFO', 'timestamp': '', 'message': line}
+                try:
+                    parts = line.split(' - ', 2)
+                    if len(parts) >= 3:
+                        entry['timestamp'] = parts[0]
+                        entry['level'] = parts[1].strip()
+                        entry['message'] = parts[2]
+                    elif len(parts) == 2:
+                        entry['timestamp'] = parts[0]
+                        entry['message'] = parts[1]
+                except Exception:
+                    pass
+                
+                # Apply level filter
+                if level_filter and entry['level'] != level_filter:
+                    continue
+                
+                # Apply search filter
+                if search_query and search_query.lower() not in line.lower():
+                    continue
+                
+                logs.append(entry)
+            
+            # Reverse to show newest first
+            logs.reverse()
+            
+        except Exception as e:
+            error_message = f'Error reading log file: {str(e)}'
+    elif log_file:
+        error_message = f'Log file not found: {log_file}'
+    else:
+        error_message = 'Log file path not configured'
+    
+    return render_template(
+        'admin/app_logs.html',
+        logs=logs,
+        log_exists=log_exists,
+        log_file=log_file,
+        error_message=error_message,
+        level_filter=level_filter,
+        search_query=search_query,
+        lines_count=lines_count,
+    )
+
+
+@admin_bp.route('/app-logs/clear', methods=['POST'])
+@login_required
+def clear_app_logs():
+    """Clear the application log file."""
+    import os
+    
+    log_file = current_app.config.get('LOG_FILE_PATH', '')
+    
+    if log_file and os.path.exists(log_file):
+        try:
+            # Truncate the log file
+            with open(log_file, 'w', encoding='utf-8') as f:
+                f.write('')
+            current_app.logger.info('Log file cleared by admin')
+            flash('Application logs cleared successfully.', 'success')
+        except Exception as e:
+            flash(f'Error clearing logs: {str(e)}', 'danger')
+    else:
+        flash('Log file not found.', 'warning')
+    
+    return redirect(url_for('admin.app_logs'))
+
+
+@admin_bp.route('/app-logs/download')
+@login_required
+def download_app_logs():
+    """Download the application log file."""
+    import os
+    
+    log_file = current_app.config.get('LOG_FILE_PATH', '')
+    
+    if log_file and os.path.exists(log_file):
+        return send_file(
+            log_file,
+            mimetype='text/plain',
+            as_attachment=True,
+            download_name=f'helpdesk-logs-{datetime.now().strftime("%Y%m%d-%H%M%S")}.log'
+        )
+    
+    flash('Log file not found.', 'warning')
+    return redirect(url_for('admin.app_logs'))
+
+
 @admin_bp.route('/email-logs')
 @login_required
 def email_logs():

@@ -1,0 +1,132 @@
+{% extends 'base.html' %}
+{% block title %}Application Logs · HelpfulDjinn{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h1 class="h5 mb-0"><i class="bi bi-file-text me-2"></i>Application Logs</h1>
+  <div>
+    <a href="{{ url_for('admin.download_app_logs') }}" class="btn btn-outline-success btn-sm me-2"><i class="bi bi-download me-1"></i>Download</a>
+    <button type="button" class="btn btn-outline-danger btn-sm me-2" data-bs-toggle="modal" data-bs-target="#clearLogsModal"><i class="bi bi-trash me-1"></i>Clear Logs</button>
+    <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>Back to Admin</a>
+  </div>
+</div>
+
+<!-- Filters -->
+<form method="get" class="card shadow-sm mb-3">
+  <div class="card-body row g-2 align-items-end">
+    <div class="col-sm-6 col-md-5">
+      <label class="form-label small">Search</label>
+      <input type="text" class="form-control form-control-sm" name="q" placeholder="Search in log messages..." value="{{ search_query or '' }}">
+    </div>
+    <div class="col-sm-3 col-md-2">
+      <label class="form-label small">Level</label>
+      <select name="level" class="form-select form-select-sm">
+        <option value="" {{ 'selected' if not level_filter else '' }}>All Levels</option>
+        <option value="DEBUG" {{ 'selected' if level_filter == 'DEBUG' else '' }}>DEBUG</option>
+        <option value="INFO" {{ 'selected' if level_filter == 'INFO' else '' }}>INFO</option>
+        <option value="WARNING" {{ 'selected' if level_filter == 'WARNING' else '' }}>WARNING</option>
+        <option value="ERROR" {{ 'selected' if level_filter == 'ERROR' else '' }}>ERROR</option>
+        <option value="CRITICAL" {{ 'selected' if level_filter == 'CRITICAL' else '' }}>CRITICAL</option>
+      </select>
+    </div>
+    <div class="col-sm-3 col-md-2">
+      <label class="form-label small">Lines</label>
+      <select name="lines" class="form-select form-select-sm">
+        <option value="100" {{ 'selected' if lines_count == 100 else '' }}>Last 100</option>
+        <option value="500" {{ 'selected' if lines_count == 500 else '' }}>Last 500</option>
+        <option value="1000" {{ 'selected' if lines_count == 1000 else '' }}>Last 1000</option>
+        <option value="2500" {{ 'selected' if lines_count == 2500 else '' }}>Last 2500</option>
+        <option value="5000" {{ 'selected' if lines_count == 5000 else '' }}>Last 5000</option>
+      </select>
+    </div>
+    <div class="col-sm-12 col-md-3 text-end">
+      <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-funnel me-1"></i>Filter</button>
+      <a href="{{ url_for('admin.app_logs') }}" class="btn btn-outline-secondary btn-sm ms-2">Clear</a>
+      <button type="button" class="btn btn-outline-info btn-sm ms-2" onclick="location.reload()"><i class="bi bi-arrow-clockwise"></i></button>
+    </div>
+  </div>
+</form>
+
+{% if error_message %}
+  <div class="alert alert-warning"><i class="bi bi-exclamation-triangle me-2"></i>{{ error_message }}</div>
+{% endif %}
+
+{% if log_file %}
+  <div class="mb-2 small text-muted">
+    <i class="bi bi-folder me-1"></i>Log file: <code>{{ log_file }}</code>
+  </div>
+{% endif %}
+
+{% if logs %}
+  <div class="card shadow-sm">
+    <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+      <span class="small">Showing {{ logs|length }} log entries (newest first)</span>
+      <div class="small text-muted">
+        <span class="badge bg-info me-1">INFO</span>
+        <span class="badge bg-warning text-dark me-1">WARNING</span>
+        <span class="badge bg-danger me-1">ERROR</span>
+        <span class="badge bg-dark me-1">CRITICAL</span>
+      </div>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive" style="max-height: 70vh; overflow-y: auto;">
+        <table class="table table-sm table-hover align-middle mb-0 font-monospace small">
+          <thead class="table-light sticky-top">
+            <tr>
+              <th style="width: 160px;">Timestamp</th>
+              <th style="width: 80px;">Level</th>
+              <th>Message</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for log in logs %}
+            <tr class="{{ 'table-danger' if log.level in ['ERROR', 'CRITICAL'] else 'table-warning' if log.level == 'WARNING' else '' }}">
+              <td class="text-nowrap">{{ log.timestamp }}</td>
+              <td>
+                {% if log.level == 'ERROR' or log.level == 'CRITICAL' %}
+                  <span class="badge bg-danger">{{ log.level }}</span>
+                {% elif log.level == 'WARNING' %}
+                  <span class="badge bg-warning text-dark">{{ log.level }}</span>
+                {% elif log.level == 'DEBUG' %}
+                  <span class="badge bg-secondary">{{ log.level }}</span>
+                {% else %}
+                  <span class="badge bg-info">{{ log.level }}</span>
+                {% endif %}
+              </td>
+              <td class="text-break" style="word-break: break-word;">{{ log.message }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+{% elif log_exists and not error_message %}
+  <div class="alert alert-info">
+    <i class="bi bi-info-circle me-2"></i>No log entries match your filters. Try adjusting the filters or increasing the number of lines.
+  </div>
+{% endif %}
+
+<!-- Clear Logs Confirmation Modal -->
+<div class="modal fade" id="clearLogsModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-trash me-2"></i>Clear Application Logs</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-danger"><strong>Warning:</strong> This will permanently delete all application log entries.</p>
+        <p>Are you sure you want to clear the application logs?</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <form method="post" action="{{ url_for('admin.clear_app_logs') }}" class="d-inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-danger"><i class="bi bi-trash me-1"></i>Clear Logs</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

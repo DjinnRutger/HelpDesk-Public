@@ -263,6 +263,31 @@ def create_app():
 
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
+    # Configure file logging
+    import logging
+    from logging.handlers import RotatingFileHandler
+    log_dir = exe_dir / 'logs' if exe_dir else Path(app.instance_path) / 'logs'
+    try:
+        log_dir.mkdir(exist_ok=True)
+    except Exception:
+        pass
+    log_file = log_dir / 'helpdesk.log'
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=1024 * 1024,  # 1MB per file
+        backupCount=5,
+        encoding='utf-8'
+    )
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    ))
+    app.logger.addHandler(file_handler)
+    app.logger.setLevel(logging.INFO)
+    # Store log file path in config for admin page
+    app.config['LOG_FILE_PATH'] = str(log_file)
+
     # Init extensions
     csrf.init_app(app)
     db.init_app(app)
