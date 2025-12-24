@@ -627,4 +627,27 @@ def create_app():
             # If settings model not ready, skip; admin can enable later
             pass
 
+        # Schedule or remove the email log cleanup job based on settings
+        try:
+            from .models import Setting as _Setting  # type: ignore
+            from .blueprints.admin import cleanup_old_email_logs
+            log_cleanup_enabled = (_Setting.get('EMAIL_LOG_RETENTION_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes')
+            if log_cleanup_enabled:
+                scheduler.add_job(
+                    func=lambda: cleanup_old_email_logs(app),
+                    trigger='cron',
+                    hour=3,
+                    minute=0,
+                    id='email_log_cleanup',
+                    replace_existing=True
+                )
+            else:
+                try:
+                    scheduler.remove_job('email_log_cleanup')
+                except Exception:
+                    pass
+        except Exception:
+            # If settings model not ready, skip; admin can enable later
+            pass
+
     return app

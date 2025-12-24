@@ -160,21 +160,24 @@ def email_logs():
     q = (request.args.get('q') or '').strip()
     action = (request.args.get('action') or '').strip().lower()
     # Optional toggle to hide "No new messages" rows (action == 'none')
-    # Default: ON (hide entries with action == 'none' unless explicitly disabled)
+    # Default: ON on initial load, but respect unchecked state when form is submitted
     hide_none_raw = request.args.get('hide_none')
-    if hide_none_raw is None:
-        hide_none = True
+    # Check if form was submitted (direction param present means form submitted)
+    form_submitted = request.args.get('direction') is not None or request.args.get('q') is not None or request.args.get('action') is not None or request.args.get('days') is not None
+    if form_submitted:
+        # Form was submitted - checkbox unchecked means hide_none should be False
+        hide_none = hide_none_raw in ('1', 'true', 'yes', 'on')
     else:
-        val = (str(hide_none_raw) or '').strip().lower()
-        hide_none = val in ('1', 'true', 'yes', 'on') or hide_none_raw == ''
+        # Initial page load - default to True
+        hide_none = True
     try:
         days = int(request.args.get('days') or 7)
     except Exception:
         days = 7
     if days < 1:
         days = 1
-    if days > 7:
-        days = 7
+    if days > 90:
+        days = 90
     
     # Pagination
     try:
@@ -238,8 +241,8 @@ def email_logs():
         days_out = 7
     if days_out < 1:
         days_out = 1
-    if days_out > 7:
-        days_out = 7
+    if days_out > 90:
+        days_out = 90
     
     # Outgoing pagination
     try:
@@ -2201,7 +2204,80 @@ def email_settings():
         return redirect(url_for('admin.email_settings'))
     domains = AllowedDomain.query.order_by(AllowedDomain.domain.asc()).all()
     denies = DenyFilter.query.order_by(DenyFilter.phrase.asc()).all()
-    return render_template('admin/email_settings.html', form=form, domains=domains, deny_form=deny_form, denies=denies)
+    # Email log retention settings
+    email_log_retention_enabled = (Setting.get('EMAIL_LOG_RETENTION_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes')
+    email_log_retention_days = int(Setting.get('EMAIL_LOG_RETENTION_DAYS', '90') or '90')
+    return render_template(
+        'admin/email_settings.html',
+        form=form,
+        domains=domains,
+        deny_form=deny_form,
+        denies=denies,
+        email_log_retention_enabled=email_log_retention_enabled,
+        email_log_retention_days=email_log_retention_days
+    )
+
+
+@admin_bp.route('/email/log-retention', methods=['POST'])
+@login_required
+def email_log_retention_settings():
+    """Save email log retention settings."""
+    if not admin_required():
+        return redirect(url_for('dashboard.index'))
+    enabled = request.form.get('email_log_retention_enabled') in ('1', 'on', 'true', 'yes')
+    try:
+        days = int(request.form.get('email_log_retention_days', 90))
+        if days < 1:
+            days = 1
+        if days > 365:
+            days = 365
+    except (ValueError, TypeError):
+        days = 90
+    Setting.set('EMAIL_LOG_RETENTION_ENABLED', '1' if enabled else '0')
+    Setting.set('EMAIL_LOG_RETENTION_DAYS', str(days))
+    # Update the scheduler
+    from .. import scheduler
+    if enabled:
+        try:
+            scheduler.add_job(
+                func=lambda: cleanup_old_email_logs(current_app._get_current_object()),
+                trigger='cron',
+                hour=3,
+                minute=0,
+                id='email_log_cleanup',
+                replace_existing=True
+            )
+        except Exception:
+            pass
+    else:
+        try:
+            scheduler.remove_job('email_log_cleanup')
+        except Exception:
+            pass
+    flash(f'Email log retention settings saved. Auto-delete is {"enabled" if enabled else "disabled"}.', 'success')
+    return redirect(url_for('admin.email_settings'))
+
+
+def cleanup_old_email_logs(app):
+    """Delete email logs older than the configured retention period."""
+    with app.app_context():
+        from datetime import timedelta
+        from ..models import EmailCheck, EmailCheckEntry, OutgoingEmail, Setting as _Setting
+        enabled = (_Setting.get('EMAIL_LOG_RETENTION_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes')
+        if not enabled:
+            return
+        try:
+            days = int(_Setting.get('EMAIL_LOG_RETENTION_DAYS', '90') or '90')
+        except (ValueError, TypeError):
+            days = 90
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        # Delete old outgoing emails
+        OutgoingEmail.query.filter(OutgoingEmail.created_at < cutoff).delete(synchronize_session=False)
+        # Delete old email check entries (cascade will handle entries via EmailCheck)
+        old_checks = EmailCheck.query.filter(EmailCheck.checked_at < cutoff).all()
+        for check in old_checks:
+            db.session.delete(check)
+        db.session.commit()
 
 
 @admin_bp.route('/email/domains/<int:domain_id>/delete', methods=['POST'])
