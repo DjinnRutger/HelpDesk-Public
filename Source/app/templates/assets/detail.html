@@ -398,6 +398,10 @@
             <td class="small">{{ asset.next_audit_date|cst_datetime if asset.next_audit_date else '—' }}</td>
           </tr>
           <tr>
+            <td class="text-muted small">Last Spot Check:</td>
+            <td class="small">{{ asset.last_spot_check|cst_datetime if asset.last_spot_check else '—' }}</td>
+          </tr>
+          <tr>
             <td class="text-muted small">Condition:</td>
             <td class="small">{{ asset.physical_condition or '—' }}</td>
           </tr>

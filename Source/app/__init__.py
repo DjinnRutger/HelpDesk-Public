@@ -650,4 +650,50 @@ def create_app():
             # If settings model not ready, skip; admin can enable later
             pass
 
+        # Schedule or remove the asset spot check job based on settings
+        try:
+            from .models import Setting as _Setting  # type: ignore
+            from .blueprints.admin import run_asset_spot_check
+            spot_check_enabled = (_Setting.get('ASSET_SPOT_CHECK_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes')
+            if spot_check_enabled:
+                spot_check_frequency = _Setting.get('ASSET_SPOT_CHECK_FREQUENCY', 'weekly') or 'weekly'
+                spot_check_time = _Setting.get('ASSET_SPOT_CHECK_TIME', '09:00') or '09:00'
+                hh, mm = 9, 0
+                try:
+                    parts = spot_check_time.split(':')
+                    hh = int(parts[0] or 9)
+                    mm = int(parts[1] or 0)
+                except Exception:
+                    hh, mm = 9, 0
+                if spot_check_frequency == 'weekly':
+                    day_of_week = int(_Setting.get('ASSET_SPOT_CHECK_DAY_OF_WEEK', '1') or '1')
+                    scheduler.add_job(
+                        func=lambda: run_asset_spot_check(app),
+                        trigger='cron',
+                        day_of_week=day_of_week,
+                        hour=hh,
+                        minute=mm,
+                        id='asset_spot_check',
+                        replace_existing=True
+                    )
+                else:  # monthly
+                    day_of_month = int(_Setting.get('ASSET_SPOT_CHECK_DAY_OF_MONTH', '1') or '1')
+                    scheduler.add_job(
+                        func=lambda: run_asset_spot_check(app),
+                        trigger='cron',
+                        day=day_of_month,
+                        hour=hh,
+                        minute=mm,
+                        id='asset_spot_check',
+                        replace_existing=True
+                    )
+            else:
+                try:
+                    scheduler.remove_job('asset_spot_check')
+                except Exception:
+                    pass
+        except Exception:
+            # If settings model not ready, skip; admin can enable later
+            pass
+
     return app

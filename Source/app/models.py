@@ -158,6 +158,9 @@ class TicketTask(db.Model):
     checked_by_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     checked_by = db.relationship('User', foreign_keys=[checked_by_user_id])
     checked_at = db.Column(db.DateTime, nullable=True)
+    # Optional link to Asset (used for spot check tasks)
+    asset_id = db.Column(db.Integer, db.ForeignKey('asset.id'), nullable=True)
+    asset = db.relationship('Asset', foreign_keys=[asset_id])
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
@@ -533,6 +536,7 @@ class Asset(db.Model):
     last_checkin_date = db.Column(db.DateTime, nullable=True)
     last_audit = db.Column(db.DateTime, nullable=True)
     next_audit_date = db.Column(db.DateTime, nullable=True)
+    last_spot_check = db.Column(db.DateTime, nullable=True)  # When this asset was last verified in a spot check
     deleted_flag = db.Column(db.Boolean, default=False)
     created_at_legacy = db.Column(db.DateTime, nullable=True)
     updated_at_legacy = db.Column(db.DateTime, nullable=True)

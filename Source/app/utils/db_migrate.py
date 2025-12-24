@@ -160,6 +160,7 @@ def ensure_ticket_task_table(engine):
                     checked BOOLEAN NOT NULL DEFAULT 0,
                     checked_by_user_id INTEGER,
                     checked_at DATETIME,
+                    asset_id INTEGER,
                     created_at DATETIME
                 )
                 """
@@ -171,6 +172,7 @@ def ensure_ticket_task_table(engine):
         existing = {row[1] for row in info}
         required = {
             'list_name': 'TEXT',
+            'asset_id': 'INTEGER',
         }
         for col, coltype in required.items():
             if col not in existing:
@@ -456,6 +458,7 @@ def ensure_assets_table(engine):
                 ('physical_condition', 'TEXT'), ('end_of_life_text', 'TEXT'), ('url', 'TEXT'),
                 ('assigned_contact_id', 'INTEGER'), ('checkout_date', 'DATETIME'), ('expected_checkin_date', 'DATETIME'),
                 ('last_checkin_date', 'DATETIME'), ('last_audit', 'DATETIME'), ('next_audit_date', 'DATETIME'),
+                ('last_spot_check', 'DATETIME'),
                 ('deleted_flag', 'BOOLEAN'), ('created_at_legacy', 'DATETIME'), ('updated_at_legacy', 'DATETIME'),
                 ('created_at', 'DATETIME'), ('updated_at', 'DATETIME'),
                 ('purchase_order_id', 'INTEGER'), ('order_item_id', 'INTEGER')

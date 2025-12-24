@@ -120,6 +120,19 @@ def index():
     except Exception:
         auto_keep = 7
     demo_mode = (Setting.get('DEMO_MODE', '0') or '0') in ('1','true','on','yes') or (Setting.get('DEMO_DATA_LOADED','0') in ('1','true','on','yes'))
+    # Asset Spot Check settings
+    spot_check_enabled = (Setting.get('ASSET_SPOT_CHECK_ENABLED', '0') or '0') in ('1','true','on','yes')
+    spot_check_frequency = Setting.get('ASSET_SPOT_CHECK_FREQUENCY', 'weekly') or 'weekly'  # 'weekly' or 'monthly'
+    spot_check_day_of_week = Setting.get('ASSET_SPOT_CHECK_DAY_OF_WEEK', '1') or '1'  # 0=Mon, 6=Sun
+    spot_check_day_of_month = Setting.get('ASSET_SPOT_CHECK_DAY_OF_MONTH', '1') or '1'  # 1-31
+    spot_check_time = Setting.get('ASSET_SPOT_CHECK_TIME', '09:00') or '09:00'
+    spot_check_mode = Setting.get('ASSET_SPOT_CHECK_MODE', 'count') or 'count'  # 'count' or 'percent'
+    spot_check_count = Setting.get('ASSET_SPOT_CHECK_COUNT', '10') or '10'
+    spot_check_percent = Setting.get('ASSET_SPOT_CHECK_PERCENT', '5') or '5'
+    try:
+        spot_check_assignee_id = int(Setting.get('ASSET_SPOT_CHECK_ASSIGNEE_ID', '') or '0') or None
+    except Exception:
+        spot_check_assignee_id = None
     return render_template(
         'admin/index.html',
         settings=settings,
@@ -141,6 +154,15 @@ def index():
         auto_dir=auto_dir,
         auto_keep=auto_keep,
         demo_mode=demo_mode,
+        spot_check_enabled=spot_check_enabled,
+        spot_check_frequency=spot_check_frequency,
+        spot_check_day_of_week=spot_check_day_of_week,
+        spot_check_day_of_month=spot_check_day_of_month,
+        spot_check_time=spot_check_time,
+        spot_check_mode=spot_check_mode,
+        spot_check_count=spot_check_count,
+        spot_check_percent=spot_check_percent,
+        spot_check_assignee_id=spot_check_assignee_id,
     )
 
 
@@ -2530,6 +2552,229 @@ def backup_settings():
     except Exception:
         flash('Failed to update auto-backup scheduler.', 'danger')
     return redirect(url_for('admin.index'))
+
+
+# --- Asset Spot Check Settings ---
+@admin_bp.route('/asset-spot-check/settings', methods=['POST'])
+@login_required
+def asset_spot_check_settings():
+    if not admin_required():
+        return redirect(url_for('dashboard.index'))
+    # Read form values
+    enabled = bool(request.form.get('spot_check_enabled'))
+    frequency = (request.form.get('spot_check_frequency') or 'weekly').strip()
+    if frequency not in ('weekly', 'monthly'):
+        frequency = 'weekly'
+    day_of_week = (request.form.get('spot_check_day_of_week') or '1').strip()
+    day_of_month = (request.form.get('spot_check_day_of_month') or '1').strip()
+    time_str = (request.form.get('spot_check_time') or '09:00').strip()
+    mode = (request.form.get('spot_check_mode') or 'count').strip()
+    if mode not in ('count', 'percent'):
+        mode = 'count'
+    count_val = (request.form.get('spot_check_count') or '10').strip()
+    percent_val = (request.form.get('spot_check_percent') or '5').strip()
+    assignee_id = (request.form.get('spot_check_assignee_id') or '').strip()
+    # Validate day_of_week (0-6)
+    try:
+        dow = int(day_of_week)
+        if dow < 0 or dow > 6:
+            day_of_week = '1'
+    except Exception:
+        day_of_week = '1'
+    # Validate day_of_month (1-31)
+    try:
+        dom = int(day_of_month)
+        if dom < 1 or dom > 31:
+            day_of_month = '1'
+    except Exception:
+        day_of_month = '1'
+    # Normalize time HH:MM
+    hh, mm = 9, 0
+    try:
+        parts = time_str.split(':')
+        hh = int(parts[0] or 9)
+        mm = int(parts[1] or 0)
+        if hh < 0 or hh > 23 or mm < 0 or mm > 59:
+            raise ValueError('invalid time')
+    except Exception:
+        time_str = '09:00'
+        hh, mm = 9, 0
+    # Validate count and percent
+    try:
+        count_int = max(1, int(count_val))
+        count_val = str(count_int)
+    except Exception:
+        count_val = '10'
+    try:
+        percent_int = max(1, min(100, int(percent_val)))
+        percent_val = str(percent_int)
+    except Exception:
+        percent_val = '5'
+    # Persist settings
+    Setting.set('ASSET_SPOT_CHECK_ENABLED', '1' if enabled else '0')
+    Setting.set('ASSET_SPOT_CHECK_FREQUENCY', frequency)
+    Setting.set('ASSET_SPOT_CHECK_DAY_OF_WEEK', day_of_week)
+    Setting.set('ASSET_SPOT_CHECK_DAY_OF_MONTH', day_of_month)
+    Setting.set('ASSET_SPOT_CHECK_TIME', time_str)
+    Setting.set('ASSET_SPOT_CHECK_MODE', mode)
+    Setting.set('ASSET_SPOT_CHECK_COUNT', count_val)
+    Setting.set('ASSET_SPOT_CHECK_PERCENT', percent_val)
+    Setting.set('ASSET_SPOT_CHECK_ASSIGNEE_ID', assignee_id if assignee_id.isdigit() else '')
+    # Reschedule job
+    try:
+        app_obj = current_app._get_current_object()
+        if enabled:
+            if frequency == 'weekly':
+                scheduler.add_job(
+                    func=lambda: run_asset_spot_check(app_obj),
+                    trigger='cron',
+                    day_of_week=int(day_of_week),
+                    hour=hh,
+                    minute=mm,
+                    id='asset_spot_check',
+                    replace_existing=True
+                )
+            else:  # monthly
+                scheduler.add_job(
+                    func=lambda: run_asset_spot_check(app_obj),
+                    trigger='cron',
+                    day=int(day_of_month),
+                    hour=hh,
+                    minute=mm,
+                    id='asset_spot_check',
+                    replace_existing=True
+                )
+        else:
+            try:
+                scheduler.remove_job('asset_spot_check')
+            except Exception:
+                pass
+        flash('Asset Spot Check settings updated.', 'success')
+    except Exception as e:
+        flash(f'Failed to update Asset Spot Check scheduler: {str(e)}', 'danger')
+    return redirect(url_for('admin.index'))
+
+
+@admin_bp.route('/asset-spot-check/run-now', methods=['POST'])
+@login_required
+def asset_spot_check_run_now():
+    """Manually trigger an asset spot check."""
+    if not admin_required():
+        return redirect(url_for('dashboard.index'))
+    try:
+        app_obj = current_app._get_current_object()
+        ticket_id = run_asset_spot_check(app_obj)
+        if ticket_id:
+            flash(f'Spot Check ticket #{ticket_id} created.', 'success')
+        else:
+            flash('No assets available for spot check.', 'info')
+    except Exception as e:
+        flash(f'Error running spot check: {str(e)}', 'danger')
+    return redirect(url_for('admin.index'))
+
+
+def run_asset_spot_check(app):
+    """Create a spot check ticket with selected assets to verify."""
+    with app.app_context():
+        from ..models import Setting as _Setting, Asset as _Asset, Ticket as _Ticket, TicketTask as _TicketTask, User as _User
+        from .. import db as _db
+        from datetime import datetime as _dt
+        import random
+        
+        # Check if enabled
+        enabled = (_Setting.get('ASSET_SPOT_CHECK_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes')
+        if not enabled:
+            return None
+        
+        # Get settings
+        mode = _Setting.get('ASSET_SPOT_CHECK_MODE', 'count') or 'count'
+        try:
+            count = int(_Setting.get('ASSET_SPOT_CHECK_COUNT', '10') or '10')
+        except Exception:
+            count = 10
+        try:
+            percent = int(_Setting.get('ASSET_SPOT_CHECK_PERCENT', '5') or '5')
+        except Exception:
+            percent = 5
+        try:
+            assignee_id = int(_Setting.get('ASSET_SPOT_CHECK_ASSIGNEE_ID', '') or '0') or None
+        except Exception:
+            assignee_id = None
+        
+        # Get eligible assets (deployed or available, not archived/retired)
+        eligible_statuses = ['deployed', 'available', 'Active (deployed)', 'Active (deployable)']
+        assets = _Asset.query.filter(
+            _Asset.status.in_(eligible_statuses),
+            _Asset.deleted_flag != True
+        ).all()
+        
+        if not assets:
+            return None
+        
+        # Calculate how many to select
+        if mode == 'percent':
+            num_to_select = max(1, int(len(assets) * percent / 100))
+        else:
+            num_to_select = min(count, len(assets))
+        
+        # Prioritize assets that haven't been spot checked or were checked longest ago
+        assets_sorted = sorted(assets, key=lambda a: (a.last_spot_check or _dt.min))
+        selected_assets = assets_sorted[:num_to_select]
+        
+        if not selected_assets:
+            return None
+        
+        # Build ticket body
+        body_lines = [
+            "## Asset Spot Check Verification",
+            "",
+            "Please verify the following assets are present and accurate:",
+            "",
+        ]
+        for asset in selected_assets:
+            status = asset.status or 'unknown'
+            assigned_to = asset.assigned_contact.name if asset.assigned_contact else 'Unassigned'
+            location = asset.location or 'No location'
+            body_lines.append(f"- **{asset.name}** (Tag: {asset.asset_tag or 'N/A'}, Serial: {asset.serial_number or 'N/A'})")
+            body_lines.append(f"  - Status: {status} | Location: {location} | Assigned: {assigned_to}")
+            body_lines.append("")
+        
+        body_lines.extend([
+            "---",
+            "**Instructions:**",
+            "1. Physically locate each asset listed above",
+            "2. Verify the asset tag and serial number match",
+            "3. Confirm the location and assignment are accurate",
+            "4. Check off each task below once verified",
+            "5. Add notes for any discrepancies found",
+        ])
+        
+        # Create ticket
+        ticket = _Ticket(
+            subject=f"Asset Spot Check - {_dt.now().strftime('%Y-%m-%d')}",
+            body="\n".join(body_lines),
+            status='open',
+            priority='medium',
+            assignee_id=assignee_id,
+            source='system'
+        )
+        _db.session.add(ticket)
+        _db.session.flush()
+        
+        # Add tasks for each asset
+        for idx, asset in enumerate(selected_assets):
+            task_label = f"Verify: {asset.name} (Tag: {asset.asset_tag or 'N/A'})"
+            task = _TicketTask(
+                ticket_id=ticket.id,
+                label=task_label,
+                list_name='Asset Verification',
+                position=idx,
+                asset_id=asset.id  # Link task to asset for spot check tracking
+            )
+            _db.session.add(task)
+        
+        _db.session.commit()
+        return ticket.id  # Return ID instead of object to avoid session binding issues
 
 
 # --- Demo Mode: Disable and reset database ---

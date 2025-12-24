@@ -894,6 +894,11 @@ def toggle_task(ticket_id, task_id):
     if now_checked:
         task.checked_by_user_id = getattr(current_user, 'id', None)
         task.checked_at = datetime.utcnow()
+        # If task is linked to an asset (spot check), update the asset's last_spot_check
+        if task.asset_id:
+            asset = Asset.query.get(task.asset_id)
+            if asset:
+                asset.last_spot_check = datetime.utcnow()
     else:
         task.checked_by_user_id = None
         task.checked_at = None

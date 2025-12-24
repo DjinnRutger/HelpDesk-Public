@@ -1172,10 +1172,145 @@
             </form>
           </div>
         </div>
+
+        <hr>
+
+        <!-- Asset Spot Check Settings -->
+        <div class="mb-4">
+          <h6 class="fw-semibold mb-2"><i class="bi bi-clipboard-check me-1"></i>Asset Spot Check</h6>
+          <p class="small text-muted mb-3">Automatically create tickets to verify a random selection of assets on a schedule.</p>
+          <form method="post" action="{{ url_for('admin.asset_spot_check_settings') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            
+            <!-- Enable/Disable -->
+            <div class="form-check form-switch mb-3">
+              <input class="form-check-input" type="checkbox" id="spotCheckEnabled" name="spot_check_enabled" {% if spot_check_enabled %}checked{% endif %} onchange="toggleSpotCheckOptions()">
+              <label class="form-check-label" for="spotCheckEnabled">
+                Enable Spot Check
+              </label>
+            </div>
+
+            <div id="spotCheckOptions" {% if not spot_check_enabled %}style="display:none"{% endif %}>
+              <!-- Frequency Selection -->
+              <div class="row g-3 mb-3">
+                <div class="col-md-4">
+                  <label class="form-label small">Frequency</label>
+                  <select class="form-select" name="spot_check_frequency" id="spotCheckFrequency" onchange="toggleSpotCheckFrequencyOptions()">
+                    <option value="weekly" {% if spot_check_frequency == 'weekly' %}selected{% endif %}>Weekly</option>
+                    <option value="monthly" {% if spot_check_frequency == 'monthly' %}selected{% endif %}>Monthly</option>
+                  </select>
+                </div>
+                
+                <!-- Day of Week (for Weekly) -->
+                <div class="col-md-4" id="spotCheckWeeklyOptions" {% if spot_check_frequency != 'weekly' %}style="display:none"{% endif %}>
+                  <label class="form-label small">Day of Week</label>
+                  <select class="form-select" name="spot_check_day_of_week" id="spotCheckDayOfWeek">
+                    <option value="0" {% if spot_check_day_of_week == '0' %}selected{% endif %}>Monday</option>
+                    <option value="1" {% if spot_check_day_of_week == '1' %}selected{% endif %}>Tuesday</option>
+                    <option value="2" {% if spot_check_day_of_week == '2' %}selected{% endif %}>Wednesday</option>
+                    <option value="3" {% if spot_check_day_of_week == '3' %}selected{% endif %}>Thursday</option>
+                    <option value="4" {% if spot_check_day_of_week == '4' %}selected{% endif %}>Friday</option>
+                    <option value="5" {% if spot_check_day_of_week == '5' %}selected{% endif %}>Saturday</option>
+                    <option value="6" {% if spot_check_day_of_week == '6' %}selected{% endif %}>Sunday</option>
+                  </select>
+                </div>
+                
+                <!-- Day of Month (for Monthly) -->
+                <div class="col-md-4" id="spotCheckMonthlyOptions" {% if spot_check_frequency != 'monthly' %}style="display:none"{% endif %}>
+                  <label class="form-label small">Day of Month</label>
+                  <input type="number" class="form-control" name="spot_check_day_of_month" id="spotCheckDayOfMonth" value="{{ spot_check_day_of_month }}" min="1" max="31">
+                  <div class="form-text">1-31 (use 28 for end of month)</div>
+                </div>
+                
+                <!-- Time -->
+                <div class="col-md-4">
+                  <label class="form-label small">Time</label>
+                  <input type="time" class="form-control" name="spot_check_time" value="{{ spot_check_time }}">
+                </div>
+              </div>
+
+              <!-- Selection Mode -->
+              <div class="row g-3 mb-3">
+                <div class="col-md-4">
+                  <label class="form-label small">Selection Mode</label>
+                  <select class="form-select" name="spot_check_mode" id="spotCheckMode" onchange="toggleSpotCheckModeOptions()">
+                    <option value="count" {% if spot_check_mode == 'count' %}selected{% endif %}>Fixed Count</option>
+                    <option value="percent" {% if spot_check_mode == 'percent' %}selected{% endif %}>Percentage</option>
+                  </select>
+                </div>
+                
+                <!-- Count Input -->
+                <div class="col-md-4" id="spotCheckCountOption" {% if spot_check_mode != 'count' %}style="display:none"{% endif %}>
+                  <label class="form-label small">Number of Assets</label>
+                  <input type="number" class="form-control" name="spot_check_count" value="{{ spot_check_count }}" min="1" max="100">
+                  <div class="form-text">How many assets to include</div>
+                </div>
+                
+                <!-- Percent Input -->
+                <div class="col-md-4" id="spotCheckPercentOption" {% if spot_check_mode != 'percent' %}style="display:none"{% endif %}>
+                  <label class="form-label small">Percentage of Assets</label>
+                  <div class="input-group">
+                    <input type="number" class="form-control" name="spot_check_percent" value="{{ spot_check_percent }}" min="1" max="100">
+                    <span class="input-group-text">%</span>
+                  </div>
+                  <div class="form-text">Percent of total eligible assets</div>
+                </div>
+                
+                <!-- Assignee -->
+                <div class="col-md-4">
+                  <label class="form-label small">Assign Ticket To</label>
+                  <select class="form-select" name="spot_check_assignee_id">
+                    <option value="">Unassigned</option>
+                    {% for t in techs %}
+                    <option value="{{ t.id }}" {% if spot_check_assignee_id == t.id %}selected{% endif %}>{{ t.name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+              </div>
+
+              <div class="small text-muted mb-3">
+                <i class="bi bi-info-circle me-1"></i>
+                Spot checks select from <strong>Deployed</strong> and <strong>Available</strong> assets, prioritizing those that haven't been checked recently.
+              </div>
+            </div>
+
+            <div class="d-flex gap-2">
+              <button class="btn btn-primary" type="submit">
+                <i class="bi bi-check-lg me-1"></i>Save Spot Check Settings
+              </button>
+            </div>
+          </form>
+          <form method="post" action="{{ url_for('admin.asset_spot_check_run_now') }}" class="d-inline mt-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-outline-secondary" type="submit">
+              <i class="bi bi-play me-1"></i>Run Now
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   </div>
 </div>
+
+<script>
+// Spot Check UI Toggle Functions
+function toggleSpotCheckOptions() {
+  const enabled = document.getElementById('spotCheckEnabled').checked;
+  document.getElementById('spotCheckOptions').style.display = enabled ? 'block' : 'none';
+}
+
+function toggleSpotCheckFrequencyOptions() {
+  const frequency = document.getElementById('spotCheckFrequency').value;
+  document.getElementById('spotCheckWeeklyOptions').style.display = frequency === 'weekly' ? 'block' : 'none';
+  document.getElementById('spotCheckMonthlyOptions').style.display = frequency === 'monthly' ? 'block' : 'none';
+}
+
+function toggleSpotCheckModeOptions() {
+  const mode = document.getElementById('spotCheckMode').value;
+  document.getElementById('spotCheckCountOption').style.display = mode === 'count' ? 'block' : 'none';
+  document.getElementById('spotCheckPercentOption').style.display = mode === 'percent' ? 'block' : 'none';
+}
+</script>
 
 <script>
 // Purchasing Modal - Vendors Management
