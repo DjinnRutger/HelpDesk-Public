@@ -346,7 +346,7 @@ def poll_ms_graph(app=None):
                                     {f'<p><strong>Manager Response:</strong> {_html.escape(new_text or "").replace(chr(10),"<br>")}</p>' if new_text else ''}
                                     <p>Thank you,<br>Help Desk</p>
                                     """
-                                    send_mail(tech.email, tech_subject, tech_body, to_name=tech.name)
+                                    send_mail(tech.email, tech_subject, tech_body, to_name=tech.name, category='approval_response', ticket_id=existing_ticket.id)
                             except Exception:
                                 pass
                             
@@ -476,7 +476,7 @@ def poll_ms_graph(app=None):
                                 if tech and tech.email:
                                     subj = f"Ticket#{existing.id} - New reply"
                                     html_body = f"<p>{_html.escape(note_content).replace('\n','<br>')}</p>"
-                                    send_mail(tech.email, subj, html_body, to_name=getattr(tech, 'name', None))
+                                send_mail(tech.email, subj, html_body, to_name=getattr(tech, 'name', None), category='ticket_reply', ticket_id=existing.id)
                         except Exception:
                             pass
                         # Continue to next message (do not create a new ticket)

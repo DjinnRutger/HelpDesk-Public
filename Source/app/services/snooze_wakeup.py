@@ -90,7 +90,7 @@ def process_wakeups(app=None) -> None:
             # Notify assignee if available
             if tech and tech.email:
                 try:
-                    ok = send_mail(tech.email, subj, html_body, to_name=getattr(tech, 'name', None))
+                    ok = send_mail(tech.email, subj, html_body, to_name=getattr(tech, 'name', None), category='ticket_snooze', ticket_id=t.id)
                     if ok:
                         sent += 1
                 except Exception:

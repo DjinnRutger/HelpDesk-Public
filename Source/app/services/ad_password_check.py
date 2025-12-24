@@ -354,7 +354,8 @@ def _send_password_expiry_notifications(expiring_users: List[Dict[str, Any]], lo
                 to_address=contact.email,
                 subject=subject,
                 html_body=body,
-                to_name=contact.name
+                to_name=contact.name,
+                category='password_expiry'
             )
             
             if success:

@@ -35,6 +35,10 @@
         <a href="{{ url_for('projects.show_project', project_id=t.project_id) if t.project_id else url_for('tickets.list_tickets') }}" class="btn btn-outline-secondary btn-sm">
           <i class="bi bi-arrow-left me-1"></i>Back to Tickets
         </a>
+        <!-- Watch Button -->
+        <button type="button" class="btn btn-sm {{ 'btn-primary' if is_watching else 'btn-outline-secondary' }}" id="watchBtn" title="{{ 'Watching - Click to unwatch' if is_watching else 'Click to watch this ticket' }}">
+          <i class="bi {{ 'bi-eye-fill' if is_watching else 'bi-eye' }}" id="watchIcon"></i>
+        </button>
         <button type="button" class="btn btn-outline-warning btn-sm" data-bs-toggle="modal" data-bs-target="#snoozeModal">
           <i class="bi bi-moon"></i>
         </button>
@@ -1727,6 +1731,46 @@ document.addEventListener('DOMContentLoaded', function() {
       `;
     }
   });
+});
+
+// Watch button toggle
+document.getElementById('watchBtn').addEventListener('click', async function() {
+  const btn = this;
+  const icon = document.getElementById('watchIcon');
+  const ticketId = {{ t.id }};
+  
+  try {
+    const response = await fetch(`/tickets/${ticketId}/watch`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': '{{ csrf_token() }}'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to toggle watch status');
+    }
+    
+    const data = await response.json();
+    
+    if (data.watching) {
+      btn.classList.remove('btn-outline-secondary');
+      btn.classList.add('btn-primary');
+      btn.title = 'Watching - Click to unwatch';
+      icon.classList.remove('bi-eye');
+      icon.classList.add('bi-eye-fill');
+    } else {
+      btn.classList.remove('btn-primary');
+      btn.classList.add('btn-outline-secondary');
+      btn.title = 'Click to watch this ticket';
+      icon.classList.remove('bi-eye-fill');
+      icon.classList.add('bi-eye');
+    }
+  } catch (error) {
+    console.error('Failed to toggle watch:', error);
+    alert('Failed to update watch status. Please try again.');
+  }
 });
 </script>
 {% endblock %}

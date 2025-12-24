@@ -111,6 +111,93 @@ def unsnooze_ticket(ticket_id):
     return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
 
 
+@tickets_bp.route('/<int:ticket_id>/watch', methods=['POST'])
+@login_required
+def watch_ticket(ticket_id):
+    """Toggle watch status for the current user on this ticket."""
+    from ..models import TicketWatcher
+    t = Ticket.query.get_or_404(ticket_id)
+    user_id = getattr(current_user, 'id', None)
+    if not user_id:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    existing = TicketWatcher.query.filter_by(ticket_id=t.id, user_id=user_id).first()
+    if existing:
+        # Remove watch
+        db.session.delete(existing)
+        db.session.commit()
+        return jsonify({'watching': False, 'message': 'Stopped watching ticket'})
+    else:
+        # Add watch
+        watcher = TicketWatcher(ticket_id=t.id, user_id=user_id)
+        db.session.add(watcher)
+        db.session.commit()
+        return jsonify({'watching': True, 'message': 'Now watching ticket'})
+
+
+@tickets_bp.route('/<int:ticket_id>/watch/status')
+@login_required
+def watch_status(ticket_id):
+    """Get watch status for the current user on this ticket."""
+    from ..models import TicketWatcher
+    t = Ticket.query.get_or_404(ticket_id)
+    user_id = getattr(current_user, 'id', None)
+    if not user_id:
+        return jsonify({'watching': False})
+    
+    existing = TicketWatcher.query.filter_by(ticket_id=t.id, user_id=user_id).first()
+    return jsonify({'watching': existing is not None})
+
+
+def notify_ticket_watchers(ticket, changed_by_user_id, changes):
+    """Send email notifications to all watchers of a ticket (except the user who made the change).
+    
+    Args:
+        ticket: The Ticket object that was modified
+        changed_by_user_id: The ID of the user who made the change (they won't be notified)
+        changes: List of strings describing what changed
+    """
+    from ..models import TicketWatcher
+    if not changes:
+        return
+    
+    watchers = TicketWatcher.query.filter_by(ticket_id=ticket.id).all()
+    if not watchers:
+        return
+    
+    # Get the name of who made the change
+    changed_by = User.query.get(changed_by_user_id) if changed_by_user_id else None
+    changed_by_name = changed_by.name if changed_by else 'Someone'
+    
+    # Build the email content
+    changes_html = '<ul>' + ''.join(f'<li>{c}</li>' for c in changes) + '</ul>'
+    
+    for watcher in watchers:
+        # Don't notify the person who made the change
+        if watcher.user_id == changed_by_user_id:
+            continue
+        
+        user = watcher.user
+        if not user or not user.email:
+            continue
+        
+        try:
+            from ..services.ms_graph import send_mail
+            subject = f"Ticket #{ticket.id} Updated: {ticket.subject}"
+            link = url_for('tickets.show_ticket', ticket_id=ticket.id, _external=True)
+            html = f"""
+                <p>Hi {user.name},</p>
+                <p><strong>{changed_by_name}</strong> made changes to a ticket you're watching:</p>
+                <p><strong>Ticket #{ticket.id}</strong>: {ticket.subject}</p>
+                <p><strong>Changes:</strong></p>
+                {changes_html}
+                <p><a href="{link}">View ticket</a></p>
+            """
+            send_mail(user.email, subject, html, to_name=user.name, category='ticket_watch', ticket_id=ticket.id)
+        except Exception:
+            pass
+
+
 @tickets_bp.route('/new', methods=['GET', 'POST'])
 @login_required
 def new_ticket():
@@ -261,6 +348,8 @@ def show_ticket(ticket_id):
     # Enforce that ticket cannot be closed unless all checkbox items on attached processes are checked
     if update_form.submit_update.data and update_form.validate_on_submit():
         prev_assignee_id = t.assignee_id
+        prev_status = t.status
+        prev_priority = t.priority
         new_status = update_form.status.data
         if new_status == 'closed':
             # any unchecked checkbox?
@@ -291,6 +380,24 @@ def show_ticket(ticket_id):
         t.source = update_form.source.data or t.source
         t.assignee_id = None if update_form.assignee_id.data == 0 else update_form.assignee_id.data
         db.session.commit()
+        
+        # Build list of changes for watcher notifications
+        changes = []
+        if new_status != prev_status:
+            changes.append(f"Status changed from '{prev_status}' to '{new_status}'")
+        if update_form.priority.data != prev_priority:
+            changes.append(f"Priority changed from '{prev_priority}' to '{update_form.priority.data}'")
+        if t.assignee_id != prev_assignee_id:
+            old_assignee = User.query.get(prev_assignee_id) if prev_assignee_id else None
+            new_assignee_obj = User.query.get(t.assignee_id) if t.assignee_id else None
+            old_name = old_assignee.name if old_assignee else 'Unassigned'
+            new_name = new_assignee_obj.name if new_assignee_obj else 'Unassigned'
+            changes.append(f"Assignee changed from '{old_name}' to '{new_name}'")
+        
+        # Notify watchers of changes
+        if changes:
+            notify_ticket_watchers(t, getattr(current_user, 'id', None), changes)
+        
         # Notify assigned tech if assignment changed and the current user is not the assignee
         try:
             if t.assignee_id and t.assignee_id != prev_assignee_id and (not current_user or t.assignee_id != getattr(current_user, 'id', None)):
@@ -307,7 +414,7 @@ def show_ticket(ticket_id):
                         <p><strong>From:</strong> {requester}</p>
                         <p><a href="{link}">View ticket</a></p>
                     """
-                    send_mail(new_assignee.email, subject, html, to_name=new_assignee.name)
+                    send_mail(new_assignee.email, subject, html, to_name=new_assignee.name, category='ticket_assigned', ticket_id=t.id)
         except Exception:
             pass
         flash('Ticket updated', 'success')
@@ -359,6 +466,12 @@ def show_ticket(ticket_id):
         )
         db.session.add(note)
         db.session.commit()
+        
+        # Notify watchers that a note was added
+        author_name = current_user.name if current_user else 'Someone'
+        note_type = 'private note' if is_private_flag else 'public note'
+        notify_ticket_watchers(t, getattr(current_user, 'id', None), [f"New {note_type} added by {author_name}"])
+        
         # If note is public (Private unchecked), email the requester
         if not is_private_flag:
             try:
@@ -367,7 +480,7 @@ def show_ticket(ticket_id):
                     from ..services.ms_graph import send_mail
                     subject = f"Ticket#{t.id} - {t.subject}"
                     body_html = note.content or ''
-                    send_mail(to_email, subject, body_html)
+                    send_mail(to_email, subject, body_html, category='ticket_note', ticket_id=t.id)
             except Exception:
                 pass
         # Close ticket if requested (and allowed)
@@ -500,7 +613,24 @@ def show_ticket(ticket_id):
     contacts = Contact.query.order_by(Contact.name.asc()).limit(500).all()
     # Get approval requests for this ticket
     approval_requests = ApprovalRequest.query.filter_by(ticket_id=t.id).order_by(ApprovalRequest.created_at.desc()).all()
-    return render_template('tickets/detail.html', t=t, notes=notes, tasks=tasks, tasks_by_list=tasks_by_list, order_items=order_items, note_form=note_form, update_form=update_form, assign_form=assign_form, task_form=task_form, contact=contact, techs=techs, merge_form=merge_form, contact_assets=contact_assets, contacts=contacts, approval_requests=approval_requests)
+    
+    # Check if current user is watching this ticket
+    from ..models import TicketWatcher
+    user_id = getattr(current_user, 'id', None)
+    is_watching = False
+    if user_id:
+        # Auto-watch if assigned to current user and not already watching
+        if t.assignee_id == user_id:
+            existing_watch = TicketWatcher.query.filter_by(ticket_id=t.id, user_id=user_id).first()
+            if not existing_watch:
+                auto_watch = TicketWatcher(ticket_id=t.id, user_id=user_id)
+                db.session.add(auto_watch)
+                db.session.commit()
+            is_watching = True
+        else:
+            is_watching = TicketWatcher.query.filter_by(ticket_id=t.id, user_id=user_id).first() is not None
+    
+    return render_template('tickets/detail.html', t=t, notes=notes, tasks=tasks, tasks_by_list=tasks_by_list, order_items=order_items, note_form=note_form, update_form=update_form, assign_form=assign_form, task_form=task_form, contact=contact, techs=techs, merge_form=merge_form, contact_assets=contact_assets, contacts=contacts, approval_requests=approval_requests, is_watching=is_watching)
 
 
 @tickets_bp.route('/<int:ticket_id>/attachments/<path:filename>')
@@ -674,7 +804,7 @@ def forward_note(ticket_id):
             desc_section = f'<div><div><strong>Description</strong></div><div>{desc_clean}</div></div>'
         html = header + (sanitized or '<p>(no note body)</p>') + '<hr>' + desc_section
         subject = f"FW: Ticket #{t.id} - {t.subject or ''}"
-        send_mail(to_email, subject, html)
+        send_mail(to_email, subject, html, category='ticket_forward', ticket_id=t.id)
         # Save forwarded note to history with recipient log (always public)
         try:
             log_html = f"<div class=\"small text-muted\">Forwarded to: {bleach.clean(to_email)}</div>" + (sanitized or '')
@@ -1114,7 +1244,7 @@ def request_approval(ticket_id):
     
     # Send the email
     try:
-        success = send_mail(manager.email, subject, email_body, to_name=manager.name)
+        success = send_mail(manager.email, subject, email_body, to_name=manager.name, category='approval_request', ticket_id=t.id)
         if success:
             db.session.commit()
             flash(f'Approval request sent to {manager.name or manager.email}.', 'success')
@@ -1209,7 +1339,7 @@ def resend_approval(ticket_id, approval_id):
     
     # Send the email
     try:
-        success = send_mail(manager.email, subject, email_body, to_name=manager.name)
+        success = send_mail(manager.email, subject, email_body, to_name=manager.name, category='approval_request', ticket_id=t.id)
         if success:
             flash(f'Approval reminder sent to {manager.name or manager.email}.', 'success')
         else:

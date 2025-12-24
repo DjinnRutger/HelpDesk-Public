@@ -687,7 +687,7 @@ def finalize_po(po_id):
                 f"<p>Attached is Purchase Order <strong>{po.po_number}</strong> for {po.vendor_name}.</p>"
                 f"<p>Total: ${po.grand_total:,.2f}</p>"
             )
-            ok = send_mail(to_addr, subj, html, to_name=to_name, attachments=[attachment])
+            ok = send_mail(to_addr, subj, html, to_name=to_name, attachments=[attachment], category='po_sent')
             if current_app:
                 current_app.logger.info("Email send result: %s", ok)
     except ImportError:

@@ -77,10 +77,15 @@ def mark_message_read(access_token: str, user_email: str, message_id: str):
     requests.patch(url, headers=headers, json={"isRead": True}, timeout=20)
 
 
-def send_mail(to_address: str, subject: str, html_body: str, to_name: Optional[str] = None, save_to_sent: bool = True, attachments: Optional[List[Dict]] = None) -> bool:
+def send_mail(to_address: str, subject: str, html_body: str, to_name: Optional[str] = None, save_to_sent: bool = True, attachments: Optional[List[Dict]] = None, category: str = 'other', ticket_id: Optional[int] = None) -> bool:
     """Send an email via Microsoft Graph using the configured mailbox user.
 
     Returns True on success, False otherwise.
+    
+    Args:
+        category: Type of email for logging. Options: 'ticket_note', 'ticket_assigned', 
+                  'ticket_watch', 'password_expiry', 'approval_request', 'po_sent', 'other'
+        ticket_id: Related ticket ID if applicable
     """
     user_email = Setting.get("MS_USER_EMAIL", None) or os.getenv("MS_USER_EMAIL")
     app = get_msal_app()
@@ -127,8 +132,36 @@ def send_mail(to_address: str, subject: str, html_body: str, to_name: Optional[s
             current_app.logger.info("Graph send_mail: status=%s", resp.status_code)
             if resp.status_code >= 300:
                 current_app.logger.warning("Graph send_mail error body: %s", resp.text[:1000])
-        return resp.status_code in (202, 200)
+        success = resp.status_code in (202, 200)
+        # Log outgoing email
+        _log_outgoing_email(to_address, to_name, subject, category, ticket_id, success, None if success else resp.text[:500] if resp.text else 'Unknown error')
+        return success
     except requests.RequestException as e:
         if current_app:
             current_app.logger.exception("Graph send_mail exception: %s", e)
+        # Log failed outgoing email
+        _log_outgoing_email(to_address, to_name, subject, category, ticket_id, False, str(e)[:500])
         return False
+
+
+def _log_outgoing_email(to_address: str, to_name: Optional[str], subject: str, category: str, ticket_id: Optional[int], success: bool, error_message: Optional[str]) -> None:
+    """Log an outgoing email to the database."""
+    try:
+        from app.models import OutgoingEmail
+        from app import db
+        
+        log_entry = OutgoingEmail(
+            to_address=to_address,
+            to_name=to_name,
+            subject=subject[:500] if subject else '',
+            category=category,
+            ticket_id=ticket_id,
+            success=success,
+            error_message=error_message
+        )
+        db.session.add(log_entry)
+        db.session.commit()
+    except Exception as e:
+        # Don't let logging failures break email sending
+        if current_app:
+            current_app.logger.warning("Failed to log outgoing email: %s", e)

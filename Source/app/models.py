@@ -626,6 +626,28 @@ class EmailCheckEntry(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
 
 
+# --- Outgoing Email Logs ---
+class OutgoingEmail(db.Model):
+    """Tracks all outgoing emails sent via the system."""
+    __tablename__ = 'outgoing_emails'
+    id = db.Column(db.Integer, primary_key=True)
+    to_address = db.Column(db.String(255), nullable=False)
+    to_name = db.Column(db.String(255), nullable=True)
+    subject = db.Column(db.String(500), nullable=False)
+    # Category of email: 'ticket_note', 'ticket_assigned', 'ticket_watch', 'password_expiry', 'approval_request', 'po_sent', 'other'
+    category = db.Column(db.String(50), default='other')
+    # Related ticket ID if applicable
+    ticket_id = db.Column(db.Integer, db.ForeignKey('ticket.id'), nullable=True)
+    # Whether the send was successful
+    success = db.Column(db.Boolean, default=True)
+    # Optional error message if failed
+    error_message = db.Column(db.String(500), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    # Relationship to ticket
+    ticket = db.relationship('Ticket', foreign_keys=[ticket_id])
+
+
 # --- Email Templates ---
 class EmailTemplate(db.Model):
     __tablename__ = 'email_templates'
@@ -652,3 +674,21 @@ class PasswordExpiryNotification(db.Model):
     template_id = db.Column(db.Integer, db.ForeignKey('email_templates.id'), nullable=False)
     enabled = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+# --- Ticket Watchers ---
+class TicketWatcher(db.Model):
+    """Tracks techs watching tickets for update notifications."""
+    __tablename__ = 'ticket_watchers'
+    id = db.Column(db.Integer, primary_key=True)
+    ticket_id = db.Column(db.Integer, db.ForeignKey('ticket.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Relationships
+    ticket = db.relationship('Ticket', backref=db.backref('watchers', lazy='dynamic', cascade='all, delete-orphan'))
+    user = db.relationship('User', backref=db.backref('watched_tickets', lazy='dynamic'))
+
+    __table_args__ = (
+        db.UniqueConstraint('ticket_id', 'user_id', name='uq_ticket_watcher'),
+    )

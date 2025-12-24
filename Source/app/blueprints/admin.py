@@ -149,9 +149,13 @@ def index():
 def email_logs():
     """Show email polling logs for the last N days with per-message actions and filters."""
     from datetime import timedelta
-    from ..models import EmailCheck, EmailCheckEntry
+    from ..models import EmailCheck, EmailCheckEntry, OutgoingEmail
     from sqlalchemy import or_, func
 
+    # Direction: incoming or outgoing
+    direction = (request.args.get('direction') or '').strip().lower()
+    
+    # ========== INCOMING EMAILS ==========
     # Filters
     q = (request.args.get('q') or '').strip()
     action = (request.args.get('action') or '').strip().lower()
@@ -189,7 +193,7 @@ def email_logs():
 
     cutoff = datetime.utcnow() - timedelta(days=days)
     
-    # Build query for entries (joined with check for timestamp filtering)
+    # Build query for incoming entries (joined with check for timestamp filtering)
     query = (
         EmailCheckEntry.query
         .join(EmailCheck, EmailCheckEntry.check_id == EmailCheck.id)
@@ -218,8 +222,68 @@ def email_logs():
     query = query.order_by(EmailCheck.checked_at.desc(), EmailCheckEntry.id.desc())
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
     
+    # Count for tab badge
+    incoming_count = EmailCheckEntry.query.join(EmailCheck).filter(EmailCheck.checked_at >= cutoff).count()
+    
+    # ========== OUTGOING EMAILS ==========
+    # Outgoing filters
+    q_out = (request.args.get('q_out') or '').strip()
+    category = (request.args.get('category') or '').strip().lower()
+    failed_only_raw = request.args.get('failed_only')
+    failed_only = failed_only_raw in ('1', 'true', 'yes', 'on')
+    
+    try:
+        days_out = int(request.args.get('days_out') or 7)
+    except Exception:
+        days_out = 7
+    if days_out < 1:
+        days_out = 1
+    if days_out > 7:
+        days_out = 7
+    
+    # Outgoing pagination
+    try:
+        page_out = int(request.args.get('page_out') or 1)
+    except Exception:
+        page_out = 1
+    if page_out < 1:
+        page_out = 1
+    
+    try:
+        per_page_out = int(request.args.get('per_page_out') or 20)
+    except Exception:
+        per_page_out = 20
+    if per_page_out not in (20, 100):
+        per_page_out = 20
+    
+    cutoff_out = datetime.utcnow() - timedelta(days=days_out)
+    
+    # Build query for outgoing emails
+    out_query = OutgoingEmail.query.filter(OutgoingEmail.created_at >= cutoff_out)
+    
+    # Apply outgoing filters
+    if category:
+        out_query = out_query.filter(OutgoingEmail.category.ilike(category))
+    if failed_only:
+        out_query = out_query.filter(OutgoingEmail.success == False)
+    if q_out:
+        ql_out = q_out.lower()
+        out_query = out_query.filter(
+            (OutgoingEmail.to_address.ilike(f'%{ql_out}%')) |
+            (OutgoingEmail.to_name.ilike(f'%{ql_out}%')) |
+            (OutgoingEmail.subject.ilike(f'%{ql_out}%'))
+        )
+    
+    # Order and paginate outgoing
+    out_query = out_query.order_by(OutgoingEmail.created_at.desc())
+    outgoing_pagination = out_query.paginate(page=page_out, per_page=per_page_out, error_out=False)
+    
+    # Count for tab badge
+    outgoing_count = OutgoingEmail.query.filter(OutgoingEmail.created_at >= cutoff_out).count()
+    
     return render_template(
         'admin/email_logs.html',
+        # Incoming
         entries=pagination.items,
         pagination=pagination,
         q=q,
@@ -227,6 +291,18 @@ def email_logs():
         days=days,
         per_page=per_page,
         hide_none=hide_none,
+        incoming_count=incoming_count,
+        # Outgoing
+        outgoing_entries=outgoing_pagination.items,
+        outgoing_pagination=outgoing_pagination,
+        q_out=q_out,
+        category=category,
+        days_out=days_out,
+        per_page_out=per_page_out,
+        failed_only=failed_only,
+        outgoing_count=outgoing_count,
+        # Direction
+        direction=direction,
     )
 
 
