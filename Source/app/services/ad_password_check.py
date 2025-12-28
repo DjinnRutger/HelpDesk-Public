@@ -314,13 +314,14 @@ def _send_password_expiry_notifications(expiring_users: List[Dict[str, Any]], lo
         days_until = user['days_until_expiry']
         
         # Find the applicable notification rule for this user
-        # The rule that applies is the highest days_before that is >= days_until_expiry
-        # E.g., if user has 7 days left and rules are [10, 5, 1], the 10-day rule applies
+        # The rule that applies is the lowest days_before that is >= days_until_expiry
+        # E.g., if user has 3 days left and rules are [7, 5, 3, 1], the 3-day rule applies
+        # We iterate from highest to lowest and keep updating until we find the closest match
         applicable_rule = None
         for rule in notification_rules:
             if days_until <= rule.days_before:
                 applicable_rule = rule
-                break  # First match (highest days) wins
+                # Continue to find a more specific (lower threshold) rule
         
         if not applicable_rule:
             # User's days_until_expiry is greater than all notification thresholds
