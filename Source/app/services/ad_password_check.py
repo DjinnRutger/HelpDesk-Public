@@ -38,9 +38,14 @@ def run_ad_password_check(app=None) -> None:
         logger = None
 
     try:
+        if logger:
+            logger.info('AD Password Check: Job started')
+        
         # Check if daily password check is enabled
         pwd_check_enabled = (Setting.get('AD_PWD_CHECK_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes')
         if not pwd_check_enabled:
+            if logger:
+                logger.info('AD Password Check: Skipped - feature is disabled in settings')
             return
         
         # Check if AD is configured
@@ -57,6 +62,8 @@ def run_ad_password_check(app=None) -> None:
             return
         
         # Run the password check
+        if logger:
+            logger.info('AD Password Check: Querying Active Directory...')
         expiring_users = _check_ad_passwords(logger)
         
         if expiring_users:
@@ -66,6 +73,9 @@ def run_ad_password_check(app=None) -> None:
             _create_expiring_passwords_ticket(expiring_users, logger)
         elif logger:
             logger.info('AD Password Check: No expiring passwords found within warning threshold')
+        
+        if logger:
+            logger.info('AD Password Check: Job completed successfully')
             
     except Exception as e:
         if logger:
