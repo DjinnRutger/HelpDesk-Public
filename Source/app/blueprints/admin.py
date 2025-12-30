@@ -1608,8 +1608,9 @@ def ad_password_settings():
                 hh, mm = 7, 0
             
             app_obj = current_app._get_current_object()
+            # Use default argument to capture app_obj by value, not by reference (late-binding fix)
             scheduler.add_job(
-                func=lambda: run_ad_password_check(app_obj),
+                func=lambda _app=app_obj: run_ad_password_check(_app),
                 trigger='cron',
                 hour=hh,
                 minute=mm,
@@ -1617,13 +1618,15 @@ def ad_password_settings():
                 replace_existing=True,
                 timezone='America/Chicago'
             )
+            current_app.logger.info(f'AD Password Check job scheduled for {hh:02d}:{mm:02d} America/Chicago')
         else:
             try:
                 scheduler.remove_job('ad_password_check')
+                current_app.logger.info('AD Password Check job removed from scheduler')
             except Exception:
                 pass
     except Exception as e:
-        current_app.logger.warning(f'Failed to update AD password check scheduler: {e}')
+        current_app.logger.error(f'Failed to update AD password check scheduler: {e}')
     
     flash('AD password check settings saved.', 'success')
     return redirect(url_for('admin.index'))

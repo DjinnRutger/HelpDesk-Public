@@ -7,6 +7,8 @@ It also sends email notifications to users based on configured notification rule
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from flask import current_app
+import traceback
+import sys
 
 from .. import db
 from ..models import Setting, Ticket, Contact, PasswordExpiryNotification
@@ -20,18 +22,26 @@ def run_ad_password_check(app=None) -> None:
     2. Updates the Contact records with the expiry information
     3. If any passwords are expiring within the warning threshold, creates a ticket
     """
-    # Ensure we have an application context
-    if app is not None:
-        ctx = app.app_context()
-        ctx.push()
-    else:
-        try:
-            ctx = current_app.app_context()
-            ctx.push()
-        except Exception:
-            ctx = None
-
+    ctx = None
     logger = None
+    
+    # Ensure we have an application context
+    try:
+        if app is not None:
+            ctx = app.app_context()
+            ctx.push()
+        else:
+            try:
+                ctx = current_app.app_context()
+                ctx.push()
+            except Exception:
+                ctx = None
+    except Exception as e:
+        # Log to stderr if we can't get app context - critical error
+        print(f'AD Password Check: Failed to create app context: {e}', file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return
+
     try:
         logger = current_app.logger if current_app else None
     except Exception:
@@ -40,6 +50,8 @@ def run_ad_password_check(app=None) -> None:
     try:
         if logger:
             logger.info('AD Password Check: Job started')
+        else:
+            print('AD Password Check: Job started (no logger available)', file=sys.stderr)
         
         # Check if daily password check is enabled
         pwd_check_enabled = (Setting.get('AD_PWD_CHECK_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes')
@@ -80,6 +92,10 @@ def run_ad_password_check(app=None) -> None:
     except Exception as e:
         if logger:
             logger.exception(f'AD Password Check failed: {e}')
+        else:
+            # Fallback to stderr if logger unavailable
+            print(f'AD Password Check failed: {e}', file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
     finally:
         if ctx is not None:
             try:

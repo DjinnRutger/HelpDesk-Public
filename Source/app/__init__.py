@@ -613,8 +613,9 @@ def create_app():
             except Exception:
                 hh, mm = 7, 0
             if ad_pwd_check_enabled:
+                # Use default argument to capture app by value, not by reference (late-binding fix)
                 scheduler.add_job(
-                    func=lambda: run_ad_password_check(app),
+                    func=lambda _app=app: run_ad_password_check(_app),
                     trigger='cron',
                     hour=hh,
                     minute=mm,
@@ -622,13 +623,14 @@ def create_app():
                     replace_existing=True,
                     timezone='America/Chicago'
                 )
+                app.logger.info(f'AD Password Check scheduled daily at {hh:02d}:{mm:02d} America/Chicago')
             else:
                 try:
                     scheduler.remove_job('ad_password_check')
                 except Exception:
                     pass
-        except Exception:
-            pass
+        except Exception as e:
+            app.logger.error(f'Failed to schedule AD Password Check job: {e}')
 
         # Schedule or remove the auto-backup job based on settings
         try:
