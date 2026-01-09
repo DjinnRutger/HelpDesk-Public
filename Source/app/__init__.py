@@ -614,8 +614,10 @@ def create_app():
         try:
             from .models import Setting as _Setting
             from .services.ad_password_check import run_ad_password_check
-            ad_pwd_check_enabled = (_Setting.get('AD_PWD_CHECK_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes')
-            ad_pwd_check_time = _Setting.get('AD_PWD_CHECK_TIME', '07:00') or '07:00'
+            # Ensure app context for database access
+            with app.app_context():
+                ad_pwd_check_enabled = (_Setting.get('AD_PWD_CHECK_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes')
+                ad_pwd_check_time = _Setting.get('AD_PWD_CHECK_TIME', '07:00') or '07:00'
             hh, mm = 7, 0
             try:
                 parts = ad_pwd_check_time.split(':')
