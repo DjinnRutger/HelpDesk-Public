@@ -226,6 +226,9 @@ def create_app():
     frozen = getattr(sys, 'frozen', False)
     exe_dir: Path | None = None
     instance_path_arg = None
+    
+    # When frozen, PyInstaller extracts bundled data to sys._MEIPASS.
+    # We need to point Flask at the correct template/static folders there.
     if frozen:
         try:
             exe_dir = Path(sys.executable).resolve().parent
@@ -233,13 +236,21 @@ def create_app():
         except Exception:
             exe_dir = None
             instance_path_arg = None
+        
+        # Get the bundle directory where PyInstaller extracted resources
+        bundle_dir = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
+        template_folder = str(bundle_dir / 'app' / 'templates')
+        static_folder = str(bundle_dir / 'app' / 'static')
+    else:
+        template_folder = "templates"
+        static_folder = "static"
 
     # Create Flask app, overriding instance_path when frozen so that
     # app.instance_path points at the stable executable directory.
     if instance_path_arg:
-        app = Flask(__name__, static_folder="static", template_folder="templates", instance_path=instance_path_arg)
+        app = Flask(__name__, static_folder=static_folder, template_folder=template_folder, instance_path=instance_path_arg)
     else:
-        app = Flask(__name__, static_folder="static", template_folder="templates")
+        app = Flask(__name__, static_folder=static_folder, template_folder=template_folder)
 
     app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY", "dev")
 
@@ -268,7 +279,7 @@ def create_app():
     from logging.handlers import RotatingFileHandler
     log_dir = exe_dir / 'logs' if exe_dir else Path(app.instance_path) / 'logs'
     try:
-        log_dir.mkdir(exist_ok=True)
+        log_dir.mkdir(parents=True, exist_ok=True)
     except Exception:
         pass
     log_file = log_dir / 'helpdesk.log'
