@@ -327,7 +327,13 @@
         <h6 class="mb-0"><i class="bi bi-key me-1"></i>Password</h6>
       </div>
       <div class="card-body text-center py-4">
-        {% if contact.password_expires_days is none %}
+        {% if contact.ad_disabled %}
+          <div class="text-danger">
+            <i class="bi bi-person-slash display-4 d-block mb-2"></i>
+            <span class="fw-semibold">Account Disabled</span>
+            <div class="small text-muted mt-1">AD account is disabled</div>
+          </div>
+        {% elif contact.password_expires_days is none %}
           <div class="text-muted">
             <i class="bi bi-question-circle display-6 d-block mb-2 opacity-50"></i>
             <span class="small">Not checked</span>

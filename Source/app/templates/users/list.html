@@ -134,7 +134,9 @@
                 </div>
               </td>
               <td class="align-middle">
-                {% if c.password_expires_days is none %}
+                {% if c.ad_disabled %}
+                  <span class="badge bg-danger"><i class="bi bi-person-slash me-1"></i>Disabled</span>
+                {% elif c.password_expires_days is none %}
                   <span class="text-muted small"><i class="bi bi-question-circle me-1"></i>Not checked</span>
                 {% elif c.password_expires_days == -1 %}
                   <span class="badge bg-info"><i class="bi bi-infinity me-1"></i>Never expires</span>
@@ -142,7 +144,7 @@
                   <span class="badge bg-secondary"><i class="bi bi-x-circle me-1"></i>Not in AD</span>
                 {% elif c.password_expires_days < 0 %}
                   <span class="badge bg-danger"><i class="bi bi-exclamation-triangle me-1"></i>Expired</span>
-                {% elif c.password_expires_days <= 14 %}
+                {% elif c.password_expires_days <= 14 %>
                   <span class="badge bg-warning text-dark"><i class="bi bi-clock me-1"></i>{{ c.password_expires_days }} days</span>
                 {% else %}
                   <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>{{ c.password_expires_days }} days</span>

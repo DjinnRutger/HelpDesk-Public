@@ -267,6 +267,7 @@ class Contact(db.Model):
     password_checked_at = db.Column(db.DateTime, nullable=True)  # Last time password expiry was checked
     password_notification_sent_at = db.Column(db.DateTime, nullable=True)  # Last time a password expiry notification was sent
     last_notification_days_before = db.Column(db.Integer, nullable=True)  # The days_before tier of the last notification sent
+    ad_disabled = db.Column(db.Boolean, nullable=True)  # True if AD account is disabled, None if not checked
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

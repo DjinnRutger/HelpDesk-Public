@@ -211,14 +211,18 @@ def _check_ad_passwords(logger) -> List[Dict[str, Any]]:
             never_expires = False
             found_in_ad = False
             ad_username = None
+            ad_disabled = False
             
             if conn.entries:
                 entry = conn.entries[0]
                 found_in_ad = True
                 ad_username = str(entry.sAMAccountName) if hasattr(entry, 'sAMAccountName') and entry.sAMAccountName else None
                 
-                # Check if password never expires
+                # Check userAccountControl flags
                 uac = int(entry.userAccountControl.value) if hasattr(entry, 'userAccountControl') and entry.userAccountControl.value else 0
+                # Check if account is disabled (UAC flag 0x2)
+                ad_disabled = bool(uac & 0x2)
+                # Check if password never expires (UAC flag 0x10000)
                 if uac & 0x10000:
                     never_expires = True
                 else:
@@ -240,6 +244,7 @@ def _check_ad_passwords(logger) -> List[Dict[str, Any]]:
                             days_until_expiry = (expiry_date - now).days
             
             # Update Contact record
+            contact.ad_disabled = ad_disabled if found_in_ad else None
             if not found_in_ad:
                 contact.password_expires_days = -999
             elif never_expires:
@@ -255,8 +260,8 @@ def _check_ad_passwords(logger) -> List[Dict[str, Any]]:
                 contact.password_expires_days = None
             contact.password_checked_at = now
             
-            # Check if this user should be in the warning list
-            if found_in_ad and not never_expires and days_until_expiry is not None:
+            # Check if this user should be in the warning list (skip disabled accounts)
+            if found_in_ad and not never_expires and not ad_disabled and days_until_expiry is not None:
                 if 0 <= days_until_expiry <= warning_days:
                     expiring_users.append({
                         'contact_id': contact.id,
@@ -265,7 +270,8 @@ def _check_ad_passwords(logger) -> List[Dict[str, Any]]:
                         'ad_username': ad_username,
                         'days_until_expiry': days_until_expiry,
                         'expiry_date': expiry_date.strftime('%Y-%m-%d') if expiry_date else None,
-                        'is_expired': days_until_expiry < 0
+                        'is_expired': days_until_expiry < 0,
+                        'ad_disabled': ad_disabled
                     })
                 elif days_until_expiry < 0:
                     # Already expired
@@ -276,7 +282,8 @@ def _check_ad_passwords(logger) -> List[Dict[str, Any]]:
                         'ad_username': ad_username,
                         'days_until_expiry': days_until_expiry,
                         'expiry_date': expiry_date.strftime('%Y-%m-%d') if expiry_date else None,
-                        'is_expired': True
+                        'is_expired': True,
+                        'ad_disabled': ad_disabled
                     })
         
         # Commit Contact updates

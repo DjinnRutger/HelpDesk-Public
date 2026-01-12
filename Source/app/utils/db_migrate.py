@@ -492,6 +492,7 @@ def ensure_contact_columns(engine):
         'password_checked_at': 'DATETIME',
         'password_notification_sent_at': 'DATETIME',
         'last_notification_days_before': 'INTEGER',
+        'ad_disabled': 'BOOLEAN',
     }
     with engine.connect() as conn:
         rows = conn.execute(text("PRAGMA table_info('contact')")).fetchall()
