@@ -22,11 +22,7 @@
             {% if t.priority == 'medium' %}{% set priority_class = 'warning' %}{% endif %}
             {% if t.priority == 'low' %}{% set priority_class = 'success' %}{% endif %}
             <span class="badge text-bg-{{ priority_class }} text-capitalize">{{ t.priority }}</span> ·
-            {% set status_class = 'secondary' %}
-            {% if t.status == 'open' %}{% set status_class = 'success' %}{% endif %}
-            {% if t.status == 'in_progress' %}{% set status_class = 'warning' %}{% endif %}
-            {% if t.status == 'closed' %}{% set status_class = 'danger' %}{% endif %}
-            <span class="badge text-bg-{{ status_class }} text-capitalize">{{ t.status|replace('_', ' ') }}</span>
+            <span class="badge text-bg-{{ t.status|status_color }}">{{ t.status|status_label }}</span>
             {% if t.project_id %}<span class="badge text-bg-dark ms-1">Project</span>{% endif %}
           </small>
         </div>
@@ -170,10 +166,10 @@
           <div class="d-flex align-items-center">
             <div class="fw-semibold">{{ tp.name }}</div>
             <div class="ms-auto d-flex gap-2">
-              <button type="button" class="btn btn-sm btn-outline-secondary process-edit-btn" data-tp-id="{{ tp.id }}" {% if t.status=='closed' %}disabled{% endif %}>Edit</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary process-edit-btn" data-tp-id="{{ tp.id }}" {% if t.is_closed %}disabled{% endif %}>Edit</button>
               <form method="post" action="{{ url_for('tickets.delete_process', ticket_id=t.id, tp_id=tp.id) }}" class="m-0 process-delete-form d-none">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button class="btn btn-sm btn-outline-danger" {% if t.status == 'closed' %}disabled{% endif %}
+                <button class="btn btn-sm btn-outline-danger" {% if t.is_closed %}disabled{% endif %}
                   onclick="return confirm('Remove this process and its items?');">Delete</button>
               </form>
             </div>
@@ -187,14 +183,14 @@
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 {% if it.type == 'checkbox' %}
                 <input class="form-check-input" type="checkbox" name="checked" value="1"
-                  {% if t.status == 'closed' %}disabled{% else %}onchange="submitProcessItem(this.form)"{% endif %}
+                  {% if t.is_closed %}disabled{% else %}onchange="submitProcessItem(this.form)"{% endif %}
                   {% if it.checked %}checked{% endif %}>
                 <span>{{ it.label }}</span>
                 {% if it.assigned_tech %}<span class="badge text-bg-secondary ms-auto">{{ it.assigned_tech.name }}</span>{% endif %}
                 {% else %}
                 <span class="me-2">{{ it.label }}</span>
                 <input class="form-control" name="text_value" value="{{ it.text_value or '' }}"
-                  placeholder="Enter value" style="max-width: 320px;" {% if t.status == 'closed' %}disabled{% endif %}>
+                  placeholder="Enter value" style="max-width: 320px;" {% if t.is_closed %}disabled{% endif %}>
                 {% if t.status != 'closed' %}
                 <button type="button" class="btn btn-sm btn-outline-primary" onclick="submitProcessItem(this.form)">Save</button>
                 {% endif %}
@@ -211,16 +207,16 @@
               <li class="list-group-item">
                 <div class="row g-2 align-items-center">
                   <div class="col-md-6">
-                    <input class="form-control form-control-sm" name="label_item_{{ it.id }}" value="{{ it.label }}" {% if t.status=='closed' %}disabled{% endif %}>
+                    <input class="form-control form-control-sm" name="label_item_{{ it.id }}" value="{{ it.label }}" {% if t.is_closed %}disabled{% endif %}>
                   </div>
                   <div class="col-md-3">
-                    <select class="form-select form-select-sm" name="type_item_{{ it.id }}" {% if t.status=='closed' %}disabled{% endif %}>
+                    <select class="form-select form-select-sm" name="type_item_{{ it.id }}" {% if t.is_closed %}disabled{% endif %}>
                       <option value="checkbox" {% if it.type == 'checkbox' %}selected{% endif %}>Checkbox</option>
                       <option value="text" {% if it.type == 'text' %}selected{% endif %}>Text</option>
                     </select>
                   </div>
                   <div class="col-md-2">
-                    <select class="form-select form-select-sm" name="assigned_item_{{ it.id }}" {% if t.status=='closed' %}disabled{% endif %}>
+                    <select class="form-select form-select-sm" name="assigned_item_{{ it.id }}" {% if t.is_closed %}disabled{% endif %}>
                       <option value="0">Unassigned</option>
                       {% for tech in techs %}
                         <option value="{{ tech.id }}" {% if it.assigned_tech_id == tech.id %}selected{% endif %}>{{ tech.name }}</option>
@@ -236,7 +232,7 @@
             </ul>
             <div class="d-flex justify-content-end gap-2 mt-2">
               <button type="button" class="btn btn-secondary btn-sm process-cancel-btn" data-tp-id="{{ tp.id }}">Cancel</button>
-              <button class="btn btn-primary btn-sm" {% if t.status=='closed' %}disabled{% endif %}>Save</button>
+              <button class="btn btn-primary btn-sm" {% if t.is_closed %}disabled{% endif %}>Save</button>
             </div>
           </form>
         </div>
@@ -253,7 +249,7 @@
           <div class="d-flex gap-2 align-items-center">
             <form method="post" action="{{ url_for('tickets.delete_all_tasks', ticket_id=t.id) }}" class="m-0 task-delete-all-form d-none">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button class="btn btn-sm btn-outline-danger" {% if t.status=='closed' %}disabled{% endif %}
+              <button class="btn btn-sm btn-outline-danger" {% if t.is_closed %}disabled{% endif %}
                 onclick="return confirm('Delete all tasks on this ticket?');">Delete All</button>
             </form>
             <button id="toggleTasksEdit" type="button" class="btn btn-sm btn-outline-secondary">Edit</button>
@@ -271,9 +267,9 @@
                   <form method="post" action="{{ url_for('tickets.toggle_task', ticket_id=t.id, task_id=tk.id) }}" class="d-flex align-items-center gap-2">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input class="form-check-input" type="checkbox" {% if tk.checked %}checked{% endif %}
-                      {% if t.status == 'closed' %}disabled{% else %}onchange="submitTask(this.form)"{% endif %}>
+                      {% if t.is_closed %}disabled{% else %}onchange="submitTask(this.form)"{% endif %}>
                     <span class="flex-grow-1">{{ tk.label }}</span>
-                    <button type="button" class="btn btn-sm btn-outline-danger task-delete-line d-none" data-delete-url="{{ url_for('tickets.delete_task', ticket_id=t.id, task_id=tk.id) }}" title="Delete task" aria-label="Delete task" {% if t.status=='closed' %}disabled{% endif %}>&times;</button>
+                    <button type="button" class="btn btn-sm btn-outline-danger task-delete-line d-none" data-delete-url="{{ url_for('tickets.delete_task', ticket_id=t.id, task_id=tk.id) }}" title="Delete task" aria-label="Delete task" {% if t.is_closed %}disabled{% endif %}>&times;</button>
                     {% if tk.assigned_tech %}<span class="badge text-bg-secondary ms-auto">{{ tk.assigned_tech.name }}</span>{% endif %}
                   </form>
                 </li>
@@ -377,7 +373,7 @@
             <div class="d-flex flex-column flex-md-row gap-2">
               {{ note_form.submit(class='btn btn-outline-primary flex-fill') }}
               <button type="button" class="btn btn-outline-primary flex-fill" id="forwardNoteBtn">Forward</button>
-              <button name="add_note_close" value="1" class="btn btn-outline-danger flex-fill" {% if t.status=='closed' %}disabled{% endif %}>Add Note &amp; Close Ticket</button>
+              <button name="add_note_close" value="1" class="btn btn-outline-danger flex-fill" {% if t.is_closed %}disabled{% endif %}>Add Note &amp; Close Ticket</button>
             </div>
           </div>
         </form>
@@ -503,8 +499,8 @@
       </div>
       <div class="card-body">
         <div class="d-grid gap-2">
-          <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#assignProcessModal" {% if t.status=='closed' %}disabled{% endif %}><i class="bi bi-diagram-3 me-1"></i>Assign Process</button>
-          <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#assignTasksModal" {% if t.status=='closed' %}disabled{% endif %}><i class="bi bi-list-task me-1"></i>Assign Tasks</button>
+          <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#assignProcessModal" {% if t.is_closed %}disabled{% endif %}><i class="bi bi-diagram-3 me-1"></i>Assign Process</button>
+          <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#assignTasksModal" {% if t.is_closed %}disabled{% endif %}><i class="bi bi-list-task me-1"></i>Assign Tasks</button>
           <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addOrderItemModal"><i class="bi bi-cart-plus me-1"></i>Add Order Item</button>
           <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#mergeToProjectModal" {% if t.project_id %}disabled{% endif %}><i class="bi bi-box-arrow-in-right me-1"></i>Merge to Project</button>
           <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#requestApprovalModal">
@@ -1462,8 +1458,8 @@
       <div class="modal-body">
         <form method="post" id="assignProcessForm">
           {{ assign_form.hidden_tag() }}
-          <div class="mb-2">{{ assign_form.template_id.label(class='form-label') }} {{ assign_form.template_id(class='form-select', disabled=(t.status=='closed')) }}</div>
-          <div class="d-grid">{{ assign_form.submit_assign(class='btn btn-primary', disabled=(t.status=='closed')) }}</div>
+          <div class="mb-2">{{ assign_form.template_id.label(class='form-label') }} {{ assign_form.template_id(class='form-select', disabled=(t.is_closed)) }}</div>
+          <div class="d-grid">{{ assign_form.submit_assign(class='btn btn-primary', disabled=(t.is_closed)) }}</div>
         </form>
       </div>
     </div>
@@ -1480,10 +1476,10 @@
       <div class="modal-body">
         <form method="post" id="assignTasksForm">
           {{ task_form.hidden_tag() }}
-          <div class="mb-2">{{ task_form.list_name.label(class='form-label') }} {{ task_form.list_name(class='form-control', placeholder='e.g., Onboarding Tasks', disabled=(t.status=='closed')) }}</div>
-          <div class="mb-2">{{ task_form.tasks_text(class='form-control', rows=4, placeholder='One task per line', disabled=(t.status=='closed')) }}</div>
-            <div class="mb-2">{{ task_form.assigned_tech_id.label('Assign to', class='form-label') }} {{ task_form.assigned_tech_id(class='form-select', disabled=(t.status=='closed')) }}</div>
-          <div class="d-grid">{{ task_form.submit_tasks(class='btn btn-primary', disabled=(t.status=='closed')) }}</div>
+          <div class="mb-2">{{ task_form.list_name.label(class='form-label') }} {{ task_form.list_name(class='form-control', placeholder='e.g., Onboarding Tasks', disabled=(t.is_closed)) }}</div>
+          <div class="mb-2">{{ task_form.tasks_text(class='form-control', rows=4, placeholder='One task per line', disabled=(t.is_closed)) }}</div>
+            <div class="mb-2">{{ task_form.assigned_tech_id.label('Assign to', class='form-label') }} {{ task_form.assigned_tech_id(class='form-select', disabled=(t.is_closed)) }}</div>
+          <div class="d-grid">{{ task_form.submit_tasks(class='btn btn-primary', disabled=(t.is_closed)) }}</div>
         </form>
       </div>
     </div>

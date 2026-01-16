@@ -390,6 +390,13 @@ def create_app():
         except Exception:
             pass
 
+        # Ensure default ticket statuses exist
+        try:
+            from .models import TicketStatus
+            TicketStatus.ensure_defaults()
+        except Exception as e:
+            app.logger.warning(f'Failed to initialize ticket statuses: {e}')
+
         # Migrate unencrypted sensitive settings to encrypted format
         try:
             from .utils.security import SENSITIVE_SETTING_KEYS, is_encrypted, encrypt_value
@@ -512,6 +519,35 @@ def create_app():
             return str(value)
 
     app.add_template_filter(cst_datetime, name='cst_datetime')
+
+    # Template filter for getting status color from database
+    def get_status_color(status_name):
+        """Get the Bootstrap color class for a ticket status."""
+        try:
+            from .models import TicketStatus
+            status = TicketStatus.query.filter_by(name=status_name).first()
+            if status:
+                return status.color
+        except Exception:
+            pass
+        # Fallback colors for default statuses
+        fallback = {'open': 'success', 'in_progress': 'warning', 'closed': 'danger'}
+        return fallback.get(status_name, 'secondary')
+
+    def get_status_label(status_name):
+        """Get the display label for a ticket status."""
+        try:
+            from .models import TicketStatus
+            status = TicketStatus.query.filter_by(name=status_name).first()
+            if status:
+                return status.label
+        except Exception:
+            pass
+        # Fallback: capitalize and replace underscores
+        return status_name.replace('_', ' ').title() if status_name else ''
+
+    app.add_template_filter(get_status_color, name='status_color')
+    app.add_template_filter(get_status_label, name='status_label')
 
     # Schedule email polling job (can be disabled for tests by setting DISABLE_SCHEDULER=1)
     if os.getenv("DISABLE_SCHEDULER") != "1":

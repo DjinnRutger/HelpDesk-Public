@@ -3,7 +3,7 @@ import time
 from datetime import datetime, timezone
 from flask import current_app
 from .. import db
-from ..models import Ticket, Setting, AllowedDomain, TicketAttachment, Contact, DenyFilter, TicketNote, User, EmailCheck, EmailCheckEntry, Asset
+from ..models import Ticket, Setting, AllowedDomain, TicketAttachment, Contact, DenyFilter, TicketNote, User, EmailCheck, EmailCheckEntry, Asset, TicketStatus
 from .ms_graph import (
     get_msal_app,
     get_access_token,
@@ -409,7 +409,7 @@ def poll_ms_graph(app=None):
                             return attrs
                         # If ticket was closed, move it back to in_progress on customer reply
                         try:
-                            if (existing.status or '').lower() == 'closed':
+                            if TicketStatus.is_status_closed(existing.status):
                                 existing.status = 'in_progress'
                                 existing.closed_at = None
                         except Exception:

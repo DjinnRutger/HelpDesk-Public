@@ -91,16 +91,21 @@ class Ticket(db.Model):
     @property
     def age_hours(self) -> float:
         # For closed tickets, calculate age from opened to closed, not to current time
-        end_time = self.closed_at if self.status == 'closed' and self.closed_at else datetime.utcnow()
+        end_time = self.closed_at if self.is_closed and self.closed_at else datetime.utcnow()
         delta = (end_time - self.created_at)
         return round(delta.total_seconds() / 3600.0, 2)
 
     @property
     def age_days(self) -> float:
         # For closed tickets, calculate age from opened to closed, not to current time
-        end_time = self.closed_at if self.status == 'closed' and self.closed_at else datetime.utcnow()
+        end_time = self.closed_at if self.is_closed and self.closed_at else datetime.utcnow()
         delta = (end_time - self.created_at)
         return round(delta.total_seconds() / 86400.0, 2)
+
+    @property
+    def is_closed(self) -> bool:
+        """Check if this ticket's status is a closed status."""
+        return TicketStatus.is_status_closed(self.status)
 
     @property
     def is_snoozed(self) -> bool:
@@ -679,6 +684,65 @@ class PasswordExpiryNotification(db.Model):
     template_id = db.Column(db.Integer, db.ForeignKey('email_templates.id'), nullable=False)
     enabled = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+# --- Ticket Statuses ---
+class TicketStatus(db.Model):
+    """Configurable ticket status options."""
+    __tablename__ = 'ticket_statuses'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(50), nullable=False, unique=True)  # internal key: open, in_progress, closed, etc.
+    label = db.Column(db.String(100), nullable=False)  # display label: "Open", "In Progress", etc.
+    color = db.Column(db.String(20), default='secondary')  # Bootstrap color: success, warning, danger, etc.
+    is_closed = db.Column(db.Boolean, default=False)  # If True, ticket is considered closed
+    position = db.Column(db.Integer, default=0)  # For ordering in dropdowns
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    @staticmethod
+    def get_default_statuses():
+        """Return default statuses if none exist in database."""
+        return [
+            {'name': 'open', 'label': 'Open', 'color': 'success', 'is_closed': False, 'position': 0},
+            {'name': 'in_progress', 'label': 'In Progress', 'color': 'warning', 'is_closed': False, 'position': 1},
+            {'name': 'closed', 'label': 'Closed', 'color': 'danger', 'is_closed': True, 'position': 2},
+        ]
+
+    @staticmethod
+    def ensure_defaults():
+        """Create default statuses if none exist."""
+        if TicketStatus.query.count() == 0:
+            for s in TicketStatus.get_default_statuses():
+                status = TicketStatus(
+                    name=s['name'],
+                    label=s['label'],
+                    color=s['color'],
+                    is_closed=s['is_closed'],
+                    position=s['position']
+                )
+                db.session.add(status)
+            db.session.commit()
+
+    @staticmethod
+    def get_choices():
+        """Return list of (name, label) tuples for form SelectField."""
+        statuses = TicketStatus.query.order_by(TicketStatus.position).all()
+        if not statuses:
+            return [('open', 'Open'), ('in_progress', 'In Progress'), ('closed', 'Closed')]
+        return [(s.name, s.label) for s in statuses]
+
+    @staticmethod
+    def get_by_name(name):
+        """Get a status by its name/key."""
+        return TicketStatus.query.filter_by(name=name).first()
+
+    @staticmethod
+    def is_status_closed(status_name):
+        """Check if a status name represents a closed ticket."""
+        status = TicketStatus.query.filter_by(name=status_name).first()
+        if status:
+            return status.is_closed
+        # Fallback for legacy 'closed' status
+        return status_name == 'closed'
 
 
 # --- Ticket Watchers ---

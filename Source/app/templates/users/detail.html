@@ -563,11 +563,7 @@
                   </div>
                 </div>
                 <div class="d-flex align-items-center">
-                  {% set status_class = 'secondary' %}
-                  {% if t.status == 'open' %}{% set status_class = 'success' %}{% endif %}
-                  {% if t.status == 'pending' %}{% set status_class = 'warning' %}{% endif %}
-                  {% if t.status == 'closed' %}{% set status_class = 'danger' %}{% endif %}
-                  <span class="badge text-bg-{{ status_class }} text-capitalize">{{ t.status }}</span>
+                  <span class="badge text-bg-{{ t.status|status_color }}">{{ t.status|status_label }}</span>
                 </div>
               </div>
             </a>
