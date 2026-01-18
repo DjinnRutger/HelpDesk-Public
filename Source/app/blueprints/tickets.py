@@ -85,6 +85,87 @@ def list_tickets():
     return render_template('tickets/list.html', items=items, status=status, assigned=assigned, q=q, show_snoozed=show_snoozed, snoozed_count=snoozed_count)
 
 
+@tickets_bp.route('/pipeline')
+@login_required
+def pipeline():
+    """Kanban-style pipeline view of tickets grouped by status."""
+    # Get all statuses ordered by position
+    statuses = TicketStatus.query.order_by(TicketStatus.position).all()
+    if not statuses:
+        TicketStatus.ensure_defaults()
+        statuses = TicketStatus.query.order_by(TicketStatus.position).all()
+    
+    # Build tickets grouped by status
+    pipeline_data = []
+    now = datetime.utcnow()
+    seven_days_ago = now - timedelta(days=7)
+    
+    for status in statuses:
+        # For closed statuses, only show tickets from last 7 days
+        if status.is_closed:
+            tickets = Ticket.query.filter(
+                Ticket.status == status.name,
+                Ticket.project_id.is_(None),  # Exclude project tickets
+                Ticket.closed_at >= seven_days_ago
+            ).order_by(Ticket.closed_at.desc()).limit(50).all()
+        else:
+            tickets = Ticket.query.filter(
+                Ticket.status == status.name,
+                Ticket.project_id.is_(None)  # Exclude project tickets
+            ).order_by(Ticket.created_at.desc()).all()
+        
+        pipeline_data.append({
+            'status': status,
+            'tickets': tickets,
+            'count': len(tickets)
+        })
+    
+    return render_template('tickets/pipeline.html', pipeline_data=pipeline_data, now=datetime.utcnow())
+
+
+@tickets_bp.route('/<int:ticket_id>/update-status', methods=['POST'])
+@login_required
+def update_ticket_status(ticket_id):
+    """Update a ticket's status via AJAX (for drag-and-drop on pipeline)."""
+    ticket = Ticket.query.get_or_404(ticket_id)
+    
+    # Get status from JSON body or form data
+    if request.is_json:
+        new_status = (request.json.get('status') or '').strip()
+    else:
+        new_status = (request.form.get('status') or '').strip()
+    
+    if not new_status:
+        return jsonify({'success': False, 'error': 'Status is required'}), 400
+    
+    # Verify the status exists
+    status_obj = TicketStatus.query.filter_by(name=new_status).first()
+    if not status_obj:
+        return jsonify({'success': False, 'error': f'Invalid status: {new_status}'}), 400
+    
+    try:
+        old_status = ticket.status
+        ticket.status = new_status
+        
+        # If moving to a closed status, set closed_at
+        if status_obj.is_closed and not ticket.closed_at:
+            ticket.closed_at = datetime.utcnow()
+        # If moving from closed to non-closed, clear closed_at
+        elif not status_obj.is_closed and ticket.closed_at:
+            ticket.closed_at = None
+        
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'ticket_id': ticket.id,
+            'old_status': old_status,
+            'new_status': new_status
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @tickets_bp.route('/<int:ticket_id>/snooze', methods=['POST'])
 @login_required
 def snooze_ticket(ticket_id):

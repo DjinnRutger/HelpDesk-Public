@@ -69,7 +69,7 @@ class Ticket(db.Model):
     requester_name = db.Column(db.String(255), nullable=True)
     requester_email = db.Column(db.String(255), nullable=True)
     body = db.Column(db.Text, nullable=True)
-    status = db.Column(db.String(50), default="open")  # open, in_progress, closed
+    status = db.Column(db.String(50), default="new")  # new, open, in_progress, closed
     priority = db.Column(db.String(20), default="medium")  # low, medium, high
     assignee_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     assignee = db.relationship('User', foreign_keys=[assignee_id])
@@ -175,7 +175,7 @@ class ScheduledTicket(db.Model):
     name = db.Column(db.String(200), nullable=False)
     subject = db.Column(db.String(300), nullable=False)
     body = db.Column(db.Text, nullable=True)
-    status = db.Column(db.String(50), default='open')  # default status for created tickets
+    status = db.Column(db.String(50), default='new')  # default status for created tickets
     priority = db.Column(db.String(20), default='medium')
     assignee_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     assignee = db.relationship('User', foreign_keys=[assignee_id])
@@ -702,14 +702,15 @@ class TicketStatus(db.Model):
     def get_default_statuses():
         """Return default statuses if none exist in database."""
         return [
-            {'name': 'open', 'label': 'Open', 'color': 'success', 'is_closed': False, 'position': 0},
-            {'name': 'in_progress', 'label': 'In Progress', 'color': 'warning', 'is_closed': False, 'position': 1},
-            {'name': 'closed', 'label': 'Closed', 'color': 'danger', 'is_closed': True, 'position': 2},
+            {'name': 'new', 'label': 'New', 'color': 'info', 'is_closed': False, 'position': 0},
+            {'name': 'open', 'label': 'Open', 'color': 'success', 'is_closed': False, 'position': 1},
+            {'name': 'in_progress', 'label': 'In Progress', 'color': 'warning', 'is_closed': False, 'position': 2},
+            {'name': 'closed', 'label': 'Closed', 'color': 'danger', 'is_closed': True, 'position': 3},
         ]
 
     @staticmethod
     def ensure_defaults():
-        """Create default statuses if none exist."""
+        """Create default statuses if none exist, and ensure 'new' status exists."""
         if TicketStatus.query.count() == 0:
             for s in TicketStatus.get_default_statuses():
                 status = TicketStatus(
@@ -721,13 +722,28 @@ class TicketStatus(db.Model):
                 )
                 db.session.add(status)
             db.session.commit()
+        else:
+            # Ensure 'new' status exists for existing databases
+            if not TicketStatus.query.filter_by(name='new').first():
+                # Shift existing positions to make room for 'new' at position 0
+                for s in TicketStatus.query.all():
+                    s.position = s.position + 1
+                new_status = TicketStatus(
+                    name='new',
+                    label='New',
+                    color='info',
+                    is_closed=False,
+                    position=0
+                )
+                db.session.add(new_status)
+                db.session.commit()
 
     @staticmethod
     def get_choices():
         """Return list of (name, label) tuples for form SelectField."""
         statuses = TicketStatus.query.order_by(TicketStatus.position).all()
         if not statuses:
-            return [('open', 'Open'), ('in_progress', 'In Progress'), ('closed', 'Closed')]
+            return [('new', 'New'), ('open', 'Open'), ('in_progress', 'In Progress'), ('closed', 'Closed')]
         return [(s.name, s.label) for s in statuses]
 
     @staticmethod

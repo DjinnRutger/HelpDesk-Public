@@ -584,7 +584,7 @@ def _create_ticket_from_schedule(row: ScheduledTicket):
     t = Ticket(
         subject=row.subject,
         body=row.body,
-        status=row.status or 'open',
+        status=row.status or 'new',
         priority=row.priority or 'medium',
         assignee_id=row.assignee_id,
         source='scheduled'
@@ -3022,7 +3022,7 @@ def run_asset_spot_check(app):
         ticket = _Ticket(
             subject=f"Asset Spot Check - {_dt.now().strftime('%Y-%m-%d')}",
             body="\n".join(body_lines),
-            status='open',
+            status='new',
             priority='medium',
             assignee_id=assignee_id,
             source='system'

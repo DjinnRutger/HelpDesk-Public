@@ -1,0 +1,372 @@
+{% extends "base.html" %}
+{% block title %}Pipeline{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2><i class="bi bi-kanban me-2"></i>Pipeline</h2>
+  <div>
+    <a href="{{ url_for('tickets.list_tickets') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-list-ul me-1"></i>List View
+    </a>
+    <a href="{{ url_for('tickets.new_ticket') }}" class="btn btn-primary btn-sm">
+      <i class="bi bi-plus-lg me-1"></i>New Ticket
+    </a>
+  </div>
+</div>
+
+<div class="pipeline-container">
+  <div class="pipeline-board d-flex gap-3 overflow-auto pb-3" style="min-height: calc(100vh - 200px);">
+    {% for col in pipeline_data %}
+    <div class="pipeline-column flex-shrink-0" data-status="{{ col.status.name }}" style="width: 300px; min-width: 280px;">
+      <div class="card h-100 border-0 shadow-sm">
+        <div class="card-header bg-{{ col.status.color }} text-white d-flex justify-content-between align-items-center py-2">
+          <span class="fw-semibold">{{ col.status.label }}</span>
+          <span class="badge bg-white text-{{ col.status.color }}" id="count-{{ col.status.name }}">{{ col.count }}</span>
+        </div>
+        <div class="card-body p-2 overflow-auto drop-zone" data-status="{{ col.status.name }}" style="max-height: calc(100vh - 280px);">
+          {% if col.status.is_closed %}
+          <div class="text-muted small mb-2 text-center">
+            <i class="bi bi-clock-history me-1"></i>Last 7 days
+          </div>
+          {% endif %}
+          
+          <div class="d-flex flex-column gap-2 ticket-list">
+            {% for t in col.tickets %}
+            <div class="pipeline-card-wrapper" draggable="true" data-ticket-id="{{ t.id }}" data-ticket-url="{{ url_for('tickets.show_ticket', ticket_id=t.id) }}">
+              <div class="card pipeline-card border-start border-4 border-{{ col.status.color }} shadow-sm hover-lift">
+                <div class="card-body p-2">
+                  <div class="d-flex justify-content-between align-items-start mb-1">
+                    <span class="badge bg-secondary-subtle text-secondary small">#{{ t.id }}</span>
+                    <div class="d-flex align-items-center gap-1">
+                      {% if t.priority == 'high' %}
+                      <span class="badge bg-danger-subtle text-danger"><i class="bi bi-exclamation-triangle-fill"></i></span>
+                      {% elif t.priority == 'low' %}
+                      <span class="badge bg-info-subtle text-info"><i class="bi bi-arrow-down"></i></span>
+                      {% endif %}
+                      <span class="drag-handle text-muted" title="Drag to change status"><i class="bi bi-grip-vertical"></i></span>
+                    </div>
+                  </div>
+                  <h6 class="card-title mb-1 text-dark small fw-semibold text-truncate" title="{{ t.subject }}">
+                    {{ t.subject|truncate(50) }}
+                  </h6>
+                  <div class="d-flex justify-content-between align-items-center">
+                    <small class="text-muted">
+                      {% if t.requester_name %}
+                      <i class="bi bi-person me-1"></i>{{ t.requester_name|truncate(15) }}
+                      {% elif t.requester_email %}
+                      <i class="bi bi-envelope me-1"></i>{{ t.requester_email|truncate(15) }}
+                      {% endif %}
+                    </small>
+                    {% if t.assignee %}
+                    <span class="badge bg-primary-subtle text-primary small" title="Assigned to {{ t.assignee.name }}">
+                      {{ t.assignee.name|truncate(10) }}
+                    </span>
+                    {% else %}
+                    <span class="badge bg-warning-subtle text-warning small">Unassigned</span>
+                    {% endif %}
+                  </div>
+                  <div class="mt-1">
+                    <small class="text-muted">
+                      <i class="bi bi-clock me-1"></i>
+                      {% if col.status.is_closed and t.closed_at %}
+                      {{ t.closed_at|cst_datetime }}
+                      {% else %}
+                      {{ t.created_at|cst_datetime }}
+                      {% endif %}
+                    </small>
+                  </div>
+                  {% if t.snoozed_until and t.snoozed_until > now %}
+                  <div class="mt-1">
+                    <span class="badge bg-info-subtle text-info small">
+                      <i class="bi bi-alarm me-1"></i>Snoozed
+                    </span>
+                  </div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          
+          {% if not col.tickets %}
+          <div class="empty-placeholder text-center text-muted py-4">
+            <i class="bi bi-inbox fs-3 d-block mb-2"></i>
+            <small>No tickets</small>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<style>
+.pipeline-card {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+}
+.pipeline-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+}
+.pipeline-column .card-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.pipeline-board::-webkit-scrollbar {
+  height: 8px;
+}
+.pipeline-board::-webkit-scrollbar-track {
+  background: var(--bs-tertiary-bg);
+  border-radius: 4px;
+}
+.pipeline-board::-webkit-scrollbar-thumb {
+  background: var(--bs-secondary-bg);
+  border-radius: 4px;
+}
+.pipeline-board::-webkit-scrollbar-thumb:hover {
+  background: var(--bs-secondary);
+}
+/* Ensure colors work in dark mode */
+[data-bs-theme="dark"] .pipeline-card {
+  background: var(--bs-body-bg);
+}
+[data-bs-theme="dark"] .card-title {
+  color: var(--bs-body-color) !important;
+}
+
+/* Drag and drop styles */
+.pipeline-card-wrapper {
+  cursor: grab;
+}
+.pipeline-card-wrapper:active {
+  cursor: grabbing;
+}
+.pipeline-card-wrapper.dragging {
+  opacity: 0.5;
+  transform: rotate(3deg);
+}
+.drop-zone {
+  min-height: 100px;
+  transition: background-color 0.2s ease;
+}
+.drop-zone.drag-over {
+  background-color: rgba(var(--bs-primary-rgb), 0.1);
+  border: 2px dashed var(--bs-primary);
+  border-radius: 0.375rem;
+}
+.drop-zone .empty-placeholder {
+  pointer-events: none;
+}
+.drag-handle {
+  cursor: grab;
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
+}
+.pipeline-card-wrapper:hover .drag-handle {
+  opacity: 1;
+}
+.drag-ghost {
+  opacity: 0.8;
+  transform: rotate(5deg);
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || 
+                    document.querySelector('input[name="csrf_token"]')?.value || '';
+  
+  let draggedCard = null;
+  let sourceColumn = null;
+  
+  // Get all draggable cards
+  const cards = document.querySelectorAll('.pipeline-card-wrapper');
+  const dropZones = document.querySelectorAll('.drop-zone');
+  
+  cards.forEach(card => {
+    card.addEventListener('dragstart', handleDragStart);
+    card.addEventListener('dragend', handleDragEnd);
+    // Allow clicking on the card to navigate
+    card.addEventListener('click', handleCardClick);
+  });
+  
+  dropZones.forEach(zone => {
+    zone.addEventListener('dragover', handleDragOver);
+    zone.addEventListener('dragenter', handleDragEnter);
+    zone.addEventListener('dragleave', handleDragLeave);
+    zone.addEventListener('drop', handleDrop);
+  });
+  
+  function handleCardClick(e) {
+    // Don't navigate if we're dragging
+    if (e.target.closest('.drag-handle')) return;
+    const url = this.dataset.ticketUrl;
+    if (url) window.location.href = url;
+  }
+  
+  function handleDragStart(e) {
+    draggedCard = this;
+    sourceColumn = this.closest('.drop-zone').dataset.status;
+    
+    this.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', this.dataset.ticketId);
+    
+    // Delay to allow the drag image to show properly
+    setTimeout(() => {
+      this.style.opacity = '0.4';
+    }, 0);
+  }
+  
+  function handleDragEnd(e) {
+    this.classList.remove('dragging');
+    this.style.opacity = '1';
+    
+    // Remove drag-over class from all zones
+    dropZones.forEach(zone => zone.classList.remove('drag-over'));
+    
+    draggedCard = null;
+    sourceColumn = null;
+  }
+  
+  function handleDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    return false;
+  }
+  
+  function handleDragEnter(e) {
+    e.preventDefault();
+    this.classList.add('drag-over');
+  }
+  
+  function handleDragLeave(e) {
+    // Only remove class if actually leaving the zone (not entering a child)
+    if (e.relatedTarget && this.contains(e.relatedTarget)) return;
+    this.classList.remove('drag-over');
+  }
+  
+  function handleDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    this.classList.remove('drag-over');
+    
+    if (!draggedCard) return;
+    
+    const targetStatus = this.dataset.status;
+    const ticketId = draggedCard.dataset.ticketId;
+    
+    // Don't do anything if dropping in the same column
+    if (targetStatus === sourceColumn) return;
+    
+    // Move the card visually first for responsiveness
+    const ticketList = this.querySelector('.ticket-list');
+    if (ticketList) {
+      ticketList.prepend(draggedCard);
+    }
+    
+    // Hide the empty placeholder if visible
+    const emptyPlaceholder = this.querySelector('.empty-placeholder');
+    if (emptyPlaceholder) emptyPlaceholder.style.display = 'none';
+    
+    // Update the counts
+    updateColumnCount(sourceColumn, -1);
+    updateColumnCount(targetStatus, 1);
+    
+    // Update the card's border color to match new column
+    const columnHeader = this.closest('.pipeline-column').querySelector('.card-header');
+    const colorClass = Array.from(columnHeader.classList).find(c => c.startsWith('bg-'));
+    if (colorClass) {
+      const color = colorClass.replace('bg-', '');
+      const cardInner = draggedCard.querySelector('.pipeline-card');
+      if (cardInner) {
+        // Remove old border color
+        cardInner.className = cardInner.className.replace(/border-\w+(?=\s|$)/g, '');
+        cardInner.classList.add('border-start', 'border-4', `border-${color}`);
+      }
+    }
+    
+    // Update status via API
+    fetch(`/tickets/${ticketId}/update-status`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrfToken,
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify({ status: targetStatus })
+    })
+    .then(response => response.json())
+    .then(data => {
+      if (!data.success) {
+        // Revert the visual change on error
+        console.error('Failed to update status:', data.error);
+        showToast('Error', 'Failed to update ticket status: ' + (data.error || 'Unknown error'), 'danger');
+        // Reload to restore correct state
+        setTimeout(() => location.reload(), 1500);
+      } else {
+        showToast('Success', `Ticket #${ticketId} moved to ${targetStatus}`, 'success');
+      }
+    })
+    .catch(err => {
+      console.error('Error updating ticket status:', err);
+      showToast('Error', 'Failed to update ticket status', 'danger');
+      setTimeout(() => location.reload(), 1500);
+    });
+  }
+  
+  function updateColumnCount(statusName, delta) {
+    const countBadge = document.getElementById(`count-${statusName}`);
+    if (countBadge) {
+      const current = parseInt(countBadge.textContent) || 0;
+      countBadge.textContent = Math.max(0, current + delta);
+    }
+    
+    // Show empty placeholder if count is now 0
+    if (delta < 0) {
+      const column = document.querySelector(`.drop-zone[data-status="${statusName}"]`);
+      if (column) {
+        const ticketList = column.querySelector('.ticket-list');
+        const emptyPlaceholder = column.querySelector('.empty-placeholder');
+        if (ticketList && ticketList.children.length === 0 && emptyPlaceholder) {
+          emptyPlaceholder.style.display = '';
+        }
+      }
+    }
+  }
+  
+  function showToast(title, message, type) {
+    // Create toast container if not exists
+    let toastContainer = document.querySelector('.toast-container');
+    if (!toastContainer) {
+      toastContainer = document.createElement('div');
+      toastContainer.className = 'toast-container position-fixed bottom-0 end-0 p-3';
+      toastContainer.style.zIndex = '1100';
+      document.body.appendChild(toastContainer);
+    }
+    
+    const toastId = 'toast-' + Date.now();
+    const toastHtml = `
+      <div id="${toastId}" class="toast align-items-center text-bg-${type} border-0" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="d-flex">
+          <div class="toast-body">${message}</div>
+          <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+      </div>
+    `;
+    toastContainer.insertAdjacentHTML('beforeend', toastHtml);
+    
+    const toastEl = document.getElementById(toastId);
+    const toast = new bootstrap.Toast(toastEl, { delay: 3000 });
+    toast.show();
+    
+    // Remove from DOM after hidden
+    toastEl.addEventListener('hidden.bs.toast', () => toastEl.remove());
+  }
+});
+</script>
+{% endblock %}

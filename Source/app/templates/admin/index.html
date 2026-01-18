@@ -3536,14 +3536,16 @@ function moveTicketStatus(id, direction) {
   
   // Update order on server
   const order = ticketStatusesData.map(s => s.id);
+  const csrfToken = document.querySelector('[name=csrf_token]').value;
   
   fetch('/admin/ticket-statuses/reorder', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Requested-With': 'XMLHttpRequest'
+      'X-Requested-With': 'XMLHttpRequest',
+      'X-CSRFToken': csrfToken
     },
-    body: JSON.stringify({ order: order, csrf_token: document.querySelector('[name=csrf_token]').value })
+    body: JSON.stringify({ order: order })
   })
   .then(r => r.json())
   .then(data => {

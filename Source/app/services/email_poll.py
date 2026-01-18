@@ -526,7 +526,7 @@ def poll_ms_graph(app=None):
                 requester_name=requester_name,
                 requester_email=requester_addr,
                 body=body_html,
-                status="open",
+                status="new",
                 priority="medium",
             )
             db.session.add(t)
@@ -751,7 +751,7 @@ def _poll_ftp_and_import(check_row: EmailCheck) -> int:
             requester_email=requester_email,
             requester_name=getattr(contact, 'name', None),
             body=body_html,
-            status='open',
+            status='new',
             priority='medium',
             source='ftp'
         )

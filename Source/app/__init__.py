@@ -192,7 +192,7 @@ def run_auto_backup(app: Flask) -> None:
                     requester_name="System",
                     requester_email="system@helpdesk.local",
                     body="\n".join(debug_info),
-                    status="open",
+                    status="new",
                     priority="high",
                     source="system",
                     assignee_id=admin_user.id if admin_user else None,

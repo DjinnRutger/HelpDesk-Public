@@ -505,7 +505,7 @@ def _create_expiring_passwords_ticket(expiring_users: List[Dict[str, Any]], logg
     ticket = Ticket(
         subject=subject,
         body=body_html,
-        status='open',
+        status='new',
         priority='medium',
         source='system',
         requester_name='System',
