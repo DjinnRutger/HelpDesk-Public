@@ -28,11 +28,17 @@ class TicketForm(FlaskForm):
     subject = StringField('Subject', validators=[DataRequired(), Length(max=300)])
     requester = StringField('Requester', validators=[Optional(), Email()])
     body = TextAreaField('Body', validators=[Optional()])
-    status = SelectField('Status', choices=[('open','Open'), ('in_progress','In Progress'), ('closed','Closed')])
+    status = SelectField('Status', choices=[])  # Populated dynamically
     priority = SelectField('Priority', choices=[('low','Low'), ('medium','Medium'), ('high','High')], default='medium')
     source = SelectField('Source', choices=[('email','Email'), ('zoom','Zoom'), ('walk_in','Walk In'), ('phone','Phone')], default='email')
     asset_id = SelectField('Asset', coerce=int, validators=[Optional()], choices=[])
     submit = SubmitField('Save')
+    
+    def __init__(self, *args, **kwargs):
+        super(TicketForm, self).__init__(*args, **kwargs)
+        # Load status choices from database
+        from .models import TicketStatus
+        self.status.choices = TicketStatus.get_choices()
 
 class NoteForm(FlaskForm):
     content = TextAreaField('Add note', validators=[DataRequired(), Length(min=1)])
@@ -40,11 +46,17 @@ class NoteForm(FlaskForm):
     submit = SubmitField('Add note')
 
 class TicketUpdateForm(FlaskForm):
-    status = SelectField('Status', choices=[('open','Open'), ('in_progress','In Progress'), ('closed','Closed')], validators=[DataRequired()])
+    status = SelectField('Status', choices=[], validators=[DataRequired()])  # Populated dynamically
     priority = SelectField('Priority', choices=[('low','Low'), ('medium','Medium'), ('high','High')], validators=[DataRequired()])
     assignee_id = SelectField('Assignee', coerce=int, validators=[Optional()])
     source = SelectField('Source', choices=[('email','Email'), ('zoom','Zoom'), ('walk_in','Walk In'), ('phone','Phone')])
     submit_update = SubmitField('Update')
+    
+    def __init__(self, *args, **kwargs):
+        super(TicketUpdateForm, self).__init__(*args, **kwargs)
+        # Load status choices from database
+        from .models import TicketStatus
+        self.status.choices = TicketStatus.get_choices()
 
 
 class ProcessTemplateForm(FlaskForm):
@@ -90,6 +102,7 @@ class ProfileForm(FlaskForm):
     confirm_password = PasswordField('Confirm New Password', validators=[Optional(), EqualTo('new_password', message='Passwords must match')])
     theme = SelectField('Theme', choices=[('light','Light Mode'), ('dark','Dark Mode'), ('ocean','Ocean'), ('fallout','Fallout Terminal')], validators=[DataRequired()])
     tickets_view_pref = SelectField('Default Tickets View', choices=[('any','Any'), ('me','Assigned to me'), ('me_or_unassigned','Unassigned and Assigned to me')], validators=[DataRequired()])
+    signature = StringField('Email Signature', validators=[Optional(), Length(max=500)])
     submit = SubmitField('Save Changes')
 
 

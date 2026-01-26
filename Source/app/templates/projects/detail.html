@@ -84,8 +84,7 @@
                     <td>
                       <div class="d-flex align-items-center">
                         <i class="bi bi-ticket-perforated text-muted me-2"></i>
-                        <a href="{{ url_for('tickets.show_ticket', ticket_id=t.id) }}" class="text-decoration-none {% if t.status == 'closed' %}text-muted opacity-75{% endif %}">
-                          #{{ t.id }} · {{ t.subject }}
+                        <a href="{{ url_for('tickets.show_ticket', ticket_id=t.id) }}" class="text-decoration-none {% if t.is_closed %}text-muted opacity-75{% endif %}">#{{ t.id }} · {{ t.subject }}
                         </a>
                       </div>
                     </td>
@@ -100,11 +99,7 @@
                       {% endif %}
                     </td>
                     <td>
-                      {% set status_class = 'secondary' %}
-                      {% if t.status == 'open' %}{% set status_class = 'primary' %}{% endif %}
-                      {% if t.status == 'in_progress' %}{% set status_class = 'warning' %}{% endif %}
-                      {% if t.status == 'closed' %}{% set status_class = 'success' %}{% endif %}
-                      <span class="badge text-bg-{{ status_class }}">{{ t.status.replace('_', ' ')|title }}</span>
+                      <span class="badge text-bg-{{ t.status|status_color }}">{{ t.status|status_label }}</span>
                     </td>
                     <td>
                       {% set priority_class = 'secondary' %}

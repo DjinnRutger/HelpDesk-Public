@@ -152,11 +152,7 @@
                   {% endif %}
                 </td>
                 <td>
-                  {% set status_class = 'secondary' %}
-                  {% if t.status == 'open' %}{% set status_class = 'success' %}{% endif %}
-                  {% if t.status == 'in_progress' %}{% set status_class = 'warning' %}{% endif %}
-                  {% if t.status == 'closed' %}{% set status_class = 'danger' %}{% endif %}
-                  <span class="badge text-bg-{{ status_class }} text-capitalize">{{ t.status|replace('_', ' ') }}</span>
+                  <span class="badge text-bg-{{ t.status|status_color }}">{{ t.status|status_label }}</span>
                 </td>
                 <td>
                   {% set priority_class = 'secondary' %}

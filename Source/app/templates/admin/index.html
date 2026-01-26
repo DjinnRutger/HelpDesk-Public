@@ -165,6 +165,12 @@
                   <span class="d-block">Email Templates</span>
                 </button>
               </div>
+              <div class="col-6 col-md-4">
+                <button class="btn btn-outline-success w-100 h-100 py-3" data-bs-toggle="modal" data-bs-target="#ticketStatusesModal">
+                  <i class="bi bi-tag d-block fs-3 mb-2"></i>
+                  <span class="d-block">Ticket Statuses</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -907,9 +913,7 @@
                   <div class="col-md-3">
                     <label class="form-label small fw-semibold">Status</label>
                     <select class="form-select" name="status" id="scheduled_status">
-                      <option value="open">Open</option>
-                      <option value="in_progress">In Progress</option>
-                      <option value="closed">Closed</option>
+                      <!-- Options loaded dynamically -->
                     </select>
                   </div>
                   <div class="col-md-3">
@@ -2214,15 +2218,35 @@ function deleteDocCategory(id) {
 // SCHEDULED TICKETS MODAL FUNCTIONALITY
 // ============================================
 let scheduledTicketsData = [];
+let ticketStatusChoices = null;  // Cache for ticket statuses
 
 // Event listener for Scheduled Tickets modal
 document.getElementById('scheduledModal').addEventListener('shown.bs.modal', function() {
-  // Ensure we have techs for assignee dropdown
-  ensureTechsLoaded().then(() => {
+  // Ensure we have techs for assignee dropdown and statuses for status dropdown
+  Promise.all([ensureTechsLoaded(), ensureTicketStatusesLoaded()]).then(() => {
     populateScheduledAssigneeOptions();
+    populateScheduledStatusOptions();
     loadScheduledTickets();
   }).catch(() => loadScheduledTickets());
 });
+
+// Load ticket statuses if not cached
+function ensureTicketStatusesLoaded() {
+  if (ticketStatusChoices) return Promise.resolve();
+  return fetch('/admin/ticket-statuses-data')
+    .then(r => r.json())
+    .then(data => { ticketStatusChoices = data.statuses || []; })
+    .catch(() => { ticketStatusChoices = [{name: 'open', label: 'Open'}, {name: 'in_progress', label: 'In Progress'}, {name: 'closed', label: 'Closed'}]; });
+}
+
+// Populate status dropdown
+function populateScheduledStatusOptions() {
+  const sel = document.getElementById('scheduled_status');
+  if (!sel) return;
+  sel.innerHTML = (ticketStatusChoices || []).map(s => 
+    `<option value="${s.name}">${escapeHtml(s.label)}</option>`
+  ).join('');
+}
 
 // Load scheduled tickets from backend
 function loadScheduledTickets() {
@@ -3258,6 +3282,285 @@ document.getElementById('emailTemplateForm').addEventListener('submit', function
   })
   .catch(err => alert('Error: ' + err));
 });
+</script>
+
+<!-- Ticket Statuses Modal -->
+<div class="modal fade" id="ticketStatusesModal" tabindex="-1" aria-labelledby="ticketStatusesModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title" id="ticketStatusesModalLabel">
+          <i class="bi bi-tag me-2"></i>Ticket Statuses
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3">Configure the available status options for tickets. The "Closed" checkbox indicates that tickets with this status are considered resolved.</p>
+        
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h6 class="mb-0">Available Statuses</h6>
+          <button class="btn btn-success btn-sm" onclick="showTicketStatusForm()">
+            <i class="bi bi-plus-lg me-1"></i>New Status
+          </button>
+        </div>
+
+        <!-- New Status Form (hidden by default) -->
+        <div id="ticketStatusFormContainer" style="display: none;" class="mb-3">
+          <div class="card bg-body-tertiary border-success">
+            <div class="card-body">
+              <form id="ticketStatusForm" onsubmit="return submitTicketStatusForm(event)">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="status_id" id="ticketStatusId" value="">
+                <div class="row g-3">
+                  <div class="col-md-4">
+                    <label class="form-label small fw-semibold">Name (Key) <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" name="name" id="ticketStatusName" required placeholder="e.g., pending">
+                    <div class="form-text">Internal name, lowercase, no spaces</div>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label small fw-semibold">Label <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" name="label" id="ticketStatusLabel" required placeholder="e.g., Pending">
+                    <div class="form-text">Display name shown in UI</div>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label small fw-semibold">Color</label>
+                    <select class="form-select" name="color" id="ticketStatusColor">
+                      <option value="secondary">Gray (Secondary)</option>
+                      <option value="success">Green (Success)</option>
+                      <option value="warning">Yellow (Warning)</option>
+                      <option value="danger">Red (Danger)</option>
+                      <option value="info">Blue (Info)</option>
+                      <option value="primary">Primary</option>
+                      <option value="dark">Dark</option>
+                    </select>
+                  </div>
+                  <div class="col-md-6">
+                    <div class="form-check mt-2">
+                      <input class="form-check-input" type="checkbox" id="ticketStatusIsClosed" name="is_closed">
+                      <label class="form-check-label" for="ticketStatusIsClosed">
+                        Closed Status
+                      </label>
+                      <div class="form-text">Tickets with this status are considered resolved</div>
+                    </div>
+                  </div>
+                  <div class="col-12 d-flex gap-2 justify-content-end">
+                    <button type="button" class="btn btn-outline-secondary" onclick="hideTicketStatusForm()">Cancel</button>
+                    <button type="submit" class="btn btn-success">
+                      <i class="bi bi-check-lg me-1"></i>Save Status
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <!-- Statuses List -->
+        <div id="ticketStatusesList">
+          <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th style="width: 50px;">Order</th>
+                  <th>Name</th>
+                  <th>Label</th>
+                  <th>Color</th>
+                  <th>Closed?</th>
+                  <th class="text-end">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="ticketStatusesTbody">
+                <tr><td colspan="6" class="text-center text-muted py-3">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+        <div class="small text-muted mt-3">
+          <i class="bi bi-info-circle me-1"></i>
+          <strong>Note:</strong> You cannot delete a status that is currently used by tickets. Edit the tickets first to change their status.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================
+// TICKET STATUSES MODAL FUNCTIONALITY
+// ============================================
+let ticketStatusesData = [];
+
+// Load statuses when modal is shown
+document.getElementById('ticketStatusesModal').addEventListener('shown.bs.modal', function() {
+  loadTicketStatuses();
+});
+
+function loadTicketStatuses() {
+  fetch('/admin/ticket-statuses-data')
+    .then(r => r.json())
+    .then(data => {
+      ticketStatusesData = data.statuses || [];
+      renderTicketStatuses();
+    })
+    .catch(err => {
+      document.getElementById('ticketStatusesTbody').innerHTML = '<tr><td colspan="6" class="text-center text-danger">Error loading statuses</td></tr>';
+    });
+}
+
+function renderTicketStatuses() {
+  const tbody = document.getElementById('ticketStatusesTbody');
+  if (ticketStatusesData.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">No statuses found. Click "New Status" to add one.</td></tr>';
+    return;
+  }
+  
+  tbody.innerHTML = ticketStatusesData.map((s, idx) => `
+    <tr data-status-id="${s.id}">
+      <td>
+        <div class="btn-group btn-group-sm" role="group">
+          <button class="btn btn-outline-secondary" onclick="moveTicketStatus(${s.id}, -1)" ${idx === 0 ? 'disabled' : ''} title="Move up">
+            <i class="bi bi-arrow-up"></i>
+          </button>
+          <button class="btn btn-outline-secondary" onclick="moveTicketStatus(${s.id}, 1)" ${idx === ticketStatusesData.length - 1 ? 'disabled' : ''} title="Move down">
+            <i class="bi bi-arrow-down"></i>
+          </button>
+        </div>
+      </td>
+      <td><code>${escapeHtml(s.name)}</code></td>
+      <td class="fw-semibold">${escapeHtml(s.label)}</td>
+      <td><span class="badge text-bg-${s.color}">${s.color}</span></td>
+      <td>
+        ${s.is_closed ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-circle text-muted"></i>'}
+      </td>
+      <td class="text-end">
+        <div class="d-inline-flex gap-1">
+          <button class="btn btn-sm btn-outline-secondary" onclick="editTicketStatus(${s.id})" title="Edit">
+            <i class="bi bi-pencil"></i>
+          </button>
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteTicketStatus(${s.id}, '${escapeHtml(s.label)}')" title="Delete">
+            <i class="bi bi-trash"></i>
+          </button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function showTicketStatusForm() {
+  document.getElementById('ticketStatusForm').reset();
+  document.getElementById('ticketStatusId').value = '';
+  document.getElementById('ticketStatusColor').value = 'secondary';
+  document.getElementById('ticketStatusFormContainer').style.display = 'block';
+}
+
+function hideTicketStatusForm() {
+  document.getElementById('ticketStatusFormContainer').style.display = 'none';
+  document.getElementById('ticketStatusForm').reset();
+  document.getElementById('ticketStatusId').value = '';
+}
+
+function editTicketStatus(id) {
+  const status = ticketStatusesData.find(s => s.id === id);
+  if (!status) return;
+  
+  document.getElementById('ticketStatusId').value = status.id;
+  document.getElementById('ticketStatusName').value = status.name;
+  document.getElementById('ticketStatusLabel').value = status.label;
+  document.getElementById('ticketStatusColor').value = status.color || 'secondary';
+  document.getElementById('ticketStatusIsClosed').checked = status.is_closed;
+  document.getElementById('ticketStatusFormContainer').style.display = 'block';
+}
+
+function submitTicketStatusForm(event) {
+  event.preventDefault();
+  const form = event.target;
+  const formData = new FormData(form);
+  const statusId = formData.get('status_id');
+  const url = statusId ? `/admin/ticket-statuses/${statusId}/edit` : '/admin/ticket-statuses/new';
+  
+  fetch(url, {
+    method: 'POST',
+    body: formData
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.success) {
+      hideTicketStatusForm();
+      loadTicketStatuses();
+    } else {
+      alert(data.error || 'Error saving status');
+    }
+  })
+  .catch(err => {
+    alert('Error saving status');
+  });
+  
+  return false;
+}
+
+function deleteTicketStatus(id, label) {
+  if (!confirm(`Delete status "${label}"? This cannot be undone.`)) return;
+  
+  const formData = new FormData();
+  formData.append('csrf_token', document.querySelector('[name=csrf_token]').value);
+  
+  fetch(`/admin/ticket-statuses/${id}/delete`, {
+    method: 'POST',
+    body: formData
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.success) {
+      loadTicketStatuses();
+    } else {
+      alert(data.error || 'Error deleting status');
+    }
+  })
+  .catch(err => {
+    alert('Error deleting status');
+  });
+}
+
+function moveTicketStatus(id, direction) {
+  const idx = ticketStatusesData.findIndex(s => s.id === id);
+  if (idx < 0) return;
+  
+  const newIdx = idx + direction;
+  if (newIdx < 0 || newIdx >= ticketStatusesData.length) return;
+  
+  // Swap positions
+  const temp = ticketStatusesData[idx];
+  ticketStatusesData[idx] = ticketStatusesData[newIdx];
+  ticketStatusesData[newIdx] = temp;
+  
+  // Update order on server
+  const order = ticketStatusesData.map(s => s.id);
+  const csrfToken = document.querySelector('[name=csrf_token]').value;
+  
+  fetch('/admin/ticket-statuses/reorder', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+      'X-CSRFToken': csrfToken
+    },
+    body: JSON.stringify({ order: order })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.success) {
+      renderTicketStatuses();
+    } else {
+      alert(data.error || 'Error reordering statuses');
+      loadTicketStatuses(); // Reload to get correct order
+    }
+  })
+  .catch(err => {
+    alert('Error reordering statuses');
+    loadTicketStatuses();
+  });
+}
 </script>
 
 {% endblock %}

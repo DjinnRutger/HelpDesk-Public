@@ -45,9 +45,15 @@
         <div class="col-md-3">
           <label class="form-label">Default Status</label>
           <select name="status" class="form-select">
-            {% for s in ['open','in_progress','closed'] %}
-              <option value="{{ s }}" {% if row and row.status==s %}selected{% endif %}>{{ s|replace('_',' ')|title }}</option>
-            {% endfor %}
+            {% if ticket_statuses %}
+              {% for s in ticket_statuses %}
+                <option value="{{ s.name }}" {% if row and row.status==s.name %}selected{% endif %}>{{ s.label }}</option>
+              {% endfor %}
+            {% else %}
+              {% for s in ['open','in_progress','closed'] %}
+                <option value="{{ s }}" {% if row and row.status==s %}selected{% endif %}>{{ s|replace('_',' ')|title }}</option>
+              {% endfor %}
+            {% endif %}
           </select>
         </div>
         <div class="col-md-3">

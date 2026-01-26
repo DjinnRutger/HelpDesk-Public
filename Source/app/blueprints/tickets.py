@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, send_file, abort, current_app
 from flask_login import login_required
-from ..models import Ticket, ProcessTemplate, TicketProcess, TicketProcessItem, Project, TicketTask, OrderItem, ApprovalRequest
+from ..models import Ticket, ProcessTemplate, TicketProcess, TicketProcessItem, Project, TicketTask, OrderItem, ApprovalRequest, TicketStatus
 from .. import db
 from ..forms import TicketForm, NoteForm, TicketUpdateForm, ProcessAssignForm, TaskAssignForm
 from ..models import User, Contact, TicketNote
@@ -12,6 +12,11 @@ import bleach
 from sqlalchemy import or_
 
 
+def get_closed_status_names():
+    """Get list of status names that are marked as closed."""
+    return [s.name for s in TicketStatus.query.filter_by(is_closed=True).all()] or ['closed']
+
+
 tickets_bp = Blueprint('tickets', __name__, url_prefix='/tickets')
 
 
@@ -21,6 +26,7 @@ def list_tickets():
     # Filters: status=open|all, assigned=any, q=search
     status = request.args.get('status', 'open')
     show_snoozed = request.args.get('show_snoozed', '0') == '1'
+    closed_statuses = get_closed_status_names()
     # If user provided the 'assigned' parameter (even empty), respect it; otherwise use profile default
     if 'assigned' in request.args:
         assigned = request.args.get('assigned', '')
@@ -41,7 +47,7 @@ def list_tickets():
         query = base.filter((Ticket.project_id.is_(None)) | ((Ticket.project_id.isnot(None)) & (Ticket.assignee_id == me_id)))
 
     if status == 'open':
-        query = query.filter(Ticket.status != 'closed')
+        query = query.filter(~Ticket.status.in_(closed_statuses))
     # Hide snoozed by default unless toggled
     if not show_snoozed:
         query = query.filter((Ticket.snoozed_until.is_(None)) | (Ticket.snoozed_until <= datetime.utcnow()))
@@ -70,13 +76,94 @@ def list_tickets():
     tickets = query.order_by(Ticket.created_at.desc()).limit(200).all()
     # Snoozed count for toggle badge
     snoozed_count = Ticket.query.filter(
-        (Ticket.status != 'closed') & (Ticket.snoozed_until.isnot(None)) & (Ticket.snoozed_until > datetime.utcnow())
+        ~Ticket.status.in_(closed_statuses) & (Ticket.snoozed_until.isnot(None)) & (Ticket.snoozed_until > datetime.utcnow())
     ).count()
 
     # Items: only tickets
     items = [{'kind': 'ticket', 'obj': t, 'created_at': t.created_at} for t in tickets]
     items.sort(key=lambda x: x['created_at'] or 0, reverse=True)
     return render_template('tickets/list.html', items=items, status=status, assigned=assigned, q=q, show_snoozed=show_snoozed, snoozed_count=snoozed_count)
+
+
+@tickets_bp.route('/pipeline')
+@login_required
+def pipeline():
+    """Kanban-style pipeline view of tickets grouped by status."""
+    # Get all statuses ordered by position
+    statuses = TicketStatus.query.order_by(TicketStatus.position).all()
+    if not statuses:
+        TicketStatus.ensure_defaults()
+        statuses = TicketStatus.query.order_by(TicketStatus.position).all()
+    
+    # Build tickets grouped by status
+    pipeline_data = []
+    now = datetime.utcnow()
+    seven_days_ago = now - timedelta(days=7)
+    
+    for status in statuses:
+        # For closed statuses, only show tickets from last 7 days
+        if status.is_closed:
+            tickets = Ticket.query.filter(
+                Ticket.status == status.name,
+                Ticket.project_id.is_(None),  # Exclude project tickets
+                Ticket.closed_at >= seven_days_ago
+            ).order_by(Ticket.closed_at.desc()).limit(50).all()
+        else:
+            tickets = Ticket.query.filter(
+                Ticket.status == status.name,
+                Ticket.project_id.is_(None)  # Exclude project tickets
+            ).order_by(Ticket.created_at.desc()).all()
+        
+        pipeline_data.append({
+            'status': status,
+            'tickets': tickets,
+            'count': len(tickets)
+        })
+    
+    return render_template('tickets/pipeline.html', pipeline_data=pipeline_data, now=datetime.utcnow())
+
+
+@tickets_bp.route('/<int:ticket_id>/update-status', methods=['POST'])
+@login_required
+def update_ticket_status(ticket_id):
+    """Update a ticket's status via AJAX (for drag-and-drop on pipeline)."""
+    ticket = Ticket.query.get_or_404(ticket_id)
+    
+    # Get status from JSON body or form data
+    if request.is_json:
+        new_status = (request.json.get('status') or '').strip()
+    else:
+        new_status = (request.form.get('status') or '').strip()
+    
+    if not new_status:
+        return jsonify({'success': False, 'error': 'Status is required'}), 400
+    
+    # Verify the status exists
+    status_obj = TicketStatus.query.filter_by(name=new_status).first()
+    if not status_obj:
+        return jsonify({'success': False, 'error': f'Invalid status: {new_status}'}), 400
+    
+    try:
+        old_status = ticket.status
+        ticket.status = new_status
+        
+        # If moving to a closed status, set closed_at
+        if status_obj.is_closed and not ticket.closed_at:
+            ticket.closed_at = datetime.utcnow()
+        # If moving from closed to non-closed, clear closed_at
+        elif not status_obj.is_closed and ticket.closed_at:
+            ticket.closed_at = None
+        
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'ticket_id': ticket.id,
+            'old_status': old_status,
+            'new_status': new_status
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @tickets_bp.route('/<int:ticket_id>/snooze', methods=['POST'])
@@ -351,7 +438,9 @@ def show_ticket(ticket_id):
         prev_status = t.status
         prev_priority = t.priority
         new_status = update_form.status.data
-        if new_status == 'closed':
+        # Check if the new status is a "closed" status
+        is_closing = TicketStatus.is_status_closed(new_status)
+        if is_closing:
             # any unchecked checkbox?
             incomplete = False
             for tp in t.processes:
@@ -371,8 +460,8 @@ def show_ticket(ticket_id):
                 flash('Cannot close ticket. All process and task checklist items must be completed.', 'warning')
                 return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
         t.status = new_status
-        # Maintain closed_at timestamp when status changes
-        if new_status == 'closed':
+        # Maintain closed_at timestamp when status changes to a closed status
+        if is_closing:
             t.closed_at = datetime.utcnow()
         else:
             t.closed_at = None
@@ -480,11 +569,16 @@ def show_ticket(ticket_id):
                     from ..services.ms_graph import send_mail
                     subject = f"Ticket#{t.id} - {t.subject}"
                     body_html = note.content or ''
+                    # Append tech's signature to public note emails
+                    if current_user and hasattr(current_user, 'effective_signature'):
+                        sig = current_user.effective_signature
+                        if sig:
+                            body_html = f"{body_html}<br><br>{sig}"
                     send_mail(to_email, subject, body_html, category='ticket_note', ticket_id=t.id)
             except Exception:
                 pass
         # Close ticket if requested (and allowed)
-        if close_after and t.status != 'closed':
+        if close_after and not t.is_closed:
             # Re-use existing close validation: ensure all checklist items/tasks complete
             incomplete = False
             for tp in t.processes:
@@ -551,7 +645,7 @@ def show_ticket(ticket_id):
     assign_form.template_id.choices = [(pt.id, pt.name) for pt in templates]
     # Handle assign process
     if assign_form.submit_assign.data and assign_form.validate_on_submit():
-        if t.status == 'closed':
+        if t.is_closed:
             flash('Cannot assign a process to a closed ticket.', 'warning')
             return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
         pt = ProcessTemplate.query.get(assign_form.template_id.data)
@@ -575,7 +669,7 @@ def show_ticket(ticket_id):
             return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
     # Handle create tasks
     if task_form.submit_tasks.data and task_form.validate_on_submit():
-        if t.status == 'closed':
+        if t.is_closed:
             flash('Cannot add tasks to a closed ticket.', 'warning')
             return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
         base_pos = (TicketTask.query.filter_by(ticket_id=t.id).count() or 0) + 1
@@ -886,7 +980,7 @@ def toggle_task(ticket_id, task_id):
     if task.ticket_id != t.id:
         flash('Not found', 'danger')
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
-    if t.status == 'closed':
+    if t.is_closed:
         flash('Ticket is closed; tasks cannot be modified.', 'warning')
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
     now_checked = not bool(task.checked)
@@ -917,7 +1011,7 @@ def edit_task(ticket_id, task_id):
     if task.ticket_id != t.id:
         flash('Not found', 'danger')
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
-    if t.status == 'closed':
+    if t.is_closed:
         flash('Ticket is closed; tasks cannot be modified.', 'warning')
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
     label = (request.form.get('label') or '').strip()
@@ -944,7 +1038,7 @@ def delete_task(ticket_id, task_id):
     if task.ticket_id != t.id:
         flash('Not found', 'danger')
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
-    if t.status == 'closed':
+    if t.is_closed:
         flash('Ticket is closed; tasks cannot be deleted.', 'warning')
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
     db.session.delete(task)
@@ -957,7 +1051,7 @@ def delete_task(ticket_id, task_id):
 @login_required
 def delete_all_tasks(ticket_id):
     t = Ticket.query.get_or_404(ticket_id)
-    if t.status == 'closed':
+    if t.is_closed:
         flash('Ticket is closed; tasks cannot be deleted.', 'warning')
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
     # Bulk delete all tasks for this ticket
@@ -971,7 +1065,7 @@ def delete_all_tasks(ticket_id):
 @login_required
 def update_process_item(ticket_id, tp_id, item_id):
     t = Ticket.query.get_or_404(ticket_id)
-    if t.status == 'closed':
+    if t.is_closed:
         flash('Ticket is closed; process items cannot be modified.', 'warning')
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
     item = TicketProcessItem.query.get_or_404(item_id)
@@ -1003,7 +1097,7 @@ def update_process_item(ticket_id, tp_id, item_id):
 @login_required
 def delete_process(ticket_id, tp_id):
     t = Ticket.query.get_or_404(ticket_id)
-    if t.status == 'closed':
+    if t.is_closed:
         flash('Ticket is closed; processes cannot be deleted.', 'warning')
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
     tp = TicketProcess.query.get_or_404(tp_id)
@@ -1059,7 +1153,7 @@ def delete_ticket(ticket_id):
 @login_required
 def edit_process(ticket_id, tp_id):
     t = Ticket.query.get_or_404(ticket_id)
-    if t.status == 'closed':
+    if t.is_closed:
         flash('Ticket is closed; processes cannot be edited.', 'warning')
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
     tp = TicketProcess.query.get_or_404(tp_id)
@@ -1090,7 +1184,7 @@ def edit_process(ticket_id, tp_id):
 @login_required
 def delete_process_line(ticket_id, tp_id, item_id):
     t = Ticket.query.get_or_404(ticket_id)
-    if t.status == 'closed':
+    if t.is_closed:
         flash('Ticket is closed; process items cannot be deleted.', 'warning')
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
     tp = TicketProcess.query.get_or_404(tp_id)

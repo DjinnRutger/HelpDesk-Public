@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request, send_file, current_app, jsonify
 from flask_login import login_required, current_user
 from ..forms import MSGraphForm, TechForm, ProcessTemplateForm, ProcessTemplateItemForm, AllowedDomainForm, DenyFilterForm
-from ..models import Setting, User, ProcessTemplate, ProcessTemplateItem, AllowedDomain, DenyFilter, Vendor, PurchaseOrder, Company, ShippingLocation, DocumentCategory, AssetAudit, Asset, AssetCategory, AssetManufacturer, AssetCondition, AssetLocation, ScheduledTicket, Ticket, TicketTask
+from ..models import Setting, User, ProcessTemplate, ProcessTemplateItem, AllowedDomain, DenyFilter, Vendor, PurchaseOrder, Company, ShippingLocation, DocumentCategory, AssetAudit, Asset, AssetCategory, AssetManufacturer, AssetCondition, AssetLocation, ScheduledTicket, Ticket, TicketTask, TicketStatus
 from .. import db, scheduler, run_auto_backup
 from ..utils.security import hash_password
 from ..services.email_poll import poll_ms_graph
@@ -511,7 +511,8 @@ def scheduled_new():
             flash(f'Error creating scheduled ticket: {str(e)}', 'danger')
             return redirect(url_for('admin.scheduled_new'))
     techs = User.query.order_by(User.name.asc()).all()
-    return render_template('admin/scheduled_form.html', action='New', row=None, techs=techs)
+    ticket_statuses = TicketStatus.query.order_by(TicketStatus.position).all()
+    return render_template('admin/scheduled_form.html', action='New', row=None, techs=techs, ticket_statuses=ticket_statuses)
 
 
 @admin_bp.route('/scheduled/<int:row_id>/edit', methods=['GET','POST'])
@@ -552,7 +553,8 @@ def scheduled_edit(row_id):
             flash(f'Error updating scheduled ticket: {str(e)}', 'danger')
             return redirect(url_for('admin.scheduled_edit', row_id=row.id))
     techs = User.query.order_by(User.name.asc()).all()
-    return render_template('admin/scheduled_form.html', action='Edit', row=row, techs=techs)
+    ticket_statuses = TicketStatus.query.order_by(TicketStatus.position).all()
+    return render_template('admin/scheduled_form.html', action='Edit', row=row, techs=techs, ticket_statuses=ticket_statuses)
 
 
 @admin_bp.route('/scheduled/<int:row_id>/delete', methods=['POST'])
@@ -582,7 +584,7 @@ def _create_ticket_from_schedule(row: ScheduledTicket):
     t = Ticket(
         subject=row.subject,
         body=row.body,
-        status=row.status or 'open',
+        status=row.status or 'new',
         priority=row.priority or 'medium',
         assignee_id=row.assignee_id,
         source='scheduled'
@@ -875,6 +877,136 @@ def shipping_data():
             'tax_rate': s.tax_rate or 0.0
         } for s in locations]
     })
+
+
+# --- Ticket Status Management ---
+@admin_bp.route('/ticket-statuses-data')
+@login_required
+def ticket_statuses_data():
+    """Return ticket statuses as JSON for AJAX loading"""
+    # Ensure default statuses exist
+    TicketStatus.ensure_defaults()
+    statuses = TicketStatus.query.order_by(TicketStatus.position).all()
+    return jsonify({
+        'statuses': [{
+            'id': s.id,
+            'name': s.name,
+            'label': s.label,
+            'color': s.color,
+            'is_closed': s.is_closed,
+            'position': s.position
+        } for s in statuses]
+    })
+
+
+@admin_bp.route('/ticket-statuses/new', methods=['POST'])
+@login_required
+def ticket_status_new():
+    """Create a new ticket status"""
+    try:
+        name = (request.form.get('name') or '').strip().lower().replace(' ', '_')
+        label = (request.form.get('label') or '').strip()
+        color = (request.form.get('color') or 'secondary').strip()
+        is_closed = request.form.get('is_closed') in ('1', 'true', 'on', 'yes')
+        
+        if not name or not label:
+            return jsonify({'success': False, 'error': 'Name and label are required'}), 400
+        
+        # Check for duplicate name
+        existing = TicketStatus.query.filter_by(name=name).first()
+        if existing:
+            return jsonify({'success': False, 'error': f'Status "{name}" already exists'}), 400
+        
+        # Get next position
+        max_pos = db.session.query(db.func.max(TicketStatus.position)).scalar() or 0
+        
+        status = TicketStatus(
+            name=name,
+            label=label,
+            color=color,
+            is_closed=is_closed,
+            position=max_pos + 1
+        )
+        db.session.add(status)
+        db.session.commit()
+        return jsonify({'success': True, 'id': status.id})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_bp.route('/ticket-statuses/<int:status_id>/edit', methods=['POST'])
+@login_required
+def ticket_status_edit(status_id):
+    """Update an existing ticket status"""
+    status = TicketStatus.query.get_or_404(status_id)
+    try:
+        name = (request.form.get('name') or '').strip().lower().replace(' ', '_')
+        label = (request.form.get('label') or '').strip()
+        color = (request.form.get('color') or 'secondary').strip()
+        is_closed = request.form.get('is_closed') in ('1', 'true', 'on', 'yes')
+        
+        if not name or not label:
+            return jsonify({'success': False, 'error': 'Name and label are required'}), 400
+        
+        # Check for duplicate name (excluding self)
+        existing = TicketStatus.query.filter(TicketStatus.name == name, TicketStatus.id != status_id).first()
+        if existing:
+            return jsonify({'success': False, 'error': f'Status "{name}" already exists'}), 400
+        
+        # If name changed, update all tickets using the old status name
+        if status.name != name:
+            Ticket.query.filter_by(status=status.name).update({'status': name})
+        
+        status.name = name
+        status.label = label
+        status.color = color
+        status.is_closed = is_closed
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_bp.route('/ticket-statuses/<int:status_id>/delete', methods=['POST'])
+@login_required
+def ticket_status_delete(status_id):
+    """Delete a ticket status"""
+    status = TicketStatus.query.get_or_404(status_id)
+    try:
+        # Don't allow deletion if it's the only status
+        if TicketStatus.query.count() <= 1:
+            return jsonify({'success': False, 'error': 'Cannot delete the only remaining status'}), 400
+        
+        # Check if any tickets use this status
+        ticket_count = Ticket.query.filter_by(status=status.name).count()
+        if ticket_count > 0:
+            return jsonify({'success': False, 'error': f'Cannot delete: {ticket_count} ticket(s) use this status'}), 400
+        
+        db.session.delete(status)
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_bp.route('/ticket-statuses/reorder', methods=['POST'])
+@login_required
+def ticket_statuses_reorder():
+    """Reorder ticket statuses"""
+    try:
+        order = request.json.get('order', [])
+        for idx, status_id in enumerate(order):
+            status = TicketStatus.query.get(status_id)
+            if status:
+                status.position = idx
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @admin_bp.route('/processes-data')
@@ -2890,7 +3022,7 @@ def run_asset_spot_check(app):
         ticket = _Ticket(
             subject=f"Asset Spot Check - {_dt.now().strftime('%Y-%m-%d')}",
             body="\n".join(body_lines),
-            status='open',
+            status='new',
             priority='medium',
             assignee_id=assignee_id,
             source='system'

@@ -262,12 +262,7 @@
                     #{{ ticket.id }} - {{ ticket.subject }}
                   </div>
                   <small class="text-muted">
-                    {% set status_class = 'secondary' %}
-                    {% if ticket.status == 'open' %}{% set status_class = 'primary' %}{% endif %}
-                    {% if ticket.status == 'in_progress' %}{% set status_class = 'warning' %}{% endif %}
-                    {% if ticket.status == 'resolved' %}{% set status_class = 'success' %}{% endif %}
-                    {% if ticket.status == 'closed' %}{% set status_class = 'secondary' %}{% endif %}
-                    <span class="badge text-bg-{{ status_class }} me-1">{{ ticket.status.replace('_', ' ').title() }}</span>
+                    <span class="badge text-bg-{{ ticket.status|status_color }} me-1">{{ ticket.status|status_label }}</span>
                     {{ ticket.created_at|cst_datetime }}
                   </small>
                 </div>

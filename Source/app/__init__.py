@@ -192,7 +192,7 @@ def run_auto_backup(app: Flask) -> None:
                     requester_name="System",
                     requester_email="system@helpdesk.local",
                     body="\n".join(debug_info),
-                    status="open",
+                    status="new",
                     priority="high",
                     source="system",
                     assignee_id=admin_user.id if admin_user else None,
@@ -270,7 +270,15 @@ def create_app():
         # Hint defaults for attachments/base if settings not yet defined
         # (Settings table may override later; code computing attachments_abs uses instance_path)
     else:
-        app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///helpdesk.db")
+        # In non-frozen/dev mode, avoid a relative SQLite path because it depends on
+        # the process working directory (and can silently create a new empty DB).
+        # Prefer a stable instance-scoped path unless DATABASE_URL is explicitly set.
+        env_uri = os.getenv("DATABASE_URL")
+        if env_uri:
+            app.config["SQLALCHEMY_DATABASE_URI"] = env_uri
+        else:
+            db_path = Path(app.instance_path) / 'helpdesk.db'
+            app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{db_path}".replace('\\', '/')
 
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
@@ -389,6 +397,13 @@ def create_app():
                 db.session.commit()
         except Exception:
             pass
+
+        # Ensure default ticket statuses exist
+        try:
+            from .models import TicketStatus
+            TicketStatus.ensure_defaults()
+        except Exception as e:
+            app.logger.warning(f'Failed to initialize ticket statuses: {e}')
 
         # Migrate unencrypted sensitive settings to encrypted format
         try:
@@ -512,6 +527,35 @@ def create_app():
             return str(value)
 
     app.add_template_filter(cst_datetime, name='cst_datetime')
+
+    # Template filter for getting status color from database
+    def get_status_color(status_name):
+        """Get the Bootstrap color class for a ticket status."""
+        try:
+            from .models import TicketStatus
+            status = TicketStatus.query.filter_by(name=status_name).first()
+            if status:
+                return status.color
+        except Exception:
+            pass
+        # Fallback colors for default statuses
+        fallback = {'open': 'success', 'in_progress': 'warning', 'closed': 'danger'}
+        return fallback.get(status_name, 'secondary')
+
+    def get_status_label(status_name):
+        """Get the display label for a ticket status."""
+        try:
+            from .models import TicketStatus
+            status = TicketStatus.query.filter_by(name=status_name).first()
+            if status:
+                return status.label
+        except Exception:
+            pass
+        # Fallback: capitalize and replace underscores
+        return status_name.replace('_', ' ').title() if status_name else ''
+
+    app.add_template_filter(get_status_color, name='status_color')
+    app.add_template_filter(get_status_label, name='status_label')
 
     # Schedule email polling job (can be disabled for tests by setting DISABLE_SCHEDULER=1)
     if os.getenv("DISABLE_SCHEDULER") != "1":

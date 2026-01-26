@@ -19,8 +19,15 @@ def needs_setup():
         user_count = User.query.count()
         return user_count == 0
     except Exception:
-        # If we can't query, assume we need setup
-        return True
+        # Connection might be stale after a restore - try fresh connection
+        try:
+            db.session.remove()
+            db.engine.dispose()
+            user_count = User.query.count()
+            return user_count == 0
+        except Exception:
+            # If we still can't query, assume we need setup
+            return True
 
 
 @setup_bp.route('/')
@@ -165,6 +172,23 @@ def restore_database():
         
         # Replace with uploaded
         shutil.copyfile(tmp_path, db_path)
+        
+        # Force SQLAlchemy to reconnect with the new database file
+        # This ensures the next query uses fresh connections to the restored DB
+        db.engine.dispose()
+        
+        # Verify the restored database has users before redirecting to login
+        # This prevents being stuck in setup loop due to stale connection state
+        try:
+            with db.engine.connect() as conn:
+                # Quote table name because "user" can be treated specially by some SQL dialects.
+                result = conn.execute(db.text('SELECT COUNT(*) FROM "user"'))
+                user_count = result.scalar()
+                if user_count == 0:
+                    flash('Restored database has no users. Please create an admin account.', 'warning')
+                    return redirect(url_for('setup.index'))
+        except Exception as verify_err:
+            current_app.logger.warning(f'Could not verify restored database: {verify_err}')
         
         # Re-run lightweight migrations to ensure required columns exist
         try:
