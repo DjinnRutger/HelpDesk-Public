@@ -102,6 +102,7 @@ class ProfileForm(FlaskForm):
     confirm_password = PasswordField('Confirm New Password', validators=[Optional(), EqualTo('new_password', message='Passwords must match')])
     theme = SelectField('Theme', choices=[('light','Light Mode'), ('dark','Dark Mode'), ('ocean','Ocean'), ('fallout','Fallout Terminal')], validators=[DataRequired()])
     tickets_view_pref = SelectField('Default Tickets View', choices=[('any','Any'), ('me','Assigned to me'), ('me_or_unassigned','Unassigned and Assigned to me')], validators=[DataRequired()])
+    signature = StringField('Email Signature', validators=[Optional(), Length(max=500)])
     submit = SubmitField('Save Changes')
 
 

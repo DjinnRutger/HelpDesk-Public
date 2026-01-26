@@ -569,6 +569,11 @@ def show_ticket(ticket_id):
                     from ..services.ms_graph import send_mail
                     subject = f"Ticket#{t.id} - {t.subject}"
                     body_html = note.content or ''
+                    # Append tech's signature to public note emails
+                    if current_user and hasattr(current_user, 'effective_signature'):
+                        sig = current_user.effective_signature
+                        if sig:
+                            body_html = f"{body_html}<br><br>{sig}"
                     send_mail(to_email, subject, body_html, category='ticket_note', ticket_id=t.id)
             except Exception:
                 pass

@@ -25,6 +25,11 @@
             {{ form.tickets_view_pref.label(class="form-label") }}
             {{ form.tickets_view_pref(class="form-select") }}
           </div>
+          <div class="mb-3">
+            {{ form.signature.label(class="form-label") }}
+            {{ form.signature(class="form-control", placeholder="e.g., -John or Thanks, John") }}
+            <small class="text-muted">This signature is appended to public note emails sent to users.</small>
+          </div>
           <hr>
           <div class="mb-3">
             {{ form.current_password.label(class="form-label") }}

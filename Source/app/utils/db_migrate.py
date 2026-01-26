@@ -35,6 +35,7 @@ def ensure_user_columns(engine):
     required = {
         'theme': "TEXT",
     'tickets_view_pref': "TEXT",
+        'signature': "TEXT",
     }
 
     with engine.connect() as conn:

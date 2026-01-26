@@ -49,7 +49,15 @@ class User(UserMixin, db.Model):
     is_active = db.Column(db.Boolean, default=True)
     theme = db.Column(db.String(20), default="light")  # 'light', 'dark', or custom keys
     tickets_view_pref = db.Column(db.String(40), default="any")  # 'any', 'me', 'me_or_unassigned'
+    signature = db.Column(db.String(500), nullable=True)  # Email signature for public notes
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    @property
+    def effective_signature(self):
+        """Return the signature or default to '-name' format."""
+        if self.signature:
+            return self.signature
+        return f"-{self.name}" if self.name else ""
 
     def get_id(self):
         return str(self.id)

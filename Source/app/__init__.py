@@ -270,7 +270,15 @@ def create_app():
         # Hint defaults for attachments/base if settings not yet defined
         # (Settings table may override later; code computing attachments_abs uses instance_path)
     else:
-        app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///helpdesk.db")
+        # In non-frozen/dev mode, avoid a relative SQLite path because it depends on
+        # the process working directory (and can silently create a new empty DB).
+        # Prefer a stable instance-scoped path unless DATABASE_URL is explicitly set.
+        env_uri = os.getenv("DATABASE_URL")
+        if env_uri:
+            app.config["SQLALCHEMY_DATABASE_URI"] = env_uri
+        else:
+            db_path = Path(app.instance_path) / 'helpdesk.db'
+            app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{db_path}".replace('\\', '/')
 
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 

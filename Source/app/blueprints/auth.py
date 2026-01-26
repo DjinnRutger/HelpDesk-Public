@@ -41,11 +41,12 @@ def profile():
             flash('Email is already in use by another account.', 'danger')
             return render_template('auth/profile.html', form=form)
 
-        # Update name, email, theme, and default tickets view
+        # Update name, email, theme, default tickets view, and signature
         current_user.name = form.name.data
         current_user.email = email_lower
         current_user.theme = form.theme.data
         current_user.tickets_view_pref = form.tickets_view_pref.data
+        current_user.signature = form.signature.data
 
         # Handle password change if provided
         if form.new_password.data:
@@ -61,4 +62,5 @@ def profile():
     if request.method == 'GET':
         form.theme.data = getattr(current_user, 'theme', 'light')
         form.tickets_view_pref.data = getattr(current_user, 'tickets_view_pref', 'any')
+        form.signature.data = getattr(current_user, 'signature', None) or current_user.effective_signature
     return render_template('auth/profile.html', form=form)

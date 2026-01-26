@@ -382,6 +382,10 @@ def _send_password_expiry_notifications(expiring_users: List[Dict[str, Any]], lo
         subject = _replace_template_placeholders(template.subject, user, contact)
         body = _replace_template_placeholders(template.body, user, contact)
         
+        # Convert newlines to HTML line breaks for proper email formatting
+        # This preserves the formatting from the email template
+        body = body.replace('\r\n', '<br>').replace('\n', '<br>').replace('\r', '<br>')
+        
         # Send the email
         try:
             success = send_mail(
