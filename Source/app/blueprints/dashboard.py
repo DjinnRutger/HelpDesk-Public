@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, url_for, request
+from flask import Blueprint, render_template, url_for, request, jsonify
 from flask_login import login_required, current_user
 from ..models import Ticket, Project, User, TicketStatus
 from .. import db
@@ -131,5 +131,36 @@ def index():
         'health_color': health_color,
         'health_class': health_class,
         'leaders': leaders,
+        'health_breakdown': {
+            'overdue_count': overdue_count,
+            'overdue_penalty': overdue_count * 10,
+            'unassigned_24h': unassigned_24h,
+            'unassigned_penalty': unassigned_24h * 5,
+            'open_7days': open_7days,
+            'open_7days_penalty': open_7days * 2,
+            'open_14days': open_14days,
+            'open_14days_penalty': open_14days * 4,
+            'closed_today': closed_today,
+            'closed_today_bonus': closed_today * 3,
+        },
     }
     return render_template('dashboard/index.html', tickets=tickets, stats=stats, show_snoozed=show_snoozed)
+
+
+@dashboard_bp.route('/ticket-sources')
+@login_required
+def ticket_sources():
+    """Return ticket-source breakdown as JSON for the pie chart."""
+    days = request.args.get('days', 30, type=int)
+    if days not in (7, 30, 60, 90):
+        days = 30
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    rows = (
+        db.session.query(Ticket.source, func.count(Ticket.id))
+        .filter(Ticket.created_at >= cutoff)
+        .group_by(Ticket.source)
+        .all()
+    )
+    labels = [r[0] or 'Unknown' for r in rows]
+    counts = [r[1] for r in rows]
+    return jsonify(labels=labels, counts=counts, days=days)
