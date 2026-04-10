@@ -199,8 +199,13 @@ document.addEventListener('DOMContentLoaded', function() {
   rows.forEach(row => {
     row.style.cursor = 'pointer';
     row.addEventListener('click', () => {
-      const url = row.getAttribute('data-href');
-      if (url) window.location = url;
+      let url = row.getAttribute('data-href');
+      if (url) {
+        if (url.includes('/tickets/')) {
+          url += (url.includes('?') ? '&' : '?') + 'back=' + encodeURIComponent(window.location.pathname + window.location.search);
+        }
+        window.location = url;
+      }
     });
     row.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {

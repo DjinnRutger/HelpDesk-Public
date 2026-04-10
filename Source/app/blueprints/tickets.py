@@ -335,20 +335,42 @@ def new_ticket():
                 c = Contact(email=email)
                 db.session.add(c)
             # We don't have a separate requester name on manual form; use Contact name if present
+        assignee_id = form.assignee_id.data if form.assignee_id.data else None
+        if assignee_id == 0:
+            assignee_id = None
         t = Ticket(
             subject=form.subject.data,
             requester=form.requester.data,
             requester_email=form.requester.data,
             requester_name=(c.name if c and c.name else None),
             body=form.body.data,
-            status=form.status.data,
+            status='new',
             priority=form.priority.data or 'medium',
             source=form.source.data or 'manual',
             created_by_user_id=getattr(current_user, 'id', None),
-            asset_id=(form.asset_id.data if form.asset_id.data else None) if form.asset_id.data != 0 else None
+            asset_id=(form.asset_id.data if form.asset_id.data else None) if form.asset_id.data != 0 else None,
+            assignee_id=assignee_id,
         )
         db.session.add(t)
         db.session.commit()
+        # Email the assignee if they are someone other than the person creating the ticket
+        if assignee_id and assignee_id != getattr(current_user, 'id', None):
+            try:
+                from ..services.ms_graph import send_mail
+                new_assignee = User.query.get(assignee_id)
+                if new_assignee and new_assignee.email:
+                    link = url_for('tickets.show_ticket', ticket_id=t.id, _external=True)
+                    requester = t.requester_name or t.requester_email or t.requester or 'Unknown'
+                    html = f"""
+                        <p>Hi {new_assignee.name},</p>
+                        <p>A new ticket has been assigned to you.</p>
+                        <p><strong>Ticket #{t.id}</strong>: {t.subject}</p>
+                        <p><strong>From:</strong> {requester}</p>
+                        <p><a href="{link}">View ticket</a></p>
+                    """
+                    send_mail(new_assignee.email, f"New Ticket Assigned: #{t.id}", html, to_name=new_assignee.name, category='ticket_assigned', ticket_id=t.id)
+            except Exception:
+                pass
         flash('Ticket created', 'success')
         return redirect(url_for('tickets.list_tickets'))
     elif request.method == 'POST':
@@ -724,7 +746,12 @@ def show_ticket(ticket_id):
         else:
             is_watching = TicketWatcher.query.filter_by(ticket_id=t.id, user_id=user_id).first() is not None
     
-    return render_template('tickets/detail.html', t=t, notes=notes, tasks=tasks, tasks_by_list=tasks_by_list, order_items=order_items, note_form=note_form, update_form=update_form, assign_form=assign_form, task_form=task_form, contact=contact, techs=techs, merge_form=merge_form, contact_assets=contact_assets, contacts=contacts, approval_requests=approval_requests, is_watching=is_watching)
+    back_url = request.args.get('back', '')
+    # Only allow internal paths (must start with /) to prevent open redirect
+    if not back_url.startswith('/'):
+        back_url = ''
+
+    return render_template('tickets/detail.html', t=t, notes=notes, tasks=tasks, tasks_by_list=tasks_by_list, order_items=order_items, note_form=note_form, update_form=update_form, assign_form=assign_form, task_form=task_form, contact=contact, techs=techs, merge_form=merge_form, contact_assets=contact_assets, contacts=contacts, approval_requests=approval_requests, is_watching=is_watching, back_url=back_url)
 
 
 @tickets_bp.route('/<int:ticket_id>/attachments/<path:filename>')

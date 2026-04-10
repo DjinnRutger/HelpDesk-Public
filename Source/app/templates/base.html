@@ -120,8 +120,13 @@
         if (!tr) return;
         // Ignore clicks on interactive elements
         if (e.target.closest('a, button, input, textarea, select, .btn')) return;
-        const href = tr.getAttribute('data-href');
-        if (href) window.location = href;
+        let href = tr.getAttribute('data-href');
+        if (href) {
+          if (href.includes('/tickets/')) {
+            href += (href.includes('?') ? '&' : '?') + 'back=' + encodeURIComponent(window.location.pathname + window.location.search);
+          }
+          window.location = href;
+        }
       });
     </script>
   {% block extra_modals %}{% endblock %}

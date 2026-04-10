@@ -331,7 +331,7 @@ def ensure_company_shipping_tables(engine):
 
 
 def ensure_documents_tables(engine):
-    """Create document_category and document tables if missing."""
+    """Create document_category and document tables if missing; add parent_id for sub-categories."""
     from sqlalchemy import text
     with engine.connect() as conn:
         # document_category
@@ -342,11 +342,20 @@ def ensure_documents_tables(engine):
                 """
                 CREATE TABLE document_category (
                     id INTEGER PRIMARY KEY,
-                    name TEXT UNIQUE NOT NULL,
+                    name TEXT NOT NULL,
+                    parent_id INTEGER REFERENCES document_category(id),
                     created_at DATETIME
                 )
                 """
             ))
+        else:
+            # Add columns if upgrading from older versions
+            info = conn.execute(text("PRAGMA table_info('document_category')")).fetchall()
+            existing = {row[1] for row in info}
+            if 'parent_id' not in existing:
+                conn.execute(text("ALTER TABLE document_category ADD COLUMN parent_id INTEGER REFERENCES document_category(id)"))
+            if 'position' not in existing:
+                conn.execute(text("ALTER TABLE document_category ADD COLUMN position INTEGER NOT NULL DEFAULT 0"))
         # document
         exists_doc = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='document'"))\
             .fetchone() is not None

@@ -241,3 +241,14 @@
   </div>
 </div>
 {% endblock %}
+{% block scripts %}
+<script>
+  // Save current filtered URL so the detail page can navigate back to it
+  document.addEventListener('click', function(e) {
+    const tr = e.target.closest('tr.clickable-row');
+    if (!tr) return;
+    if (e.target.closest('a, button, input, textarea, select, .btn')) return;
+    sessionStorage.setItem('assetsBackUrl', window.location.href);
+  });
+</script>
+{% endblock %}

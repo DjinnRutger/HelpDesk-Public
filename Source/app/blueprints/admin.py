@@ -1153,14 +1153,24 @@ def techs_data():
 @admin_bp.route('/doccategories-data')
 @login_required
 def doccategories_data():
-    """Return document categories as JSON for AJAX loading"""
-    categories = DocumentCategory.query.order_by(DocumentCategory.name.asc()).all()
-    # documents relationship is lazy='dynamic', so use .count() instead of len()
-    return jsonify([{
-        'id': c.id,
-        'name': c.name,
-        'documents_count': c.documents.count()
-    } for c in categories])
+    """Return document categories as hierarchical JSON for AJAX loading"""
+    root_cats = DocumentCategory.query.filter_by(parent_id=None).order_by(DocumentCategory.position.asc(), DocumentCategory.name.asc()).all()
+    result = []
+    for c in root_cats:
+        subcats = sorted([{
+            'id': sub.id,
+            'name': sub.name,
+            'parent_id': sub.parent_id,
+            'documents_count': sub.documents.count()
+        } for sub in c.subcategories], key=lambda x: x['name'])
+        result.append({
+            'id': c.id,
+            'name': c.name,
+            'parent_id': None,
+            'documents_count': c.documents.count(),
+            'subcategories': subcats
+        })
+    return jsonify(result)
 
 
 @admin_bp.route('/scheduled-data')
@@ -2052,27 +2062,53 @@ def documents_categories():
     
     if request.method == 'POST':
         name = (request.form.get('name') or '').strip()
+        parent_id_raw = (request.form.get('parent_id') or '').strip()
+        parent_id = None
+
         if not name:
             if is_ajax:
                 return jsonify({'success': False, 'error': 'Category name is required'})
             flash('Category name is required', 'danger')
             return redirect(url_for('admin.documents_categories'))
-        
-        exists = DocumentCategory.query.filter(DocumentCategory.name.ilike(name)).first()
+
+        if parent_id_raw:
+            try:
+                parent_id = int(parent_id_raw)
+                parent_cat = DocumentCategory.query.get(parent_id)
+                if not parent_cat:
+                    if is_ajax:
+                        return jsonify({'success': False, 'error': 'Invalid parent category'})
+                    flash('Invalid parent category', 'danger')
+                    return redirect(url_for('admin.documents_categories'))
+                if parent_cat.parent_id is not None:
+                    if is_ajax:
+                        return jsonify({'success': False, 'error': 'Sub-categories cannot have sub-categories'})
+                    flash('Sub-categories cannot have sub-categories', 'danger')
+                    return redirect(url_for('admin.documents_categories'))
+            except ValueError:
+                if is_ajax:
+                    return jsonify({'success': False, 'error': 'Invalid parent category'})
+                flash('Invalid parent category', 'danger')
+                return redirect(url_for('admin.documents_categories'))
+
+        exists = DocumentCategory.query.filter(
+            DocumentCategory.name.ilike(name),
+            DocumentCategory.parent_id == parent_id
+        ).first()
         if exists:
             if is_ajax:
-                return jsonify({'success': False, 'error': 'A category with that name already exists'})
-            flash('A category with that name already exists.', 'warning')
+                return jsonify({'success': False, 'error': 'A category with that name already exists at this level'})
+            flash('A category with that name already exists at this level.', 'warning')
             return redirect(url_for('admin.documents_categories'))
-        
+
         try:
-            c = DocumentCategory(name=name)
+            c = DocumentCategory(name=name, parent_id=parent_id)
             db.session.add(c)
             db.session.commit()
-            
+
             if is_ajax:
                 return jsonify({'success': True, 'id': c.id})
-            
+
             flash('Category created', 'success')
             return redirect(url_for('admin.documents_categories'))
         except Exception as e:
@@ -2081,8 +2117,8 @@ def documents_categories():
                 return jsonify({'success': False, 'error': str(e)})
             flash(f'Error creating category: {str(e)}', 'danger')
             return redirect(url_for('admin.documents_categories'))
-    
-    cats = DocumentCategory.query.order_by(DocumentCategory.name.asc()).all()
+
+    cats = DocumentCategory.query.filter_by(parent_id=None).order_by(DocumentCategory.position.asc(), DocumentCategory.name.asc()).all()
     return render_template('admin/documents.html', categories=cats)
 
 # --- Assets: Picklists management ---
@@ -2233,6 +2269,31 @@ def documents_category_delete(category_id):
             return jsonify({'success': False, 'error': str(e)})
         flash(f'Error deleting category: {str(e)}', 'danger')
         return redirect(url_for('admin.documents_categories'))
+
+
+@admin_bp.route('/documents/categories/reorder', methods=['POST'])
+@login_required
+def documents_categories_reorder():
+    data = request.get_json()
+    if not data or 'categories' not in data:
+        return jsonify({'success': False, 'error': 'Invalid data'}), 400
+    try:
+        for item in data['categories']:
+            cat = DocumentCategory.query.get(item['id'])
+            if not cat:
+                continue
+            new_parent_id = item.get('parent_id')
+            if new_parent_id is not None:
+                parent = DocumentCategory.query.get(new_parent_id)
+                if not parent or parent.parent_id is not None:
+                    return jsonify({'success': False, 'error': 'Cannot nest more than one level deep'}), 400
+            cat.parent_id = new_parent_id
+            cat.position = item.get('position', 0)
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @admin_bp.route('/techs/new', methods=['GET', 'POST'])

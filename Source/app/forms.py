@@ -28,17 +28,17 @@ class TicketForm(FlaskForm):
     subject = StringField('Subject', validators=[DataRequired(), Length(max=300)])
     requester = StringField('Requester', validators=[Optional(), Email()])
     body = TextAreaField('Body', validators=[Optional()])
-    status = SelectField('Status', choices=[])  # Populated dynamically
+    assignee_id = SelectField('Assignee', coerce=int, validators=[Optional()])
     priority = SelectField('Priority', choices=[('low','Low'), ('medium','Medium'), ('high','High')], default='medium')
     source = SelectField('Source', choices=[('email','Email'), ('zoom','Zoom'), ('walk_in','Walk In'), ('phone','Phone')], default='email')
     asset_id = SelectField('Asset', coerce=int, validators=[Optional()], choices=[])
     submit = SubmitField('Save')
-    
+
     def __init__(self, *args, **kwargs):
         super(TicketForm, self).__init__(*args, **kwargs)
-        # Load status choices from database
-        from .models import TicketStatus
-        self.status.choices = TicketStatus.get_choices()
+        from .models import User
+        techs = User.query.filter_by(is_active=True).order_by(User.name.asc()).all()
+        self.assignee_id.choices = [(0, '— Unassigned —')] + [(u.id, u.name) for u in techs]
 
 class NoteForm(FlaskForm):
     content = TextAreaField('Add note', validators=[DataRequired(), Length(min=1)])

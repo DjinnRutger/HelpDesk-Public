@@ -208,6 +208,43 @@
 {% endblock %}
 
 {% block extra_modals %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.3/Sortable.min.js"></script>
+<style>
+  .doc-drag-handle { cursor: grab; opacity: 0.45; transition: opacity 0.15s; }
+  .doc-drag-handle:hover { opacity: 1; }
+  .doc-drag-handle:active { cursor: grabbing !important; }
+  .doc-cat-row { transition: background 0.12s; border-radius: 0.35rem; }
+  .doc-cat-row:hover { background: var(--bs-tertiary-bg) !important; }
+  /* Empty sub-list: collapsed thin line */
+  .doc-sub-list {
+    min-height: 6px;
+    border: 1px dashed var(--bs-border-color) !important;
+    padding: 0 !important;
+    margin-top: 3px;
+    transition: min-height 0.15s, border-color 0.15s, background 0.15s, padding 0.15s;
+    border-radius: 0.35rem;
+  }
+  /* Sub-list with children: full padding and border */
+  .doc-sub-list.doc-has-children {
+    min-height: unset;
+    border: 2px dashed var(--bs-border-color) !important;
+    padding: 0.25rem !important;
+    margin-top: 6px;
+  }
+  /* Expand on hover or drag-over so it's easy to drop into */
+  .doc-sub-list:hover,
+  .doc-sub-list.doc-drag-over {
+    min-height: 32px !important;
+    border: 2px dashed var(--bs-success) !important;
+    padding: 0.25rem !important;
+  }
+  .doc-sub-list.doc-drag-over { background: var(--bs-success-bg-subtle) !important; }
+  .doc-sortable-ghost { opacity: 0.35; }
+  .doc-sortable-chosen .doc-cat-row { outline: 2px solid var(--bs-success); outline-offset: -1px; border-radius: 0.35rem; }
+  .doc-is-sub > .doc-sub-list { display: none !important; }
+  @keyframes doc-spin { to { transform: rotate(360deg); } }
+  .doc-spin { display: inline-block; animation: doc-spin 0.8s linear infinite; }
+</style>
 <!-- Ticket Import Modal (Email + FTP) -->
 <div class="modal fade" id="emailModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
@@ -835,11 +872,20 @@
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-          <h6 class="mb-0">Organize documents by category</h6>
-          <button class="btn btn-success btn-sm" onclick="showDocCategoryForm()">
-            <i class="bi bi-plus-lg me-1"></i>New Category
-          </button>
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div>
+            <h6 class="mb-0">Organize documents by category</h6>
+            <small class="text-muted"><i class="bi bi-grip-vertical me-1"></i>Drag to reorder or nest categories</small>
+          </div>
+          <div class="d-flex align-items-center gap-2">
+            <span id="doc-save-status" class="small" style="display:none;">
+              <span id="doc-status-saving" class="text-muted"><i class="bi bi-arrow-repeat doc-spin me-1"></i>Saving…</span>
+              <span id="doc-status-done" class="text-success" style="display:none;"><i class="bi bi-check-lg me-1"></i>Saved</span>
+            </span>
+            <button class="btn btn-success btn-sm" onclick="showDocCategoryForm()">
+              <i class="bi bi-plus-lg me-1"></i>New Category
+            </button>
+          </div>
         </div>
         
         <div id="doccategory-form-container" style="display: none;" class="mb-3">
@@ -850,6 +896,13 @@
                 <div class="mb-3">
                   <label class="form-label small fw-semibold">Category Name</label>
                   <input class="form-control" name="name" id="doccategory_name" placeholder="e.g., SOPs" required>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label small fw-semibold">Parent Category <span class="text-muted fw-normal">(optional)</span></label>
+                  <select class="form-select" name="parent_id" id="doccategory_parent_id">
+                    <option value="">None (top-level category)</option>
+                  </select>
+                  <div class="form-text">Select a parent to create a sub-category.</div>
                 </div>
                 <div class="d-flex gap-2 justify-content-end">
                   <button type="button" class="btn btn-outline-secondary" onclick="hideDocCategoryForm()">Cancel</button>
@@ -863,9 +916,7 @@
         </div>
 
         <div id="doccategories-list">
-          <ul class="list-group" id="doccategories-ul">
-            <li class="list-group-item text-center text-muted">Loading...</li>
-          </ul>
+          <p class="text-muted text-center small py-2">Loading…</p>
         </div>
       </div>
     </div>
@@ -2103,115 +2154,251 @@ function deleteProcess(id) {
 // DOCUMENT CATEGORIES MODAL FUNCTIONALITY
 // ============================================
 let docCategoriesData = [];
+let docStatusTimer = null;
 
-// Event listener for Documents modal
 document.getElementById('documentsModal').addEventListener('shown.bs.modal', function() {
   loadDocCategories();
 });
 
-// Load document categories from backend
 function loadDocCategories() {
   fetch('/admin/doccategories-data')
-    .then(response => response.json())
-    .then(data => {
-      docCategoriesData = data;
-      renderDocCategories();
-    })
-    .catch(err => {
-      console.error('Error loading document categories:', err);
-    });
+    .then(r => r.json())
+    .then(data => { docCategoriesData = data; renderDocCategories(); })
+    .catch(err => console.error('Error loading document categories:', err));
 }
 
-// Render document categories list
-function renderDocCategories() {
-  const ul = document.getElementById('doccategories-ul');
-  if (!ul) return;
-  
-  ul.innerHTML = '';
-  docCategoriesData.forEach(category => {
-    const docsCount = category.documents_count || 0;
-    const item = `
-      <li class="list-group-item d-flex justify-content-between align-items-center">
-        <div>
-          <strong>${escapeHtml(category.name)}</strong>
-          <span class="text-muted ms-2">(${docsCount} documents)</span>
-        </div>
-        <button class="btn btn-sm btn-danger" onclick="deleteDocCategory(${category.id})">Delete</button>
-      </li>
-    `;
-    ul.innerHTML += item;
+// ── Save-status indicator ────────────────────────────────────────────────────
+function docShowStatus(state) {
+  const wrap = document.getElementById('doc-save-status');
+  if (!wrap) return;
+  wrap.style.display = '';
+  document.getElementById('doc-status-saving').style.display = state === 'saving' ? '' : 'none';
+  document.getElementById('doc-status-done').style.display   = state === 'done'   ? '' : 'none';
+  if (state === 'done') {
+    clearTimeout(docStatusTimer);
+    docStatusTimer = setTimeout(() => { wrap.style.display = 'none'; }, 2000);
+  }
+}
+
+// ── Serialize DOM → payload ──────────────────────────────────────────────────
+function docSerializeOrder() {
+  const result = [];
+  const rootList = document.getElementById('doc-root-list');
+  if (!rootList) return result;
+  rootList.querySelectorAll(':scope > .doc-cat-item').forEach((rootEl, rootPos) => {
+    const rootId = parseInt(rootEl.dataset.id);
+    result.push({ id: rootId, parent_id: null, position: rootPos });
+    const subList = rootEl.querySelector(':scope > .doc-sub-list');
+    if (subList) {
+      subList.querySelectorAll(':scope > .doc-cat-item').forEach((subEl, subPos) => {
+        result.push({ id: parseInt(subEl.dataset.id), parent_id: rootId, position: subPos });
+      });
+    }
+  });
+  return result;
+}
+
+function docSaveOrder() {
+  docShowStatus('saving');
+  fetch('/admin/documents/categories/reorder', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token() }}', 'X-Requested-With': 'XMLHttpRequest' },
+    body: JSON.stringify({ categories: docSerializeOrder() })
+  })
+  .then(r => r.json())
+  .then(data => { docShowStatus(data.success ? 'done' : 'saving'); })
+  .catch(() => {});
+}
+
+// ── Toggle has-children class on a sub-list ─────────────────────────────────
+function docRefreshPlaceholder(subList) {
+  const hasItems = subList.querySelectorAll(':scope > .doc-cat-item').length > 0;
+  subList.classList.toggle('doc-has-children', hasItems);
+}
+
+// ── Visual promotion / demotion ──────────────────────────────────────────────
+function docPromoteToRoot(item) {
+  item.classList.remove('doc-is-sub');
+  const row = item.querySelector(':scope > .doc-cat-row');
+  if (row) { row.classList.add('bg-body-secondary'); row.style.background = ''; }
+  const icon = item.querySelector(':scope > .doc-cat-row .doc-folder-icon');
+  if (icon) { icon.className = 'bi bi-folder-fill text-warning doc-folder-icon'; }
+  let subList = item.querySelector(':scope > .doc-sub-list');
+  if (!subList) {
+    subList = document.createElement('ul');
+    subList.className = 'doc-sub-list list-unstyled ms-4 mt-1 mb-0 p-1';
+    subList.dataset.parentId = item.dataset.id;
+    item.appendChild(subList);
+    docInitSubList(subList);
+  }
+  docRefreshPlaceholder(subList);
+}
+
+function docDemoteToSub(item) {
+  item.classList.add('doc-is-sub');
+  const row = item.querySelector(':scope > .doc-cat-row');
+  if (row) { row.classList.remove('bg-body-secondary'); row.style.background = 'var(--bs-body-bg)'; }
+  const icon = item.querySelector(':scope > .doc-cat-row .doc-folder-icon');
+  if (icon) { icon.className = 'bi bi-folder text-secondary doc-folder-icon'; }
+}
+
+// ── Initialize a sub-list ────────────────────────────────────────────────────
+function docInitSubList(subList) {
+  subList.addEventListener('dragenter', () => subList.classList.add('doc-drag-over'));
+  subList.addEventListener('dragleave', e => { if (!subList.contains(e.relatedTarget)) subList.classList.remove('doc-drag-over'); });
+  subList.addEventListener('drop', () => subList.classList.remove('doc-drag-over'));
+
+  Sortable.create(subList, {
+    handle: '.doc-drag-handle',
+    animation: 150,
+    ghostClass: 'doc-sortable-ghost',
+    chosenClass: 'doc-sortable-chosen',
+    group: {
+      name: 'doc-cats',
+      pull: true,
+      put: function(to, from, dragged) {
+        // Block items that already have visible sub-items
+        const inner = dragged.querySelector(':scope > .doc-sub-list');
+        return !(inner && inner.querySelectorAll(':scope > .doc-cat-item').length > 0);
+      }
+    },
+    onAdd: function(evt) { docDemoteToSub(evt.item); docRefreshPlaceholder(evt.to); docSaveOrder(); },
+    onUpdate: () => docSaveOrder(),
+    onRemove: function(evt) { docRefreshPlaceholder(evt.from); }
   });
 }
 
-// Show document category form
+// ── Build and render the draggable tree ─────────────────────────────────────
+function renderDocCategories() {
+  const container = document.getElementById('doccategories-list');
+  if (!container) return;
+  container.innerHTML = '';
+
+  if (!docCategoriesData.length) {
+    container.innerHTML = '<p class="text-muted text-center small py-2 mb-0">No categories yet.</p>';
+    updateParentCategorySelect();
+    return;
+  }
+
+  const rootUl = document.createElement('ul');
+  rootUl.id = 'doc-root-list';
+  rootUl.className = 'list-unstyled mb-0';
+
+  docCategoriesData.forEach(cat => {
+    const subs = cat.subcategories || [];
+
+    // Build sub-items HTML string
+    const subsItemsHtml = subs.map(sub => `
+      <li class="doc-cat-item doc-is-sub mb-1" data-id="${sub.id}">
+        <div class="doc-cat-row d-flex align-items-center justify-content-between px-2 py-1" style="background:var(--bs-body-bg);">
+          <div class="d-flex align-items-center gap-2">
+            <i class="bi bi-grip-vertical doc-drag-handle fs-5"></i>
+            <i class="bi bi-folder text-secondary doc-folder-icon"></i>
+            <span>${escapeHtml(sub.name)}</span>
+            <span class="text-muted small">(${sub.documents_count} docs)</span>
+          </div>
+          <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="deleteDocCategory(${sub.id},'${escapeHtml(sub.name).replace(/'/g,"\\'")}')"><i class="bi bi-trash"></i></button>
+        </div>
+      </li>
+    `).join('');
+
+    const li = document.createElement('li');
+    li.className = 'doc-cat-item mb-1';
+    li.dataset.id = cat.id;
+    li.innerHTML = `
+      <div class="doc-cat-row d-flex align-items-center justify-content-between px-2 py-2 bg-body-secondary">
+        <div class="d-flex align-items-center gap-2">
+          <i class="bi bi-grip-vertical doc-drag-handle fs-5"></i>
+          <i class="bi bi-folder-fill text-warning doc-folder-icon"></i>
+          <strong>${escapeHtml(cat.name)}</strong>
+          <span class="text-muted small">(${cat.documents_count} docs)</span>
+        </div>
+        <button class="btn btn-sm btn-danger py-0 px-2" onclick="deleteDocCategory(${cat.id},'${escapeHtml(cat.name).replace(/'/g,"\\'")}')"><i class="bi bi-trash"></i></button>
+      </div>
+      <ul class="doc-sub-list list-unstyled ms-3 mb-1${subs.length ? ' doc-has-children' : ''}" data-parent-id="${cat.id}">
+        ${subsItemsHtml}
+      </ul>
+    `;
+    rootUl.appendChild(li);
+  });
+
+  container.appendChild(rootUl);
+
+  // Init root sortable
+  Sortable.create(rootUl, {
+    handle: '.doc-drag-handle',
+    animation: 150,
+    ghostClass: 'doc-sortable-ghost',
+    chosenClass: 'doc-sortable-chosen',
+    group: { name: 'doc-cats', pull: true, put: true },
+    onAdd: function(evt) {
+      docPromoteToRoot(evt.item);
+      const newSub = evt.item.querySelector(':scope > .doc-sub-list');
+      if (newSub && !newSub._docInited) { newSub._docInited = true; docInitSubList(newSub); }
+      docSaveOrder();
+    },
+    onUpdate: () => docSaveOrder()
+  });
+
+  // Init each sub-list
+  rootUl.querySelectorAll('.doc-sub-list').forEach(sl => { sl._docInited = true; docInitSubList(sl); });
+
+  updateParentCategorySelect();
+}
+
+// ── Form helpers ─────────────────────────────────────────────────────────────
+function updateParentCategorySelect() {
+  const sel = document.getElementById('doccategory_parent_id');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">None (top-level category)</option>';
+  docCategoriesData.forEach(c => {
+    sel.innerHTML += `<option value="${c.id}"${cur == c.id ? ' selected' : ''}>${escapeHtml(c.name)}</option>`;
+  });
+}
+
 function showDocCategoryForm() {
   document.getElementById('doccategory-form-container').style.display = 'block';
   document.getElementById('doccategory_name').focus();
 }
 
-// Hide document category form
 function hideDocCategoryForm() {
   document.getElementById('doccategory-form-container').style.display = 'none';
   document.getElementById('doccategory-form').reset();
 }
 
-// Submit document category form
 function submitDocCategoryForm(event) {
   event.preventDefault();
-  
   const formData = new FormData(event.target);
-  
   fetch('/admin/documents/categories', {
     method: 'POST',
-    headers: {
-      'X-Requested-With': 'XMLHttpRequest'
-    },
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
     body: formData
   })
-  .then(response => response.json())
+  .then(r => r.json())
   .then(data => {
-    if (data.success) {
-      hideDocCategoryForm();
-      loadDocCategories();
-    } else {
-      alert(data.error || 'Error creating document category');
-    }
+    if (data.success) { hideDocCategoryForm(); loadDocCategories(); }
+    else alert(data.error || 'Error creating document category');
   })
-  .catch(err => {
-    alert('Error creating document category');
-  });
+  .catch(() => alert('Error creating document category'));
 }
 
-// Delete document category with confirmation
-function deleteDocCategory(id) {
-  const category = docCategoriesData.find(c => c.id === id);
-  if (!category) return;
-  
-  if (!confirm(`Are you sure you want to delete the category "${category.name}"?`)) {
-    return;
-  }
-  
+function deleteDocCategory(id, name) {
+  const displayName = name || 'this category';
+  if (!confirm(`Delete "${displayName}"? All documents and sub-categories within it will also be deleted.`)) return;
   const formData = new FormData();
   formData.append('csrf_token', '{{ csrf_token() }}');
-  
   fetch(`/admin/documents/categories/${id}/delete`, {
     method: 'POST',
-    headers: {
-      'X-Requested-With': 'XMLHttpRequest'
-    },
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
     body: formData
   })
-  .then(response => response.json())
+  .then(r => r.json())
   .then(data => {
-    if (data.success) {
-      loadDocCategories();
-    } else {
-      alert(data.error || 'Error deleting document category');
-    }
+    if (data.success) loadDocCategories();
+    else alert(data.error || 'Error deleting document category');
   })
-  .catch(err => {
-    alert('Error deleting document category');
-  });
+  .catch(() => alert('Error deleting document category'));
 }
 
 // ============================================

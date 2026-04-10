@@ -10,7 +10,12 @@
         <div>
           <h1 class="h5 mb-0">{{ doc.name }}</h1>
           <small class="text-muted">
-            <i class="bi bi-folder me-1"></i>{{ category.name }}
+            <i class="bi bi-folder me-1"></i>
+            {% if category.parent %}
+              <a href="{{ url_for('documents.category', category_id=category.parent.id) }}" class="text-muted text-decoration-none">{{ category.parent.name }}</a>
+              <i class="bi bi-chevron-right mx-1 small"></i>
+            {% endif %}
+            {{ category.name }}
           </small>
         </div>
       </div>
@@ -53,6 +58,9 @@
             <select name="category_id" class="form-select">
               {% for c in categories %}
                 <option value="{{ c.id }}" {% if c.id == doc.category_id %}selected{% endif %}>{{ c.name }}</option>
+                {% for sub in c.subcategories|sort(attribute='position') %}
+                  <option value="{{ sub.id }}" {% if sub.id == doc.category_id %}selected{% endif %}>&nbsp;&nbsp;└ {{ sub.name }}</option>
+                {% endfor %}
               {% endfor %}
             </select>
           </div>
@@ -111,7 +119,7 @@
   document.addEventListener('DOMContentLoaded', function() {
     // Make all links in the rendered document body open in new tab
     try {
-      document.querySelectorAll('.card .bg-body-tertiary a').forEach(a => {
+      document.querySelectorAll('.document-content a').forEach(a => {
         a.setAttribute('target','_blank');
         a.setAttribute('rel','noopener noreferrer');
       });

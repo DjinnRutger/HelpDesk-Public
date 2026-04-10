@@ -10,7 +10,8 @@ documents_bp = Blueprint('documents', __name__, url_prefix='/documents')
 @documents_bp.route('/')
 @login_required
 def index():
-    cats = DocumentCategory.query.order_by(DocumentCategory.name.asc()).all()
+    # Only return root categories; subcategories are accessed via the relationship
+    cats = DocumentCategory.query.filter_by(parent_id=None).order_by(DocumentCategory.position.asc(), DocumentCategory.name.asc()).all()
     return render_template('documents/index.html', categories=cats)
 
 
@@ -43,9 +44,9 @@ def new_document(category_id):
 def view(doc_id):
     doc = Document.query.get_or_404(doc_id)
     cat = DocumentCategory.query.get(doc.category_id)
-    # Provide all categories for editing/moving documents between categories
-    categories = DocumentCategory.query.order_by(DocumentCategory.name.asc()).all()
-    return render_template('documents/show.html', category=cat, categories=categories, doc=doc)
+    # Pass root categories with their subcategories for grouped dropdown in edit modal
+    root_cats = DocumentCategory.query.filter_by(parent_id=None).order_by(DocumentCategory.position.asc(), DocumentCategory.name.asc()).all()
+    return render_template('documents/show.html', category=cat, categories=root_cats, doc=doc)
 
 
 @documents_bp.route('/edit/<int:doc_id>', methods=['POST'])

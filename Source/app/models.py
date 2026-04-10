@@ -474,10 +474,18 @@ class PoNote(db.Model):
 # --- Documents ---
 class DocumentCategory(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(200), unique=True, nullable=False)
+    name = db.Column(db.String(200), nullable=False)
+    parent_id = db.Column(db.Integer, db.ForeignKey('document_category.id'), nullable=True)
+    position = db.Column(db.Integer, nullable=False, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     documents = db.relationship('Document', backref='category', cascade='all, delete-orphan', lazy='dynamic')
+    subcategories = db.relationship(
+        'DocumentCategory',
+        backref=db.backref('parent', remote_side=[id]),
+        cascade='all, delete-orphan',
+        lazy='select'
+    )
 
 
 class Document(db.Model):

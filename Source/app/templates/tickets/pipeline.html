@@ -234,7 +234,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Don't navigate if we're dragging
     if (e.target.closest('.drag-handle')) return;
     const url = this.dataset.ticketUrl;
-    if (url) window.location.href = url;
+    if (url) {
+      const back = encodeURIComponent(window.location.pathname + window.location.search);
+      window.location.href = url + (url.includes('?') ? '&' : '?') + 'back=' + back;
+    }
   }
   
   function handleDragStart(e) {

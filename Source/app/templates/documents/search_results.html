@@ -78,7 +78,8 @@
             </div>
             <div class="mb-2">
               <span class="badge bg-secondary">
-                <i class="bi bi-folder2-open me-1"></i>{{ item.category.name }}
+                <i class="bi bi-folder2-open me-1"></i>
+                {% if item.category.parent %}{{ item.category.parent.name }} › {% endif %}{{ item.category.name }}
               </span>
             </div>
             {% if item.doc.body %}

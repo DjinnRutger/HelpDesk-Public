@@ -1,8 +1,51 @@
 {% extends 'base.html' %}
 {% block title %}Admin · Documents{% endblock %}
+
+{% block head %}
+<style>
+  .cat-item { user-select: none; }
+  .drag-handle { cursor: grab; opacity: 0.5; transition: opacity 0.15s; }
+  .drag-handle:hover { opacity: 1; }
+  .drag-handle:active { cursor: grabbing !important; }
+  .cat-row { transition: background 0.15s; }
+  .cat-row:hover { background: var(--bs-tertiary-bg) !important; }
+  /* Empty sub-list: thin collapsed line */
+  .sub-list {
+    min-height: 6px;
+    border: 1px dashed var(--bs-border-color) !important;
+    padding: 0 !important;
+    margin-top: 3px !important;
+    transition: min-height 0.15s, border-color 0.15s, background 0.15s, padding 0.15s;
+  }
+  /* Sub-list that has children: give it proper padding and border */
+  .sub-list.has-children {
+    min-height: unset;
+    border: 2px dashed var(--bs-border-color) !important;
+    padding: 0.25rem !important;
+    margin-top: 6px !important;
+  }
+  /* Expand on hover or during drag so it's easy to drop into */
+  .sub-list:hover,
+  .sub-list.drag-over {
+    min-height: 34px !important;
+    border: 2px dashed var(--bs-primary) !important;
+    padding: 0.25rem !important;
+  }
+  .sub-list.drag-over { background: var(--bs-primary-bg-subtle) !important; }
+  .sortable-ghost { opacity: 0.35; }
+  .sortable-chosen .cat-row { outline: 2px solid var(--bs-primary); outline-offset: -2px; border-radius: 0.375rem; }
+  .sub-placeholder { color: var(--bs-secondary-color); font-size: 0.78rem; pointer-events: none; }
+  .cat-item.is-sub > .sub-list { display: none !important; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spin { display: inline-block; animation: spin 0.8s linear infinite; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="row g-3">
-  <div class="col-lg-8">
+  <div class="col-lg-9">
+
+    <!-- Categories Card -->
     <div class="card shadow-sm mb-3">
       <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center flex-wrap gap-2">
         <div class="d-flex align-items-center gap-2">
@@ -12,30 +55,75 @@
             <small class="text-muted">Organize shared procedures and files</small>
           </div>
         </div>
+        <div id="save-status" class="small" style="display:none; min-width: 80px; text-align: right;">
+          <span id="status-saving" class="text-muted"><i class="bi bi-arrow-repeat spin me-1"></i>Saving…</span>
+          <span id="status-done" class="text-success" style="display:none;"><i class="bi bi-check-lg me-1"></i>Saved</span>
+          <span id="status-error" class="text-danger" style="display:none;"><i class="bi bi-exclamation-triangle me-1"></i>Error</span>
+        </div>
       </div>
-      <div class="card-body p-0">
+
+      <div class="card-body {% if categories %}p-2{% endif %}">
         {% if categories %}
-        <ul class="list-group list-group-flush">
+        <p class="text-muted small mb-2 px-1">
+          <i class="bi bi-grip-vertical me-1"></i>Drag to reorder. Drop a top-level category onto another's sub-area to nest it. Drag a sub-category to the main list to un-nest it.
+        </p>
+
+        <!-- Root list -->
+        <ul class="list-unstyled mb-0" id="root-list">
           {% for c in categories %}
-          <li class="list-group-item d-flex justify-content-between align-items-center">
-            <span class="fw-semibold">{{ c.name }}</span>
-            <form method="post" action="{{ url_for('admin.documents_category_delete', category_id=c.id) }}" class="m-0" onsubmit="return confirm('Delete this category and all its documents?')">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button class="btn btn-outline-danger btn-sm">Delete</button>
-            </form>
+          <li class="cat-item root-item mb-0" data-id="{{ c.id }}">
+            <!-- Root row -->
+            <div class="cat-row d-flex align-items-center justify-content-between px-2 py-2 rounded bg-body-secondary">
+              <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-grip-vertical drag-handle fs-5"></i>
+                <i class="bi bi-folder-fill text-warning"></i>
+                <span class="fw-semibold">{{ c.name }}</span>
+                <span class="text-muted small doc-count" data-id="{{ c.id }}">({{ c.documents.count() }} docs)</span>
+              </div>
+              <form method="post" action="{{ url_for('admin.documents_category_delete', category_id=c.id) }}"
+                    class="m-0" onsubmit="return confirm('Delete \'{{ c.name }}\' and all its sub-categories and documents?')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2" title="Delete">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </form>
+            </div>
+            <!-- Sub-categories drop zone -->
+            <ul class="sub-list list-unstyled ms-4 mb-1 rounded{% if c.subcategories %} has-children{% endif %}" data-parent-id="{{ c.id }}">
+              {% for sub in c.subcategories|sort(attribute='position') %}
+              <li class="cat-item sub-item is-sub mb-1" data-id="{{ sub.id }}">
+                <div class="cat-row d-flex align-items-center justify-content-between px-2 py-1 rounded" style="background:var(--bs-body-bg);">
+                  <div class="d-flex align-items-center gap-2">
+                    <i class="bi bi-grip-vertical drag-handle fs-5"></i>
+                    <i class="bi bi-folder text-secondary"></i>
+                    <span>{{ sub.name }}</span>
+                    <span class="text-muted small doc-count" data-id="{{ sub.id }}">({{ sub.documents.count() }} docs)</span>
+                  </div>
+                  <form method="post" action="{{ url_for('admin.documents_category_delete', category_id=sub.id) }}"
+                        class="m-0" onsubmit="return confirm('Delete \'{{ sub.name }}\' and all its documents?')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2" title="Delete">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </form>
+                </div>
+              </li>
+              {% endfor %}
+            </ul>
           </li>
           {% endfor %}
         </ul>
+
         {% else %}
-        <div class="empty-state">
-          <i class="bi bi-folder2 empty-icon"></i>
-          <div class="empty-title">No categories yet</div>
-          <div class="empty-body">Create categories to group SOPs, policies, and reference material.</div>
+        <div class="text-center py-5">
+          <i class="bi bi-folder2 display-4 text-muted opacity-25 d-block mb-3"></i>
+          <p class="text-muted mb-0">No categories yet. Create one below.</p>
         </div>
         {% endif %}
       </div>
     </div>
 
+    <!-- New Category Form -->
     <div class="card shadow-sm">
       <div class="card-header bg-body-tertiary">
         <h2 class="h6 mb-0">New Category</h2>
@@ -47,12 +135,221 @@
             <label class="form-label small fw-semibold">Name</label>
             <input name="name" class="form-control" placeholder="e.g., SOPs" required>
           </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Parent Category <span class="text-muted fw-normal">(optional)</span></label>
+            <select name="parent_id" class="form-select">
+              <option value="">None (top-level category)</option>
+              {% for c in categories %}
+              <option value="{{ c.id }}">{{ c.name }}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Select a parent to create a sub-category.</div>
+          </div>
           <div class="d-grid d-md-flex gap-2">
-            <button class="btn btn-primary" type="submit"><i class="bi bi-plus-lg me-1"></i>Create Category</button>
+            <button class="btn btn-primary" type="submit">
+              <i class="bi bi-plus-lg me-1"></i>Create Category
+            </button>
           </div>
         </form>
       </div>
     </div>
+
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.3/Sortable.min.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  const CSRF = '{{ csrf_token() }}';
+  let statusTimer = null;
+
+  // ── Status indicator ────────────────────────────────────────────────────────
+  function showStatus(state) {
+    const wrap = document.getElementById('save-status');
+    if (!wrap) return;
+    wrap.style.display = '';
+    document.getElementById('status-saving').style.display = state === 'saving' ? '' : 'none';
+    document.getElementById('status-done').style.display   = state === 'done'   ? '' : 'none';
+    document.getElementById('status-error').style.display  = state === 'error'  ? '' : 'none';
+    if (state === 'done' || state === 'error') {
+      clearTimeout(statusTimer);
+      statusTimer = setTimeout(() => { wrap.style.display = 'none'; }, 2500);
+    }
+  }
+
+  // ── Serialize current DOM order ─────────────────────────────────────────────
+  function serializeOrder() {
+    const result = [];
+    document.querySelectorAll('#root-list > .cat-item').forEach((rootEl, rootPos) => {
+      const rootId = parseInt(rootEl.dataset.id);
+      result.push({ id: rootId, parent_id: null, position: rootPos });
+      const subList = rootEl.querySelector(':scope > .sub-list');
+      if (subList) {
+        subList.querySelectorAll(':scope > .cat-item').forEach((subEl, subPos) => {
+          result.push({ id: parseInt(subEl.dataset.id), parent_id: rootId, position: subPos });
+        });
+      }
+    });
+    return result;
+  }
+
+  // ── Persist order to server ─────────────────────────────────────────────────
+  function saveOrder() {
+    showStatus('saving');
+    fetch('/admin/documents/categories/reorder', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': CSRF,
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify({ categories: serializeOrder() })
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        showStatus('done');
+      } else {
+        showStatus('error');
+        console.error('Reorder error:', data.error);
+      }
+    })
+    .catch(err => {
+      showStatus('error');
+      console.error('Reorder fetch failed:', err);
+    });
+  }
+
+  // ── Toggle has-children class on a sub-list ────────────────────────────────
+  function refreshPlaceholder(subList) {
+    const hasSubs = subList.querySelectorAll(':scope > .cat-item').length > 0;
+    subList.classList.toggle('has-children', hasSubs);
+  }
+
+  // ── Make an item look like a root item ──────────────────────────────────────
+  function promoteToRoot(item) {
+    item.classList.remove('sub-item', 'is-sub');
+    item.classList.add('root-item');
+    // Update row style
+    const row = item.querySelector(':scope > .cat-row');
+    if (row) {
+      row.style.background = '';
+      row.classList.add('bg-body-secondary');
+    }
+    // Update icon
+    const icon = item.querySelector(':scope > .cat-row i.bi-folder, :scope > .cat-row i.bi-folder-fill');
+    if (icon) icon.className = 'bi bi-folder-fill text-warning';
+    // Ensure sub-list exists and is visible
+    let subList = item.querySelector(':scope > .sub-list');
+    if (!subList) {
+      subList = document.createElement('ul');
+      subList.className = 'sub-list list-unstyled ms-4 mb-1 rounded';
+      subList.dataset.parentId = item.dataset.id;
+      item.appendChild(subList);
+      initSubList(subList);
+    }
+    item.classList.remove('is-sub'); // show sub-list (CSS hides it when is-sub present)
+    refreshPlaceholder(subList);
+  }
+
+  // ── Make an item look like a sub-item ───────────────────────────────────────
+  function demoteToSub(item) {
+    item.classList.remove('root-item');
+    item.classList.add('sub-item', 'is-sub');
+    // Update row style
+    const row = item.querySelector(':scope > .cat-row');
+    if (row) {
+      row.classList.remove('bg-body-secondary');
+      row.style.background = 'var(--bs-body-bg)';
+    }
+    // Update icon
+    const icon = item.querySelector(':scope > .cat-row i.bi-folder, :scope > .cat-row i.bi-folder-fill');
+    if (icon) icon.className = 'bi bi-folder text-secondary';
+  }
+
+  // ── Drag-over highlight on sub-lists ────────────────────────────────────────
+  function addDragOverHighlight(subList) {
+    subList.addEventListener('dragenter', () => subList.classList.add('drag-over'));
+    subList.addEventListener('dragleave', (e) => {
+      if (!subList.contains(e.relatedTarget)) subList.classList.remove('drag-over');
+    });
+    subList.addEventListener('drop', () => subList.classList.remove('drag-over'));
+  }
+
+  // ── Initialize a sub-list with Sortable ─────────────────────────────────────
+  function initSubList(subList) {
+    addDragOverHighlight(subList);
+    Sortable.create(subList, {
+      handle: '.drag-handle',
+      animation: 150,
+      ghostClass: 'sortable-ghost',
+      chosenClass: 'sortable-chosen',
+      group: {
+        name: 'doc-cats',
+        pull: true,
+        put: function (to, from, dragged) {
+          // Prevent nesting a root item that itself has sub-items
+          const draggedSubList = dragged.querySelector(':scope > .sub-list');
+          if (draggedSubList && draggedSubList.querySelectorAll(':scope > .cat-item').length > 0) {
+            return false;
+          }
+          return true;
+        }
+      },
+      onAdd: function (evt) {
+        const item = evt.item;
+        demoteToSub(item);
+        refreshPlaceholder(evt.to);
+        // If item came from root list, refresh the root list (no placeholder needed there)
+        saveOrder();
+      },
+      onUpdate: function () {
+        saveOrder();
+      },
+      onRemove: function (evt) {
+        refreshPlaceholder(evt.from);
+      }
+    });
+  }
+
+  // ── Initialize root list ─────────────────────────────────────────────────────
+  const rootList = document.getElementById('root-list');
+  if (rootList) {
+    Sortable.create(rootList, {
+      handle: '.drag-handle',
+      animation: 150,
+      ghostClass: 'sortable-ghost',
+      chosenClass: 'sortable-chosen',
+      group: {
+        name: 'doc-cats',
+        pull: true,
+        put: true  // Accept items coming back from sub-lists
+      },
+      onAdd: function (evt) {
+        const item = evt.item;
+        promoteToRoot(item);
+        // Re-init the new sub-list we just created
+        const newSubList = item.querySelector(':scope > .sub-list');
+        if (newSubList && !newSubList._sortable) {
+          newSubList._sortable = true;
+          initSubList(newSubList);
+        }
+        saveOrder();
+      },
+      onUpdate: function () {
+        saveOrder();
+      }
+    });
+
+    // Initialize existing sub-lists
+    document.querySelectorAll('.sub-list').forEach(subList => {
+      initSubList(subList);
+    });
+  }
+})();
+</script>
 {% endblock %}
