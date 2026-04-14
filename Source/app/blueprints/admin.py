@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request, send_file, current_app, jsonify
 from flask_login import login_required, current_user
 from ..forms import MSGraphForm, TechForm, ProcessTemplateForm, ProcessTemplateItemForm, AllowedDomainForm, DenyFilterForm
-from ..models import Setting, User, ProcessTemplate, ProcessTemplateItem, AllowedDomain, DenyFilter, Vendor, PurchaseOrder, Company, ShippingLocation, DocumentCategory, AssetAudit, Asset, AssetCategory, AssetManufacturer, AssetCondition, AssetLocation, ScheduledTicket, Ticket, TicketTask, TicketStatus
+from ..models import Setting, User, ProcessTemplate, ProcessTemplateItem, AllowedDomain, DenyFilter, Vendor, PurchaseOrder, Company, ShippingLocation, DocumentCategory, AssetAudit, Asset, AssetCategory, AssetManufacturer, AssetCondition, AssetLocation, ScheduledTicket, Ticket, TicketTask, TicketStatus, Tag
 from .. import db, scheduler, run_auto_backup
 from ..utils.security import hash_password
 from ..services.email_poll import poll_ms_graph
@@ -3390,3 +3390,103 @@ def password_notification_delete():
     db.session.delete(notification)
     db.session.commit()
     return jsonify({'success': True})
+
+
+# ---------------------------------------------------------------------------
+# Tag Management
+# ---------------------------------------------------------------------------
+
+@admin_bp.route('/tags', methods=['GET', 'POST'])
+@login_required
+def tags():
+    """List and create tags."""
+    if request.method == 'POST':
+        name     = request.form.get('name', '').strip()
+        color    = request.form.get('color', '').strip() or None
+        parent_id = request.form.get('parent_id', type=int) or None
+        keywords = request.form.get('keywords', '').strip() or None
+        if not name:
+            flash('Tag name is required.', 'danger')
+            return redirect(url_for('admin.tags'))
+        tag = Tag(
+            name=name,
+            color=color,
+            parent_id=parent_id,
+            position=Tag.query.filter_by(parent_id=parent_id).count(),
+            keywords=keywords,
+        )
+        db.session.add(tag)
+        db.session.commit()
+        flash(f'Tag "{name}" created.', 'success')
+        return redirect(url_for('admin.tags'))
+
+    root_tags = Tag.query.filter_by(parent_id=None).order_by(Tag.position).all()
+    all_tags  = Tag.query.order_by(Tag.parent_id.asc(), Tag.position).all()
+    return render_template('admin/tags.html', root_tags=root_tags, all_tags=all_tags)
+
+
+@admin_bp.route('/tags/<int:tag_id>/edit', methods=['POST'])
+@login_required
+def tags_edit(tag_id):
+    """Edit a tag's name, color, and parent."""
+    tag = Tag.query.get_or_404(tag_id)
+    name      = request.form.get('name', '').strip()
+    color     = request.form.get('color', '').strip() or None
+    parent_id = request.form.get('parent_id', type=int) or None
+    keywords  = request.form.get('keywords', '').strip() or None
+
+    if not name:
+        flash('Tag name is required.', 'danger')
+        return redirect(url_for('admin.tags'))
+
+    # Prevent assigning a tag as its own parent or creating a cycle
+    if parent_id == tag.id:
+        flash('A tag cannot be its own parent.', 'danger')
+        return redirect(url_for('admin.tags'))
+
+    tag.name      = name
+    tag.color     = color
+    tag.parent_id = parent_id
+    tag.keywords  = keywords
+    db.session.commit()
+    flash(f'Tag "{name}" updated.', 'success')
+    return redirect(url_for('admin.tags'))
+
+
+@admin_bp.route('/tags/<int:tag_id>/delete', methods=['POST'])
+@login_required
+def tags_delete(tag_id):
+    """Delete a tag. Blocked if tickets or assets use it."""
+    tag = Tag.query.get_or_404(tag_id)
+    if tag.tickets:
+        flash(f'Cannot delete "{tag.name}": it is used by {len(tag.tickets)} ticket(s).', 'danger')
+        return redirect(url_for('admin.tags'))
+    if tag.assets:
+        flash(f'Cannot delete "{tag.name}": it is used by {len(tag.assets)} asset(s).', 'danger')
+        return redirect(url_for('admin.tags'))
+    db.session.delete(tag)
+    db.session.commit()
+    flash(f'Tag "{tag.name}" deleted.', 'success')
+    return redirect(url_for('admin.tags'))
+
+
+@admin_bp.route('/tags/reorder', methods=['POST'])
+@login_required
+def tags_reorder():
+    """Drag-and-drop reorder. Expects JSON: {"tags": [{id, parent_id, position}]}"""
+    data = request.get_json()
+    if not data or 'tags' not in data:
+        return jsonify({'success': False, 'error': 'Invalid data'}), 400
+    try:
+        for item in data['tags']:
+            tag = Tag.query.get(item['id'])
+            if not tag:
+                continue
+            new_parent_id = item.get('parent_id')
+            tag.parent_id = new_parent_id
+            tag.position  = item.get('position', 0)
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500

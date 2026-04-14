@@ -61,11 +61,20 @@
         </select>
       </div>
       <div class="col-md-3">
+        <label class="form-label small fw-semibold"><i class="bi bi-tags me-1"></i>Tag</label>
+        <select name="tag_id" class="form-select">
+          <option value="">All Tags</option>
+          {% for tag in all_tags %}
+          <option value="{{ tag.id }}" {% if tag.id == active_tag_id %}selected{% endif %}>{{ tag.full_path }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-12 col-lg-auto">
         <div class="d-flex gap-2">
-          <button type="submit" class="btn btn-primary flex-fill">
+          <button type="submit" class="btn btn-primary">
             <i class="bi bi-funnel me-1"></i>Filter
           </button>
-          {% if q or status != 'open' or assigned != 'any' %}
+          {% if q or status != 'open' or assigned != 'any' or active_tag_id %}
           <a href="{{ url_for('tickets.list_tickets') }}" class="btn btn-outline-secondary" title="Clear filters">
             <i class="bi bi-x-lg"></i>
           </a>
@@ -98,74 +107,57 @@
   <div class="card-body p-0">
     {% if items %}
       <div class="table-responsive">
-        <table class="table table-hover mb-0">
+        <table class="table table-hover align-middle mb-0">
           <thead class="table-light">
             <tr>
-              <th class="ps-3 fw-semibold">Ticket</th>
-              <th class="fw-semibold">Requester</th>
-              <th class="fw-semibold">Assignee</th>
-              <th class="fw-semibold">Status</th>
-              <th class="fw-semibold">Priority</th>
-              <th class="fw-semibold">Age</th>
+              <th class="border-0">Ticket</th>
+              <th class="border-0">Requester</th>
+              <th class="border-0">Assignee</th>
+              <th class="border-0">Status</th>
+              <th class="border-0">Priority</th>
+              <th class="border-0">Age</th>
+              <th class="border-0"></th>
             </tr>
           </thead>
           <tbody>
             {% for it in items %}
               {% set t = it.obj %}
               <tr class="clickable-row {% if t.priority == 'high' %}table-danger{% endif %}" data-href="{{ url_for('tickets.show_ticket', ticket_id=t.id) }}">
-                <td class="ps-3">
-                  <div class="d-flex align-items-start">
-                    <div class="me-2">
-                      <i class="bi bi-ticket-perforated text-primary"></i>
-                    </div>
-                    <div>
-                      <div class="fw-semibold">#{{ t.id }} · {{ t.subject }}
-                        {% if show_snoozed and t.is_snoozed %}
-                          <span class="ms-2 text-muted small"><i class="bi bi-moon"></i> {{ t.snoozed_until|cst_datetime('%m/%d/%Y') }}</span>
-                        {% endif %}
-                      </div>
-                      <div class="small text-muted">
-                        {% if t.project %}
-                          <span class="badge text-bg-dark me-1">Project: {{ t.project.name }}</span>
-                        {% endif %}
-                        {% if t.asset %}
-                          <i class="bi bi-link-45deg me-1"></i>{{ t.asset.name }}
-                        {% endif %}
-                      </div>
-                    </div>
-                  </div>
-                </td>
                 <td>
-                  <div class="d-flex align-items-center">
-                    <i class="bi bi-person-circle me-1 text-muted"></i>
-                    <span>{{ t.requester_name or t.requester_email or 'Unknown' }}</span>
+                  <div class="fw-semibold">#{{ t.id }}</div>
+                  <div class="text-muted small text-truncate" style="max-width:300px;">{{ t.subject }}
+                    {% if show_snoozed and t.is_snoozed %}
+                      <span class="ms-1"><i class="bi bi-moon"></i> {{ t.snoozed_until|cst_datetime('%m/%d/%Y') }}</span>
+                    {% endif %}
                   </div>
-                </td>
-                <td>
-                  {% if t.assignee %}
-                    <div class="d-flex align-items-center">
-                      <i class="bi bi-person-check me-1 text-muted"></i>
-                      <span>{{ t.assignee.name }}</span>
-                    </div>
-                  {% else %}
-                    <span class="text-muted small"><i class="bi bi-dash-lg"></i> Unassigned</span>
+                  {% if t.tags %}
+                  <div class="d-flex flex-wrap gap-1 mt-1">
+                    {% for tag in t.tags[:5] %}
+                      <span class="badge text-bg-{{ tag.effective_color }} rounded-pill" title="{{ tag.full_path }}">{{ tag.name }}</span>
+                    {% endfor %}
+                    {% if t.tags|length > 5 %}
+                      <span class="badge text-bg-secondary rounded-pill">+{{ t.tags|length - 5 }}</span>
+                    {% endif %}
+                  </div>
                   {% endif %}
                 </td>
+                <td class="small">{{ t.requester_name or t.requester_email or '—' }}</td>
+                <td class="small">{{ t.assignee.name if t.assignee else '—' }}</td>
                 <td>
                   <span class="badge text-bg-{{ t.status|status_color }}">{{ t.status|status_label }}</span>
                 </td>
                 <td>
-                  {% set priority_class = 'secondary' %}
-                  {% if t.priority == 'high' %}{% set priority_class = 'danger' %}{% endif %}
-                  {% if t.priority == 'medium' %}{% set priority_class = 'warning' %}{% endif %}
-                  {% if t.priority == 'low' %}{% set priority_class = 'success' %}{% endif %}
-                  <span class="badge text-bg-{{ priority_class }} text-capitalize">{{ t.priority }}</span>
+                  {% if t.priority == 'high' %}
+                    <span class="badge text-bg-danger">High</span>
+                  {% elif t.priority == 'medium' %}
+                    <span class="badge text-bg-warning">Medium</span>
+                  {% else %}
+                    <span class="badge text-bg-secondary">Low</span>
+                  {% endif %}
                 </td>
+                <td class="small">{{ t.age_days }}d</td>
                 <td>
-                  <div class="small">
-                    <i class="bi bi-clock me-1 text-muted"></i>
-                    {{ t.age_days }}d
-                  </div>
+                  <i class="bi bi-chevron-right text-muted"></i>
                 </td>
               </tr>
             {% endfor %}
@@ -197,7 +189,6 @@
 document.addEventListener('DOMContentLoaded', function() {
   const rows = document.querySelectorAll('tr.clickable-row[data-href]');
   rows.forEach(row => {
-    row.style.cursor = 'pointer';
     row.addEventListener('click', () => {
       let url = row.getAttribute('data-href');
       if (url) {

@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, jsonify
 from flask_login import login_required, current_user
-from ..models import Asset, Contact, Ticket, AssetAudit, AssetCategory, AssetManufacturer, AssetCondition, AssetLocation
+from ..models import Asset, Contact, Ticket, AssetAudit, AssetCategory, AssetManufacturer, AssetCondition, AssetLocation, Tag
 from .. import db
 import csv
 import io
@@ -193,7 +193,8 @@ def detail(asset_id):
     has_next = len(audit_rows) > per_page
     has_prev = audit_page > 1
     audit_logs = audit_rows[:per_page]
-    return render_template('assets/detail.html', asset=a, contacts=contacts, asset_tickets=asset_tickets, audit_logs=audit_logs, audit_page=audit_page, has_next=has_next, has_prev=has_prev, edit=False, locations=locations)
+    all_tags = Tag.query.order_by(Tag.parent_id.asc(), Tag.position).all()
+    return render_template('assets/detail.html', asset=a, contacts=contacts, asset_tickets=asset_tickets, audit_logs=audit_logs, audit_page=audit_page, has_next=has_next, has_prev=has_prev, edit=False, locations=locations, all_tags=all_tags)
 
 
 @assets_bp.route('/<int:asset_id>/status', methods=['POST'])
@@ -570,3 +571,36 @@ def api_search():
     return jsonify([
         { 'id': a.id, 'name': a.name, 'asset_tag': a.asset_tag, 'serial': a.serial_number, 'status': a.status } for a in assets
     ])
+
+
+# ---------------------------------------------------------------------------
+# Asset Tag AJAX endpoints
+# ---------------------------------------------------------------------------
+
+@assets_bp.route('/<int:asset_id>/tags/add', methods=['POST'])
+@login_required
+def asset_tag_add(asset_id):
+    """Add a tag to an asset (AJAX)."""
+    a = Asset.query.get_or_404(asset_id)
+    tag_id = request.json.get('tag_id') if request.is_json else request.form.get('tag_id', type=int)
+    if not tag_id:
+        return jsonify({'success': False, 'error': 'tag_id required'}), 400
+    tag = Tag.query.get_or_404(tag_id)
+    if tag not in a.tags:
+        a.tags.append(tag)
+        db.session.commit()
+    return jsonify({'success': True, 'tag': {
+        'id': tag.id, 'name': tag.name, 'full_path': tag.full_path, 'color': tag.effective_color
+    }})
+
+
+@assets_bp.route('/<int:asset_id>/tags/remove/<int:tag_id>', methods=['POST'])
+@login_required
+def asset_tag_remove(asset_id, tag_id):
+    """Remove a tag from an asset (AJAX)."""
+    a = Asset.query.get_or_404(asset_id)
+    tag = Tag.query.get_or_404(tag_id)
+    if tag in a.tags:
+        a.tags.remove(tag)
+        db.session.commit()
+    return jsonify({'success': True})

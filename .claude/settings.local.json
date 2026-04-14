@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E \"\\\\.\\(py|txt|cfg\\)$\")",
+      "Bash(wc:*)",
+      "Bash(curl:*)"
+    ]
+  }
+}

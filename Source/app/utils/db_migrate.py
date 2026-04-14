@@ -547,6 +547,182 @@ def ensure_approval_request_table(engine):
         conn.commit()
 
 
+def ensure_tag_columns(engine):
+    """Add newer columns to the tag table when upgrading from older versions."""
+    required = {
+        'keywords': 'TEXT',
+    }
+    with engine.connect() as conn:
+        exists = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='tag'")).fetchone() is not None
+        if not exists:
+            return
+        rows = conn.execute(text("PRAGMA table_info('tag')")).fetchall()
+        existing = {row[1] for row in rows}
+        for col, coltype in required.items():
+            if col not in existing:
+                conn.execute(text(f"ALTER TABLE tag ADD COLUMN {col} {coltype}"))
+        conn.commit()
+
+
+def ensure_tags_tables(engine):
+    """Create tag, ticket_tags, and asset_tags tables if they don't exist."""
+    with engine.connect() as conn:
+        # tag table
+        exists = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='tag'")).fetchone() is not None
+        if not exists:
+            conn.execute(text(
+                """
+                CREATE TABLE tag (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    color TEXT,
+                    parent_id INTEGER REFERENCES tag(id),
+                    position INTEGER NOT NULL DEFAULT 0,
+                    keywords TEXT,
+                    created_at DATETIME
+                )
+                """
+            ))
+        # ticket_tags association table
+        exists = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='ticket_tags'")).fetchone() is not None
+        if not exists:
+            conn.execute(text(
+                """
+                CREATE TABLE ticket_tags (
+                    ticket_id INTEGER NOT NULL REFERENCES ticket(id) ON DELETE CASCADE,
+                    tag_id INTEGER NOT NULL REFERENCES tag(id) ON DELETE CASCADE,
+                    PRIMARY KEY (ticket_id, tag_id)
+                )
+                """
+            ))
+        # asset_tags association table
+        exists = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='asset_tags'")).fetchone() is not None
+        if not exists:
+            conn.execute(text(
+                """
+                CREATE TABLE asset_tags (
+                    asset_id INTEGER NOT NULL REFERENCES asset(id) ON DELETE CASCADE,
+                    tag_id INTEGER NOT NULL REFERENCES tag(id) ON DELETE CASCADE,
+                    PRIMARY KEY (asset_id, tag_id)
+                )
+                """
+            ))
+        conn.commit()
+
+
+def seed_default_tags(db):
+    """Seed predefined IT helpdesk tags if none exist. Idempotent."""
+    from ..models import Tag
+    if Tag.query.count() > 0:
+        return
+
+    from datetime import datetime as _dt
+
+    def _make(name, color=None, parent=None, pos=0, keywords=None):
+        t = Tag(
+            name=name,
+            color=color,
+            parent_id=parent.id if parent else None,
+            position=pos,
+            keywords=keywords,
+            created_at=_dt.utcnow(),
+        )
+        db.session.add(t)
+        db.session.flush()
+        return t
+
+    # Root categories
+    hardware = _make('Hardware', 'primary', pos=0,
+                     keywords='hardware, device, equipment, peripheral')
+    software = _make('Software', 'success', pos=1,
+                     keywords='software, application, program, app, install')
+    network  = _make('Network', 'info', pos=2,
+                     keywords='network, connection, connectivity, internet, offline')
+    account  = _make('Account & Access', 'warning', pos=3,
+                     keywords='account, access, login, credentials, permission')
+    security = _make('Security', 'danger', pos=4,
+                     keywords='security, threat, incident, suspicious, compromised')
+    general  = _make('General', 'secondary', pos=5,
+                     keywords='general, misc, question, other')
+
+    # Hardware children
+    hardware_children = [
+        ('Laptop',            'laptop, notebook, portable, macbook, thinkpad'),
+        ('Desktop',           'desktop, workstation, tower, pc, optiplex'),
+        ('Monitor',           'monitor, screen, display, second screen, resolution'),
+        ('Printer',           'printer, print, toner, ink, scan, jam'),
+        ('Docking Station',   'dock, docking, station, thunderbolt, usb-c hub'),
+        ('Keyboard / Mouse',  'keyboard, mouse, typing, clicking, wireless mouse'),
+        ('Mobile Device',     'phone, mobile, iphone, android, tablet, ipad'),
+        ('Server',            'server, vm, virtual machine, hyper-v, host'),
+    ]
+    for i, (name, kw) in enumerate(hardware_children):
+        _make(name, parent=hardware, pos=i, keywords=kw)
+
+    # Software children (with sub-children)
+    m365    = _make('Microsoft 365', parent=software, pos=0,
+                    keywords='m365, microsoft 365, o365, office 365, sharepoint')
+    os_tag  = _make('Operating System', parent=software, pos=1,
+                    keywords='os, operating system, boot, bsod, crash')
+    _make('VPN / Remote Access', parent=software, pos=2,
+          keywords='vpn, remote, rdp, forticlient, globalprotect, anyconnect')
+    _make('Browser', parent=software, pos=3,
+          keywords='browser, chrome, edge, firefox, safari, extension')
+    # Microsoft 365 sub-children
+    m365_children = [
+        ('Teams',       'teams, meeting, chat, call, huddle'),
+        ('Outlook',     'outlook, email, calendar, inbox, signature, mailbox'),
+        ('Office Apps', 'word, excel, powerpoint, onedrive, onenote'),
+    ]
+    for i, (name, kw) in enumerate(m365_children):
+        _make(name, parent=m365, pos=i, keywords=kw)
+    # OS sub-children
+    os_children = [
+        ('Windows', 'windows, win10, win11, update, feature update'),
+        ('macOS',   'mac, macos, osx, finder, ventura, sonoma'),
+    ]
+    for i, (name, kw) in enumerate(os_children):
+        _make(name, parent=os_tag, pos=i, keywords=kw)
+
+    # Network children
+    network_children = [
+        ('WiFi / Wireless',       'wifi, wireless, signal, ssid, access point'),
+        ('Internet Connectivity', 'internet, connection, offline, down, latency, slow'),
+    ]
+    for i, (name, kw) in enumerate(network_children):
+        _make(name, parent=network, pos=i, keywords=kw)
+
+    # Account & Access children
+    account_children = [
+        ('Password Reset',       'password, reset, forgot, locked out, unlock'),
+        ('New User Setup',       'new user, onboarding, new hire, setup, account creation'),
+        ('Permissions / Access', 'permission, access denied, shared folder, group, role'),
+        ('MFA / Two-Factor',     'mfa, 2fa, authenticator, duo, two-factor, token'),
+    ]
+    for i, (name, kw) in enumerate(account_children):
+        _make(name, parent=account, pos=i, keywords=kw)
+
+    # Security children
+    security_children = [
+        ('Virus / Malware',    'virus, malware, infected, ransomware, trojan'),
+        ('Phishing',           'phishing, scam, suspicious email, spoof, impersonation'),
+        ('Data Breach / Loss', 'breach, leak, data loss, exposed, compromised'),
+    ]
+    for i, (name, kw) in enumerate(security_children):
+        _make(name, parent=security, pos=i, keywords=kw)
+
+    # General children
+    general_children = [
+        ('Training Request',    'training, how to, tutorial, learn, documentation'),
+        ('Procurement / Order', 'order, purchase, buy, request, quote, procurement'),
+        ('Warranty / Repair',   'warranty, repair, broken, rma, replacement'),
+    ]
+    for i, (name, kw) in enumerate(general_children):
+        _make(name, parent=general, pos=i, keywords=kw)
+
+    db.session.commit()
+
+
 def ensure_email_templates_tables(engine):
     """Create EmailTemplate and PasswordExpiryNotification tables if they don't exist."""
     with engine.connect() as conn:

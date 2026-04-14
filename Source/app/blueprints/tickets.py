@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, send_file, abort, current_app
 from flask_login import login_required
-from ..models import Ticket, ProcessTemplate, TicketProcess, TicketProcessItem, Project, TicketTask, OrderItem, ApprovalRequest, TicketStatus
+from ..models import Ticket, ProcessTemplate, TicketProcess, TicketProcessItem, Project, TicketTask, OrderItem, ApprovalRequest, TicketStatus, Tag
 from .. import db
 from ..forms import TicketForm, NoteForm, TicketUpdateForm, ProcessAssignForm, TaskAssignForm
 from ..models import User, Contact, TicketNote
@@ -9,6 +9,7 @@ from flask_login import current_user
 from datetime import datetime, timedelta
 from sqlalchemy.orm import joinedload
 import bleach
+import re
 from sqlalchemy import or_
 
 
@@ -36,6 +37,7 @@ def list_tickets():
         except Exception:
             assigned = 'any'
     q = request.args.get('q')
+    tag_id = request.args.get('tag_id', type=int)
 
     me_id = getattr(current_user, 'id', -1)
     base = Ticket.query.options(joinedload(Ticket.assignee), joinedload(Ticket.project))
@@ -73,16 +75,21 @@ def list_tickets():
             (Ticket.requester.ilike(like)) |
             (Ticket.id.in_(tickets_with_matching_notes))
         )
+    if tag_id:
+        query = query.filter(Ticket.tags.any(Tag.id == tag_id))
     tickets = query.order_by(Ticket.created_at.desc()).limit(200).all()
     # Snoozed count for toggle badge
     snoozed_count = Ticket.query.filter(
         ~Ticket.status.in_(closed_statuses) & (Ticket.snoozed_until.isnot(None)) & (Ticket.snoozed_until > datetime.utcnow())
     ).count()
 
+    all_tags = Tag.query.order_by(Tag.parent_id.asc(), Tag.position).all()
     # Items: only tickets
     items = [{'kind': 'ticket', 'obj': t, 'created_at': t.created_at} for t in tickets]
     items.sort(key=lambda x: x['created_at'] or 0, reverse=True)
-    return render_template('tickets/list.html', items=items, status=status, assigned=assigned, q=q, show_snoozed=show_snoozed, snoozed_count=snoozed_count)
+    return render_template('tickets/list.html', items=items, status=status, assigned=assigned, q=q,
+                           show_snoozed=show_snoozed, snoozed_count=snoozed_count,
+                           all_tags=all_tags, active_tag_id=tag_id)
 
 
 @tickets_bp.route('/pipeline')
@@ -100,27 +107,38 @@ def pipeline():
     now = datetime.utcnow()
     seven_days_ago = now - timedelta(days=7)
     
+    pipeline_tag_id = request.args.get('tag_id', type=int)
+
     for status in statuses:
         # For closed statuses, only show tickets from last 7 days
         if status.is_closed:
-            tickets = Ticket.query.filter(
+            q = Ticket.query.filter(
                 Ticket.status == status.name,
-                Ticket.project_id.is_(None),  # Exclude project tickets
+                Ticket.project_id.is_(None),
                 Ticket.closed_at >= seven_days_ago
-            ).order_by(Ticket.closed_at.desc()).limit(50).all()
+            )
         else:
-            tickets = Ticket.query.filter(
+            q = Ticket.query.filter(
                 Ticket.status == status.name,
-                Ticket.project_id.is_(None)  # Exclude project tickets
-            ).order_by(Ticket.created_at.desc()).all()
-        
+                Ticket.project_id.is_(None)
+            )
+        if pipeline_tag_id:
+            q = q.filter(Ticket.tags.any(Tag.id == pipeline_tag_id))
+        if status.is_closed:
+            q = q.order_by(Ticket.closed_at.desc()).limit(50)
+        else:
+            q = q.order_by(Ticket.created_at.desc())
+        tickets = q.all()
+
         pipeline_data.append({
             'status': status,
             'tickets': tickets,
             'count': len(tickets)
         })
-    
-    return render_template('tickets/pipeline.html', pipeline_data=pipeline_data, now=datetime.utcnow())
+
+    all_tags = Tag.query.order_by(Tag.parent_id.asc(), Tag.position).all()
+    return render_template('tickets/pipeline.html', pipeline_data=pipeline_data, now=datetime.utcnow(),
+                           all_tags=all_tags, active_tag_id=pipeline_tag_id)
 
 
 @tickets_bp.route('/<int:ticket_id>/update-status', methods=['POST'])
@@ -352,6 +370,14 @@ def new_ticket():
             assignee_id=assignee_id,
         )
         db.session.add(t)
+        db.session.flush()  # get t.id before commit
+        # Auto-apply asset tags to the new ticket
+        if t.asset_id:
+            asset = Asset.query.get(t.asset_id)
+            if asset and asset.tags:
+                for tag in asset.tags:
+                    if tag not in t.tags:
+                        t.tags.append(tag)
         db.session.commit()
         # Email the assignee if they are someone other than the person creating the ticket
         if assignee_id and assignee_id != getattr(current_user, 'id', None):
@@ -751,7 +777,29 @@ def show_ticket(ticket_id):
     if not back_url.startswith('/'):
         back_url = ''
 
-    return render_template('tickets/detail.html', t=t, notes=notes, tasks=tasks, tasks_by_list=tasks_by_list, order_items=order_items, note_form=note_form, update_form=update_form, assign_form=assign_form, task_form=task_form, contact=contact, techs=techs, merge_form=merge_form, contact_assets=contact_assets, contacts=contacts, approval_requests=approval_requests, is_watching=is_watching, back_url=back_url)
+    all_tags = Tag.query.order_by(Tag.parent_id.asc(), Tag.position).all()
+
+    # Build a haystack from subject + body + note content (HTML stripped) and
+    # surface tags whose keywords appear in it as "Suggested Tags".
+    def _strip_html(s):
+        return re.sub(r'<[^>]+>', ' ', s or '')
+
+    haystack_parts = [t.subject or '', _strip_html(t.body)]
+    haystack_parts.extend(_strip_html(n.content) for n in notes)
+    haystack = ' '.join(haystack_parts).lower()
+
+    applied_ids = {tag.id for tag in t.tags}
+    suggested_tags = []
+    if haystack.strip():
+        for tag in all_tags:
+            if tag.id in applied_ids:
+                continue
+            if any(kw in haystack for kw in tag.keyword_list):
+                suggested_tags.append(tag)
+            if len(suggested_tags) >= 15:
+                break
+
+    return render_template('tickets/detail.html', t=t, notes=notes, tasks=tasks, tasks_by_list=tasks_by_list, order_items=order_items, note_form=note_form, update_form=update_form, assign_form=assign_form, task_form=task_form, contact=contact, techs=techs, merge_form=merge_form, contact_assets=contact_assets, contacts=contacts, approval_requests=approval_requests, is_watching=is_watching, back_url=back_url, all_tags=all_tags, suggested_tags=suggested_tags)
 
 
 @tickets_bp.route('/<int:ticket_id>/attachments/<path:filename>')
@@ -1472,5 +1520,75 @@ def resend_approval(ticket_id, approval_id):
             flash('Failed to resend approval request email.', 'danger')
     except Exception as e:
         flash(f'Error resending approval request: {str(e)}', 'danger')
-    
+
     return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
+
+
+# ---------------------------------------------------------------------------
+# Tag AJAX endpoints
+# ---------------------------------------------------------------------------
+
+@tickets_bp.route('/api/tags/search')
+@login_required
+def tag_search():
+    """Autocomplete search for tags. Returns JSON list of matching tags.
+    When a parent tag matches, returns its children/grandchildren instead of
+    the parent itself so techs always pick actionable leaf-level tags."""
+    q = (request.args.get('q') or '').strip()
+    if q:
+        matching = Tag.query.filter(Tag.name.ilike(f'%{q}%')).all()
+        result = []
+        seen = set()
+        for tag in matching:
+            if tag.children:
+                # Parent matched — surface children and grandchildren
+                for child in sorted(tag.children, key=lambda c: c.position):
+                    if child.id not in seen:
+                        result.append(child)
+                        seen.add(child.id)
+                    for gc in sorted(child.children, key=lambda c: c.position):
+                        if gc.id not in seen:
+                            result.append(gc)
+                            seen.add(gc.id)
+            else:
+                if tag.id not in seen:
+                    result.append(tag)
+                    seen.add(tag.id)
+        tags = result[:30]
+    else:
+        tags = Tag.query.order_by(Tag.parent_id.asc(), Tag.position).limit(30).all()
+    return jsonify([{
+        'id': t.id,
+        'name': t.name,
+        'full_path': t.full_path,
+        'color': t.effective_color,
+    } for t in tags])
+
+
+@tickets_bp.route('/<int:ticket_id>/tags/add', methods=['POST'])
+@login_required
+def ticket_tag_add(ticket_id):
+    """Add a tag to a ticket (AJAX)."""
+    t = Ticket.query.get_or_404(ticket_id)
+    tag_id = request.json.get('tag_id') if request.is_json else request.form.get('tag_id', type=int)
+    if not tag_id:
+        return jsonify({'success': False, 'error': 'tag_id required'}), 400
+    tag = Tag.query.get_or_404(tag_id)
+    if tag not in t.tags:
+        t.tags.append(tag)
+        db.session.commit()
+    return jsonify({'success': True, 'tag': {
+        'id': tag.id, 'name': tag.name, 'full_path': tag.full_path, 'color': tag.effective_color
+    }})
+
+
+@tickets_bp.route('/<int:ticket_id>/tags/remove/<int:tag_id>', methods=['POST'])
+@login_required
+def ticket_tag_remove(ticket_id, tag_id):
+    """Remove a tag from a ticket (AJAX)."""
+    t = Ticket.query.get_or_404(ticket_id)
+    tag = Tag.query.get_or_404(tag_id)
+    if tag in t.tags:
+        t.tags.remove(tag)
+        db.session.commit()
+    return jsonify({'success': True})

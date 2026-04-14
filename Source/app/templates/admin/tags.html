@@ -1,0 +1,489 @@
+{% extends 'base.html' %}
+{% block title %}Admin · Tags{% endblock %}
+
+{% block head %}
+<style>
+  .tag-item { user-select: none; }
+  .drag-handle { cursor: grab; opacity: 0.5; transition: opacity 0.15s; }
+  .drag-handle:hover { opacity: 1; }
+  .drag-handle:active { cursor: grabbing !important; }
+  .tag-row { transition: background 0.15s; }
+  .tag-row:hover { background: var(--bs-tertiary-bg) !important; }
+  .sub-list {
+    min-height: 6px;
+    border: 1px dashed var(--bs-border-color) !important;
+    padding: 0 !important;
+    margin-top: 3px !important;
+    transition: min-height 0.15s, border-color 0.15s, background 0.15s, padding 0.15s;
+  }
+  .sub-list.has-children {
+    min-height: unset;
+    border: 2px dashed var(--bs-border-color) !important;
+    padding: 0.25rem !important;
+    margin-top: 6px !important;
+  }
+  .sub-list:hover, .sub-list.drag-over {
+    min-height: 34px !important;
+    border: 2px dashed var(--bs-primary) !important;
+    padding: 0.25rem !important;
+  }
+  .sub-list.drag-over { background: var(--bs-primary-bg-subtle) !important; }
+  .sortable-ghost { opacity: 0.35; }
+  .sortable-chosen .tag-row { outline: 2px solid var(--bs-primary); outline-offset: -2px; border-radius: 0.375rem; }
+  .tag-item.is-sub .tag-item.is-sub > .sub-list { display: none !important; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spin { display: inline-block; animation: spin 0.8s linear infinite; }
+  .color-btn { width: 28px; height: 28px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; transition: transform 0.1s, border-color 0.1s; display: inline-block; }
+  .color-btn:hover { transform: scale(1.15); }
+  .color-btn.selected { border-color: var(--bs-body-color) !important; }
+  .color-btn[data-color="primary"]   { background: var(--bs-primary); }
+  .color-btn[data-color="success"]   { background: var(--bs-success); }
+  .color-btn[data-color="danger"]    { background: var(--bs-danger); }
+  .color-btn[data-color="warning"]   { background: var(--bs-warning); }
+  .color-btn[data-color="info"]      { background: var(--bs-info); }
+  .color-btn[data-color="secondary"] { background: var(--bs-secondary); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center gap-2 mb-3">
+  <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left me-1"></i>Admin
+  </a>
+  <h1 class="h5 mb-0"><i class="bi bi-tags-fill text-primary me-2"></i>Tag Management</h1>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-8">
+
+    <!-- Tag Tree Card -->
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+          <h2 class="h6 mb-0"><i class="bi bi-diagram-3 me-1"></i>Tag Hierarchy</h2>
+          <small class="text-muted">Drag to reorder. Drop onto a tag's indent area to nest it (max 2 levels).</small>
+        </div>
+        <div id="save-status" style="display:none; min-width: 80px; text-align: right;" class="small">
+          <span id="status-saving" class="text-muted"><i class="bi bi-arrow-repeat spin me-1"></i>Saving…</span>
+          <span id="status-done"   class="text-success" style="display:none;"><i class="bi bi-check-lg me-1"></i>Saved</span>
+          <span id="status-error"  class="text-danger"  style="display:none;"><i class="bi bi-exclamation-triangle me-1"></i>Error</span>
+        </div>
+      </div>
+
+      <div class="card-body {% if root_tags %}p-2{% endif %}">
+        {% if root_tags %}
+        <ul class="list-unstyled mb-0" id="root-list">
+          {% for tag in root_tags %}
+          <li class="tag-item root-item mb-1" data-id="{{ tag.id }}">
+            <!-- Root row -->
+            <div class="tag-row d-flex align-items-center justify-content-between px-2 py-2 rounded bg-body-secondary">
+              <div class="d-flex align-items-center gap-2 flex-grow-1">
+                <i class="bi bi-grip-vertical drag-handle fs-5"></i>
+                <span class="badge text-bg-{{ tag.effective_color }} rounded-pill px-2">{{ tag.name }}</span>
+              </div>
+              <div class="d-flex gap-1">
+                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2"
+                        data-bs-toggle="modal" data-bs-target="#editTagModal"
+                        data-id="{{ tag.id }}" data-name="{{ tag.name }}"
+                        data-color="{{ tag.color or '' }}" data-parent-id=""
+                        data-keywords="{{ tag.keywords or '' }}">
+                  <i class="bi bi-pencil"></i>
+                </button>
+                <form method="post" action="{{ url_for('admin.tags_delete', tag_id=tag.id) }}" class="m-0"
+                      onsubmit="return confirm('Delete \'{{ tag.name }}\' and ALL its child tags?')">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2"><i class="bi bi-trash"></i></button>
+                </form>
+              </div>
+            </div>
+            <!-- Children drop zone -->
+            <ul class="sub-list list-unstyled ms-4 mb-0 rounded{% if tag.children %} has-children{% endif %}" data-parent-id="{{ tag.id }}">
+              {% for child in tag.children %}
+              <li class="tag-item sub-item is-sub mb-1" data-id="{{ child.id }}">
+                <div class="tag-row d-flex align-items-center justify-content-between px-2 py-1 rounded" style="background:var(--bs-body-bg);">
+                  <div class="d-flex align-items-center gap-2 flex-grow-1">
+                    <i class="bi bi-grip-vertical drag-handle fs-5"></i>
+                    <span class="badge text-bg-{{ child.effective_color }} rounded-pill px-2 opacity-75">{{ child.name }}</span>
+                    <span class="text-muted small fst-italic">{{ tag.name }}</span>
+                  </div>
+                  <div class="d-flex gap-1">
+                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2"
+                            data-bs-toggle="modal" data-bs-target="#editTagModal"
+                            data-id="{{ child.id }}" data-name="{{ child.name }}"
+                            data-color="{{ child.color or '' }}" data-parent-id="{{ child.parent_id }}"
+                            data-keywords="{{ child.keywords or '' }}">
+                      <i class="bi bi-pencil"></i>
+                    </button>
+                    <form method="post" action="{{ url_for('admin.tags_delete', tag_id=child.id) }}" class="m-0"
+                          onsubmit="return confirm('Delete \'{{ child.name }}\'?')">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2"><i class="bi bi-trash"></i></button>
+                    </form>
+                  </div>
+                </div>
+                <!-- Grand-children drop zone (3rd level kept minimal) -->
+                <ul class="sub-list list-unstyled ms-4 mb-0 rounded{% if child.children %} has-children{% endif %}" data-parent-id="{{ child.id }}">
+                  {% for gc in child.children %}
+                  <li class="tag-item sub-item is-sub mb-1" data-id="{{ gc.id }}">
+                    <div class="tag-row d-flex align-items-center justify-content-between px-2 py-1 rounded" style="background:var(--bs-body-bg);">
+                      <div class="d-flex align-items-center gap-2 flex-grow-1">
+                        <i class="bi bi-grip-vertical drag-handle fs-5"></i>
+                        <span class="badge text-bg-{{ gc.effective_color }} rounded-pill px-2 opacity-75">{{ gc.name }}</span>
+                        <span class="text-muted small fst-italic">{{ child.name }}</span>
+                      </div>
+                      <div class="d-flex gap-1">
+                        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2"
+                                data-bs-toggle="modal" data-bs-target="#editTagModal"
+                                data-id="{{ gc.id }}" data-name="{{ gc.name }}"
+                                data-color="{{ gc.color or '' }}" data-parent-id="{{ gc.parent_id }}"
+                                data-keywords="{{ gc.keywords or '' }}">
+                          <i class="bi bi-pencil"></i>
+                        </button>
+                        <form method="post" action="{{ url_for('admin.tags_delete', tag_id=gc.id) }}" class="m-0"
+                              onsubmit="return confirm('Delete \'{{ gc.name }}\'?')">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                          <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2"><i class="bi bi-trash"></i></button>
+                        </form>
+                      </div>
+                    </div>
+                    <ul class="sub-list list-unstyled ms-4 mb-0 rounded" data-parent-id="{{ gc.id }}"></ul>
+                  </li>
+                  {% endfor %}
+                </ul>
+              </li>
+              {% endfor %}
+            </ul>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="text-center py-5">
+          <i class="bi bi-tags display-4 text-muted opacity-25 d-block mb-3"></i>
+          <p class="text-muted mb-0">No tags yet. Create one below.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Create Tag Form -->
+    <div class="card shadow-sm">
+      <div class="card-header bg-body-tertiary">
+        <h2 class="h6 mb-0"><i class="bi bi-plus-circle me-1"></i>New Tag</h2>
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('admin.tags') }}" id="create-tag-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="color" id="create-color-input" value="secondary">
+          <div class="row g-3">
+            <div class="col-md-5">
+              <label class="form-label small fw-semibold">Tag Name</label>
+              <input name="name" id="create-name" class="form-control" placeholder="e.g., Docking Station" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Parent Tag <span class="text-muted fw-normal">(optional)</span></label>
+              <select name="parent_id" id="create-parent-id" class="form-select">
+                <option value="" data-color="">None (root tag)</option>
+                {% for t in all_tags %}
+                <option value="{{ t.id }}" data-color="{{ t.effective_color }}">{{ t.full_path }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">Color</label>
+              <div class="d-flex gap-2 align-items-center mt-1" id="create-color-picker">
+                {% for c in ['primary','success','danger','warning','info','secondary'] %}
+                <span class="color-btn {% if c == 'secondary' %}selected{% endif %}"
+                      data-color="{{ c }}" title="{{ c }}"
+                      onclick="selectColor('create', '{{ c }}')"></span>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+          <div class="mt-3">
+            <label class="form-label small fw-semibold mb-1">
+              Keywords <span class="text-muted fw-normal">(optional)</span>
+            </label>
+            <textarea name="keywords" class="form-control form-control-sm" rows="2"
+                      placeholder="e.g., laptop, notebook, dell, macbook"></textarea>
+            <div class="form-text small">Comma-separated. When any of these appear in a ticket's subject, body, or notes, this tag is shown as a suggestion.</div>
+          </div>
+          <div class="mt-3">
+            <span class="text-muted small me-2">Preview:</span>
+            <span id="create-preview" class="badge text-bg-secondary rounded-pill px-2">Tag Name</span>
+          </div>
+          <div class="mt-3">
+            <button class="btn btn-primary" type="submit">
+              <i class="bi bi-plus-lg me-1"></i>Create Tag
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Right sidebar: tips -->
+  <div class="col-lg-4">
+    <div class="card shadow-sm">
+      <div class="card-header bg-body-tertiary">
+        <h2 class="h6 mb-0"><i class="bi bi-info-circle me-1"></i>How Tags Work</h2>
+      </div>
+      <div class="card-body small text-muted">
+        <ul class="mb-0 ps-3">
+          <li class="mb-2">Tags are <strong>hierarchical</strong> — parent tags group related child tags (e.g., <em>Hardware › Docking Station</em>).</li>
+          <li class="mb-2">Add tags to <strong>tickets</strong> to categorize issues. Use the Tags section on any ticket.</li>
+          <li class="mb-2">Add tags to <strong>assets</strong> — when a ticket is created for that asset, tags are auto-applied.</li>
+          <li class="mb-2">Child tags <strong>inherit their parent's color</strong> unless you assign a specific color.</li>
+          <li class="mb-2">Drag rows to <strong>reorder</strong> within a level. Drop a root tag onto a sub-area to nest it.</li>
+          <li>Tags used on tickets or assets <strong>cannot be deleted</strong> until removed from all tickets/assets.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Tag Modal -->
+<div class="modal fade" id="editTagModal" tabindex="-1" aria-labelledby="editTagModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" id="edit-tag-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="color" id="edit-color-input" value="">
+        <div class="modal-header">
+          <h5 class="modal-title" id="editTagModalLabel"><i class="bi bi-pencil me-2"></i>Edit Tag</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Tag Name</label>
+            <input type="text" name="name" id="edit-name" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Parent Tag <span class="text-muted fw-normal">(optional)</span></label>
+            <select name="parent_id" id="edit-parent-id" class="form-select">
+              <option value="">None (root tag)</option>
+              {% for t in all_tags %}
+              <option value="{{ t.id }}">{{ t.full_path }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Color</label>
+            <div class="d-flex gap-2 align-items-center mt-1" id="edit-color-picker">
+              {% for c in ['primary','success','danger','warning','info','secondary'] %}
+              <span class="color-btn" data-color="{{ c }}" title="{{ c }}"
+                    onclick="selectColor('edit', '{{ c }}')"></span>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">
+              Keywords <span class="text-muted fw-normal">(optional)</span>
+            </label>
+            <textarea name="keywords" id="edit-keywords" class="form-control form-control-sm" rows="2"
+                      placeholder="e.g., laptop, notebook, dell, macbook"></textarea>
+            <div class="form-text small">Comma-separated. When any of these appear in a ticket's subject, body, or notes, this tag is shown as a suggestion.</div>
+          </div>
+          <div>
+            <span class="text-muted small me-2">Preview:</span>
+            <span id="edit-preview" class="badge text-bg-secondary rounded-pill px-2">Tag Name</span>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.3/Sortable.min.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  const CSRF = '{{ csrf_token() }}';
+  let statusTimer = null;
+
+  // ── Color picker ──────────────────────────────────────────────────────────────
+  window.selectColor = function(prefix, color) {
+    document.querySelectorAll('#' + prefix + '-color-picker .color-btn').forEach(b => {
+      b.classList.toggle('selected', b.dataset.color === color);
+    });
+    document.getElementById(prefix + '-color-input').value = color;
+    const preview = document.getElementById(prefix + '-preview');
+    if (preview) {
+      preview.className = 'badge text-bg-' + color + ' rounded-pill px-2';
+    }
+  };
+
+  // Live preview on name input
+  const createName = document.getElementById('create-name');
+  if (createName) {
+    createName.addEventListener('input', function() {
+      const p = document.getElementById('create-preview');
+      if (p) p.textContent = this.value || 'Tag Name';
+    });
+  }
+
+  // Auto-set color when parent is selected
+  const createParent = document.getElementById('create-parent-id');
+  if (createParent) {
+    createParent.addEventListener('change', function() {
+      const selected = this.options[this.selectedIndex];
+      const parentColor = selected.dataset.color;
+      if (parentColor) {
+        selectColor('create', parentColor);
+      } else {
+        selectColor('create', 'secondary');
+      }
+    });
+  }
+
+  // ── Edit modal population ─────────────────────────────────────────────────────
+  document.getElementById('editTagModal')?.addEventListener('show.bs.modal', function(event) {
+    const btn       = event.relatedTarget;
+    const tagId     = btn.dataset.id;
+    const tagName   = btn.dataset.name;
+    const tagColor  = btn.dataset.color || 'secondary';
+    const parentId  = btn.dataset.parentId;
+    const tagKeywords = btn.dataset.keywords || '';
+
+    document.getElementById('edit-tag-form').action = '/admin/tags/' + tagId + '/edit';
+    document.getElementById('edit-name').value = tagName;
+    document.getElementById('edit-preview').textContent = tagName;
+    document.getElementById('edit-color-input').value = tagColor;
+    document.getElementById('edit-keywords').value = tagKeywords;
+
+    // Select correct color button
+    document.querySelectorAll('#edit-color-picker .color-btn').forEach(b => {
+      b.classList.toggle('selected', b.dataset.color === tagColor);
+    });
+    document.getElementById('edit-preview').className = 'badge text-bg-' + tagColor + ' rounded-pill px-2';
+
+    // Set parent
+    const parentSel = document.getElementById('edit-parent-id');
+    if (parentSel) parentSel.value = parentId || '';
+  });
+
+  // ── Status indicator ──────────────────────────────────────────────────────────
+  function showStatus(state) {
+    const wrap = document.getElementById('save-status');
+    if (!wrap) return;
+    wrap.style.display = '';
+    document.getElementById('status-saving').style.display = state === 'saving' ? '' : 'none';
+    document.getElementById('status-done').style.display   = state === 'done'   ? '' : 'none';
+    document.getElementById('status-error').style.display  = state === 'error'  ? '' : 'none';
+    if (state === 'done' || state === 'error') {
+      clearTimeout(statusTimer);
+      statusTimer = setTimeout(() => { wrap.style.display = 'none'; }, 2500);
+    }
+  }
+
+  // ── Serialize current DOM order ───────────────────────────────────────────────
+  function serializeOrder() {
+    const result = [];
+    function walk(listEl, parentId) {
+      listEl.querySelectorAll(':scope > .tag-item').forEach((el, pos) => {
+        result.push({ id: parseInt(el.dataset.id), parent_id: parentId, position: pos });
+        const subList = el.querySelector(':scope > .sub-list');
+        if (subList) walk(subList, parseInt(el.dataset.id));
+      });
+    }
+    const rootList = document.getElementById('root-list');
+    if (rootList) walk(rootList, null);
+    return result;
+  }
+
+  // ── Persist order ─────────────────────────────────────────────────────────────
+  function saveOrder() {
+    showStatus('saving');
+    fetch('/admin/tags/reorder', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': CSRF,
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify({ tags: serializeOrder() })
+    })
+    .then(r => r.json())
+    .then(data => showStatus(data.success ? 'done' : 'error'))
+    .catch(() => showStatus('error'));
+  }
+
+  // ── Drag-over highlight ───────────────────────────────────────────────────────
+  function addDragOverHighlight(subList) {
+    subList.addEventListener('dragenter', () => subList.classList.add('drag-over'));
+    subList.addEventListener('dragleave', (e) => {
+      if (!subList.contains(e.relatedTarget)) subList.classList.remove('drag-over');
+    });
+    subList.addEventListener('drop', () => subList.classList.remove('drag-over'));
+  }
+
+  function refreshPlaceholder(subList) {
+    const hasSubs = subList.querySelectorAll(':scope > .tag-item').length > 0;
+    subList.classList.toggle('has-children', hasSubs);
+  }
+
+  // ── Sub-list Sortable ─────────────────────────────────────────────────────────
+  function initSubList(subList) {
+    addDragOverHighlight(subList);
+    Sortable.create(subList, {
+      handle: '.drag-handle',
+      animation: 150,
+      ghostClass: 'sortable-ghost',
+      chosenClass: 'sortable-chosen',
+      group: { name: 'tags', pull: true, put: true },
+      onAdd: function (evt) {
+        const item = evt.item;
+        item.classList.remove('root-item');
+        item.classList.add('sub-item', 'is-sub');
+        const row = item.querySelector(':scope > .tag-row');
+        if (row) { row.classList.remove('bg-body-secondary'); row.style.background = 'var(--bs-body-bg)'; }
+        refreshPlaceholder(evt.to);
+        saveOrder();
+      },
+      onUpdate: function () { saveOrder(); },
+      onRemove: function (evt) { refreshPlaceholder(evt.from); }
+    });
+  }
+
+  // ── Root list Sortable ────────────────────────────────────────────────────────
+  const rootList = document.getElementById('root-list');
+  if (rootList) {
+    Sortable.create(rootList, {
+      handle: '.drag-handle',
+      animation: 150,
+      ghostClass: 'sortable-ghost',
+      chosenClass: 'sortable-chosen',
+      group: { name: 'tags', pull: true, put: true },
+      onAdd: function (evt) {
+        const item = evt.item;
+        item.classList.remove('sub-item', 'is-sub');
+        item.classList.add('root-item');
+        const row = item.querySelector(':scope > .tag-row');
+        if (row) { row.classList.add('bg-body-secondary'); row.style.background = ''; }
+        let subList = item.querySelector(':scope > .sub-list');
+        if (!subList) {
+          subList = document.createElement('ul');
+          subList.className = 'sub-list list-unstyled ms-4 mb-0 rounded';
+          subList.dataset.parentId = item.dataset.id;
+          item.appendChild(subList);
+          initSubList(subList);
+        }
+        item.classList.remove('is-sub');
+        refreshPlaceholder(subList);
+        saveOrder();
+      },
+      onUpdate: function () { saveOrder(); }
+    });
+
+    document.querySelectorAll('.sub-list').forEach(subList => initSubList(subList));
+  }
+})();
+</script>
+{% endblock %}

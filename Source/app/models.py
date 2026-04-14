@@ -68,6 +68,65 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 
+# --- Tag System ---
+# M2M association tables (defined before Tag so FKs resolve)
+ticket_tags = db.Table(
+    'ticket_tags',
+    db.Column('ticket_id', db.Integer, db.ForeignKey('ticket.id', ondelete='CASCADE'), primary_key=True),
+    db.Column('tag_id',    db.Integer, db.ForeignKey('tag.id',    ondelete='CASCADE'), primary_key=True),
+)
+asset_tags = db.Table(
+    'asset_tags',
+    db.Column('asset_id', db.Integer, db.ForeignKey('asset.id', ondelete='CASCADE'), primary_key=True),
+    db.Column('tag_id',   db.Integer, db.ForeignKey('tag.id',   ondelete='CASCADE'), primary_key=True),
+)
+
+
+class Tag(db.Model):
+    __tablename__ = 'tag'
+    id         = db.Column(db.Integer, primary_key=True)
+    name       = db.Column(db.String(100), nullable=False)
+    # Bootstrap color name (primary, success, danger, warning, info, secondary)
+    color      = db.Column(db.String(30), nullable=True)
+    parent_id  = db.Column(db.Integer, db.ForeignKey('tag.id'), nullable=True)
+    position   = db.Column(db.Integer, default=0)
+    # Comma-separated phrases used to auto-suggest this tag from ticket text
+    keywords   = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    children = db.relationship(
+        'Tag',
+        backref=db.backref('parent', remote_side=[id]),
+        order_by='Tag.position',
+        cascade='all, delete-orphan',
+    )
+    tickets = db.relationship('Ticket', secondary=ticket_tags, back_populates='tags')
+    assets  = db.relationship('Asset',  secondary=asset_tags,  back_populates='tags')
+
+    @property
+    def effective_color(self):
+        """Return this tag's color, or inherit from parent."""
+        if self.color:
+            return self.color
+        return self.parent.effective_color if self.parent else 'secondary'
+
+    @property
+    def full_path(self):
+        """Return 'Parent › Child' or just 'Name' for root tags."""
+        return f"{self.parent.name} \u203a {self.name}" if self.parent else self.name
+
+    @property
+    def keyword_list(self):
+        if not self.keywords:
+            return []
+        seen = []
+        for k in self.keywords.split(','):
+            k = k.strip().lower()
+            if k and k not in seen:
+                seen.append(k)
+        return seen
+
+
 class Ticket(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     external_id = db.Column(db.String(200), unique=True, nullable=True)
@@ -132,6 +191,8 @@ class Ticket(db.Model):
     asset = db.relationship('Asset', foreign_keys=[asset_id])
     # Relationship to creator (tech)
     created_by = db.relationship('User', foreign_keys=[created_by_user_id])
+    # Tags (many-to-many)
+    tags = db.relationship('Tag', secondary=ticket_tags, back_populates='tickets')
 
 
 class TicketNote(db.Model):
@@ -573,6 +634,8 @@ class Asset(db.Model):
     tickets = db.relationship('Ticket', foreign_keys='Ticket.asset_id', lazy='dynamic', overlaps="asset")
     purchase_order = db.relationship('PurchaseOrder', foreign_keys=[purchase_order_id])
     order_item = db.relationship('OrderItem', foreign_keys=[order_item_id])
+    # Tags (many-to-many)
+    tags = db.relationship('Tag', secondary=asset_tags, back_populates='assets')
 
     def checkout(self, contact, expected=None):
         from datetime import datetime as _dt

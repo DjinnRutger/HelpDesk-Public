@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, url_for, request, jsonify
 from flask_login import login_required, current_user
-from ..models import Ticket, Project, User, TicketStatus
+from ..models import Ticket, Project, User, TicketStatus, Tag, ticket_tags
 from .. import db
 from datetime import datetime, timedelta
 from sqlalchemy import func
@@ -17,17 +17,14 @@ def get_closed_status_names():
 @dashboard_bp.route('/')
 @login_required
 def index():
-    show_snoozed = request.args.get('show_snoozed', '0') == '1'
     closed_statuses = get_closed_status_names()
-    
-    # List all open tickets for the table (exclude project tickets)
-    base = Ticket.query.filter(~Ticket.status.in_(closed_statuses) & (Ticket.project_id.is_(None)))
-    if not show_snoozed:
-        base = base.filter((Ticket.snoozed_until.is_(None)) | (Ticket.snoozed_until <= datetime.utcnow()))
-    tickets = base.order_by(Ticket.created_at.desc()).all()
-    
-    # Calculate total open tickets (exclude project tickets and optionally snoozed)
-    total_open = Ticket.query.filter(~Ticket.status.in_(closed_statuses) & (Ticket.project_id.is_(None)) & ((Ticket.snoozed_until.is_(None)) | (Ticket.snoozed_until <= datetime.utcnow()))).count() if not show_snoozed else Ticket.query.filter(~Ticket.status.in_(closed_statuses) & (Ticket.project_id.is_(None))).count()
+
+    # Calculate total open tickets (exclude project tickets and snoozed)
+    total_open = Ticket.query.filter(
+        ~Ticket.status.in_(closed_statuses) &
+        (Ticket.project_id.is_(None)) &
+        ((Ticket.snoozed_until.is_(None)) | (Ticket.snoozed_until <= datetime.utcnow()))
+    ).count()
     
     # Calculate Health Score
     # Health = 100 - (Overdue tickets × 10) - (Unassigned > 24h × 5) - (Open > 7 days × 2) - (Open > 14 days × 4) + (Closed today × 3)
@@ -144,7 +141,49 @@ def index():
             'closed_today_bonus': closed_today * 3,
         },
     }
-    return render_template('dashboard/index.html', tickets=tickets, stats=stats, show_snoozed=show_snoozed)
+    return render_template('dashboard/index.html', stats=stats)
+
+
+@dashboard_bp.route('/top-tags')
+@login_required
+def top_tags():
+    """Return top tags by ticket count as JSON for the bar chart."""
+    days = request.args.get('days', 30, type=int)
+    if days not in (7, 30, 60, 90):
+        days = 30
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    rows = (
+        db.session.query(Tag.id, Tag.name, Tag.color, Tag.parent_id, func.count(ticket_tags.c.ticket_id).label('cnt'))
+        .join(ticket_tags, Tag.id == ticket_tags.c.tag_id)
+        .join(Ticket, Ticket.id == ticket_tags.c.ticket_id)
+        .filter(Ticket.created_at >= cutoff)
+        .group_by(Tag.id, Tag.name, Tag.color, Tag.parent_id)
+        .order_by(func.count(ticket_tags.c.ticket_id).desc())
+        .limit(10)
+        .all()
+    )
+    # Build full_path and effective_color for each result
+    tag_map = {t.id: t for t in Tag.query.all()}
+    def eff_color(tag_id):
+        t = tag_map.get(tag_id)
+        if not t:
+            return 'secondary'
+        return t.effective_color
+    def full_path(row):
+        if row.parent_id:
+            parent = tag_map.get(row.parent_id)
+            return f"{parent.name} \u203a {row.name}" if parent else row.name
+        return row.name
+
+    # Bootstrap color → chart hex
+    color_map = {
+        'primary': '#0d6efd', 'success': '#198754', 'danger': '#dc3545',
+        'warning': '#ffc107', 'info': '#0dcaf0', 'secondary': '#6c757d',
+    }
+    labels  = [full_path(r) for r in rows]
+    counts  = [r.cnt for r in rows]
+    colors  = [color_map.get(eff_color(r.id), '#6c757d') for r in rows]
+    return jsonify(labels=labels, counts=counts, colors=colors, days=days)
 
 
 @dashboard_bp.route('/ticket-sources')

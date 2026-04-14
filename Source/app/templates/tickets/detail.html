@@ -484,6 +484,57 @@
         </form>
       </div>
     </div>
+    <!-- Tags -->
+    <div class="card shadow-sm mb-3" id="ticket-tags-card">
+      <div class="card-header bg-body-tertiary d-flex align-items-center justify-content-between">
+        <h6 class="mb-0"><i class="bi bi-tags-fill me-1"></i>Tags</h6>
+        <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2" id="tagPickerBtn" title="Browse all tags" data-bs-toggle="modal" data-bs-target="#tagPickerModal">
+          <i class="bi bi-plus-lg"></i>
+        </button>
+      </div>
+      <div class="card-body pb-2">
+        <!-- Existing tag pills -->
+        <div id="ticket-tag-pills" class="d-flex flex-wrap gap-1 mb-2">
+          {% for tag in t.tags %}
+          <span class="badge text-bg-{{ tag.effective_color }} rounded-pill d-inline-flex align-items-center gap-1 tag-pill" data-tag-id="{{ tag.id }}" title="{{ tag.full_path }}">
+            {{ tag.name }}
+            <button type="button" class="btn-close btn-close-white ms-1" style="font-size:.6rem;" aria-label="Remove" onclick="removeTicketTag({{ tag.id }}, this)"></button>
+          </span>
+          {% endfor %}
+          {% if not t.tags %}
+          <span class="text-muted small fst-italic" id="no-tags-msg">No tags yet</span>
+          {% endif %}
+        </div>
+        <!-- Tag search input -->
+        <div class="position-relative">
+          <input type="text" id="tag-search-input" class="form-control form-control-sm" placeholder="Search tags to add…" autocomplete="off">
+          <ul id="tag-dropdown" class="dropdown-menu w-100 p-1" style="display:none; max-height:200px; overflow-y:auto; position:absolute; z-index:1055;"></ul>
+        </div>
+        <!-- Suggested tags based on ticket keywords -->
+        {% if suggested_tags %}
+        <div class="mt-2" id="suggested-tags-wrap">
+          <div class="small text-muted mb-1">
+            <i class="bi bi-lightbulb me-1"></i>Suggested Tags
+          </div>
+          <div id="suggested-tag-pills" class="d-flex flex-wrap gap-1">
+            {% for tag in suggested_tags %}
+            <button type="button"
+                    class="btn btn-sm p-0 border-0 bg-transparent suggested-tag-btn"
+                    data-tag-id="{{ tag.id }}"
+                    data-tag-name="{{ tag.name }}"
+                    data-tag-path="{{ tag.full_path }}"
+                    data-tag-color="{{ tag.effective_color }}"
+                    title="Click to add">
+              <span class="badge text-bg-{{ tag.effective_color }} rounded-pill" title="{{ tag.full_path }}">
+                <i class="bi bi-plus-lg me-1"></i>{{ tag.name }}
+              </span>
+            </button>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
     <!-- Actions -->
     <div class="card shadow-sm mb-3">
       <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
@@ -1448,6 +1499,52 @@
     </div>
   </div>
   </div>
+<!-- Tag Picker Modal -->
+<div class="modal fade" id="tagPickerModal" tabindex="-1" aria-labelledby="tagPickerModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="tagPickerModalLabel"><i class="bi bi-tags-fill me-2 text-primary"></i>Add Tags</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <div class="input-group input-group-sm">
+            <span class="input-group-text"><i class="bi bi-search"></i></span>
+            <input type="text" id="tagPickerSearch" class="form-control" placeholder="Filter tags…" autocomplete="off">
+            <button type="button" class="btn btn-outline-secondary" id="tagPickerClear" title="Clear">
+              <i class="bi bi-x-lg"></i>
+            </button>
+          </div>
+        </div>
+        <div id="tagPickerList" class="d-flex flex-wrap gap-2">
+          {% for tag in all_tags %}
+          <button type="button"
+                  class="btn btn-sm tag-picker-item rounded-pill"
+                  data-tag-id="{{ tag.id }}"
+                  data-tag-name="{{ tag.full_path | lower }}"
+                  data-tag-color="{{ tag.effective_color }}"
+                  data-tag-path="{{ tag.full_path }}">
+            <span class="badge text-bg-{{ tag.effective_color }} rounded-pill">{{ tag.full_path }}</span>
+          </button>
+          {% else %}
+          <p class="text-muted small fst-italic">No tags defined yet.</p>
+          {% endfor %}
+        </div>
+        <p class="text-muted small mt-3 mb-0" id="tagPickerNoResults" style="display:none;">No tags match your search.</p>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <span class="text-muted small" id="tagPickerSelectionCount">0 selected</span>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-primary" id="tagPickerSave">
+            <i class="bi bi-check-lg me-1"></i>Add Selected
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="modal fade" id="assignProcessModal" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -1768,5 +1865,275 @@ document.getElementById('watchBtn').addEventListener('click', async function() {
     alert('Failed to update watch status. Please try again.');
   }
 });
+</script>
+
+<script>
+// ── Ticket Tag System ─────────────────────────────────────────────────────────
+(function () {
+  'use strict';
+  const TICKET_ID = {{ t.id }};
+  const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
+  const input    = document.getElementById('tag-search-input');
+  const dropdown = document.getElementById('tag-dropdown');
+  const pillBox  = document.getElementById('ticket-tag-pills');
+  let debounce   = null;
+
+  // Track added tag IDs to prevent duplicates in dropdown
+  function getExistingTagIds() {
+    return new Set(
+      [...document.querySelectorAll('#ticket-tag-pills .tag-pill')]
+        .map(el => parseInt(el.dataset.tagId))
+    );
+  }
+
+  function makeTagPill(tag) {
+    const span = document.createElement('span');
+    span.className = `badge text-bg-${tag.color} rounded-pill d-inline-flex align-items-center gap-1 tag-pill`;
+    span.dataset.tagId = tag.id;
+    span.title = tag.full_path;
+    span.textContent = tag.name;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn-close btn-close-white ms-1';
+    btn.style.fontSize = '.6rem';
+    btn.setAttribute('aria-label', 'Remove');
+    btn.addEventListener('click', () => removeTicketTag(tag.id, btn));
+    span.appendChild(btn);
+    return span;
+  }
+
+  function hideDropdown() {
+    dropdown.style.display = 'none';
+    dropdown.innerHTML = '';
+  }
+
+  function showResults(tags) {
+    dropdown.innerHTML = '';
+    const existing = getExistingTagIds();
+    const filtered = tags.filter(t => !existing.has(t.id));
+    if (!filtered.length) {
+      dropdown.style.display = 'none';
+      return;
+    }
+    filtered.forEach(tag => {
+      const li = document.createElement('li');
+      li.innerHTML = `<button class="dropdown-item d-flex align-items-center gap-2" type="button">
+        <span class="badge text-bg-${tag.color} rounded-pill px-2">${tag.full_path}</span>
+      </button>`;
+      li.querySelector('button').addEventListener('click', () => {
+        addTicketTag(tag);
+        input.value = '';
+        hideDropdown();
+      });
+      dropdown.appendChild(li);
+    });
+    dropdown.style.display = 'block';
+  }
+
+  if (input) {
+    input.addEventListener('input', function () {
+      clearTimeout(debounce);
+      const q = this.value.trim();
+      if (!q) { hideDropdown(); return; }
+      debounce = setTimeout(() => {
+        fetch(`/tickets/api/tags/search?q=${encodeURIComponent(q)}`)
+          .then(r => r.json())
+          .then(data => showResults(data))
+          .catch(() => hideDropdown());
+      }, 200);
+    });
+
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { hideDropdown(); input.value = ''; }
+    });
+  }
+
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest('#ticket-tags-card')) hideDropdown();
+  });
+
+  window.addTicketTag = function (tag) {
+    fetch(`/tickets/${TICKET_ID}/tags/add`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': CSRF,
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify({ tag_id: tag.id })
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        const noMsg = document.getElementById('no-tags-msg');
+        if (noMsg) noMsg.remove();
+        pillBox.appendChild(makeTagPill(data.tag));
+      }
+    });
+  };
+
+  // ── Suggested Tags click handler ───────────────────────────────────────────
+  document.querySelectorAll('.suggested-tag-btn').forEach(btn => {
+    btn.addEventListener('click', function () {
+      const tagData = {
+        id: parseInt(this.dataset.tagId),
+        name: this.dataset.tagName,
+        full_path: this.dataset.tagPath,
+        color: this.dataset.tagColor,
+      };
+      addTicketTag(tagData);
+      this.remove();
+      const wrap = document.getElementById('suggested-tags-wrap');
+      if (wrap && !wrap.querySelector('.suggested-tag-btn')) {
+        wrap.style.display = 'none';
+      }
+    });
+  });
+
+  window.removeTicketTag = function (tagId, btn) {
+    fetch(`/tickets/${TICKET_ID}/tags/remove/${tagId}`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': CSRF,
+        'X-Requested-With': 'XMLHttpRequest'
+      }
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        const pill = btn.closest('.tag-pill');
+        if (pill) pill.remove();
+        if (!pillBox.querySelector('.tag-pill')) {
+          const msg = document.createElement('span');
+          msg.id = 'no-tags-msg';
+          msg.className = 'text-muted small fst-italic';
+          msg.textContent = 'No tags yet';
+          pillBox.appendChild(msg);
+        }
+      }
+    });
+  };
+
+  // ── Tag Picker Modal ───────────────────────────────────────────────────────
+  const tagPickerModal  = document.getElementById('tagPickerModal');
+  const tagPickerSearch = document.getElementById('tagPickerSearch');
+  const tagPickerList   = document.getElementById('tagPickerList');
+  const tagPickerCount  = document.getElementById('tagPickerSelectionCount');
+  const tagPickerNoRes  = document.getElementById('tagPickerNoResults');
+  const tagPickerSave   = document.getElementById('tagPickerSave');
+  const tagPickerClear  = document.getElementById('tagPickerClear');
+  let pickerSelected    = new Set();
+
+  function syncPickerUI() {
+    const items = tagPickerList.querySelectorAll('.tag-picker-item');
+    const existing = getExistingTagIds();
+    let visible = 0;
+    const q = (tagPickerSearch.value || '').trim().toLowerCase();
+    items.forEach(btn => {
+      const name   = btn.dataset.tagName || '';
+      const id     = parseInt(btn.dataset.tagId);
+      const matches = !q || name.includes(q);
+      btn.style.display = matches ? '' : 'none';
+      if (matches) visible++;
+
+      // Already on ticket — show dimmed, checked appearance
+      if (existing.has(id)) {
+        btn.classList.add('opacity-50');
+        btn.setAttribute('disabled', 'disabled');
+        btn.title = 'Already added';
+      } else {
+        btn.removeAttribute('disabled');
+        btn.classList.remove('opacity-50');
+        btn.title = '';
+      }
+
+      // Selected state
+      if (pickerSelected.has(id) && !existing.has(id)) {
+        btn.classList.add('border', 'border-primary', 'border-2');
+      } else {
+        btn.classList.remove('border', 'border-primary', 'border-2');
+      }
+    });
+    tagPickerNoRes.style.display = (visible === 0) ? '' : 'none';
+    tagPickerCount.textContent = pickerSelected.size === 0
+      ? '0 selected'
+      : `${pickerSelected.size} selected`;
+  }
+
+  if (tagPickerModal) {
+    tagPickerModal.addEventListener('show.bs.modal', function () {
+      pickerSelected.clear();
+      if (tagPickerSearch) tagPickerSearch.value = '';
+      syncPickerUI();
+    });
+
+    tagPickerModal.addEventListener('shown.bs.modal', function () {
+      if (tagPickerSearch) tagPickerSearch.focus();
+    });
+
+    tagPickerList.querySelectorAll('.tag-picker-item').forEach(btn => {
+      btn.addEventListener('click', function () {
+        const id = parseInt(this.dataset.tagId);
+        if (getExistingTagIds().has(id)) return;
+        if (pickerSelected.has(id)) {
+          pickerSelected.delete(id);
+        } else {
+          pickerSelected.add(id);
+        }
+        syncPickerUI();
+      });
+    });
+
+    if (tagPickerSearch) {
+      tagPickerSearch.addEventListener('input', syncPickerUI);
+    }
+
+    if (tagPickerClear) {
+      tagPickerClear.addEventListener('click', function () {
+        if (tagPickerSearch) tagPickerSearch.value = '';
+        syncPickerUI();
+        tagPickerSearch.focus();
+      });
+    }
+
+    if (tagPickerSave) {
+      tagPickerSave.addEventListener('click', async function () {
+        if (pickerSelected.size === 0) {
+          bootstrap.Modal.getInstance(tagPickerModal).hide();
+          return;
+        }
+        const btn = this;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving…';
+
+        const ids = [...pickerSelected];
+        for (const id of ids) {
+          try {
+            const resp = await fetch(`/tickets/${TICKET_ID}/tags/add`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': CSRF,
+                'X-Requested-With': 'XMLHttpRequest'
+              },
+              body: JSON.stringify({ tag_id: id })
+            });
+            const data = await resp.json();
+            if (data.success) {
+              const noMsg = document.getElementById('no-tags-msg');
+              if (noMsg) noMsg.remove();
+              pillBox.appendChild(makeTagPill(data.tag));
+            }
+          } catch (e) { /* skip failed */ }
+        }
+
+        pickerSelected.clear();
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Add Selected';
+        bootstrap.Modal.getInstance(tagPickerModal).hide();
+      });
+    }
+  }
+})();
 </script>
 {% endblock %}

@@ -1,15 +1,5 @@
 {% extends 'base.html' %}
 {% block title %}Dashboard · HelpDesk{% endblock %}
-{% block head %}
-<script>
-  // Reload every 30s, only if tab is visible
-  setInterval(function(){
-    if (document.visibilityState === 'visible') {
-      location.reload();
-    }
-  }, 30000);
-</script>
-{% endblock %}
 {% block content %}
 <!-- Dashboard Header -->
 <div class="card shadow-sm mb-3">
@@ -19,18 +9,12 @@
         <i class="bi bi-speedometer2 text-primary me-2 fs-4"></i>
         <div>
           <h1 class="h5 mb-0">Dashboard</h1>
-          <small class="text-muted">System overview and recent activity</small>
+          <small class="text-muted">System overview and statistics</small>
         </div>
       </div>
       <div class="d-flex gap-2">
         <a href="{{ url_for('tickets.list_tickets', status='open') }}" class="btn btn-outline-secondary btn-sm">
           <i class="bi bi-list me-1"></i>All Open Tickets
-        </a>
-        <a href="{{ url_for('dashboard.index', show_snoozed=(0 if show_snoozed else 1)) }}" class="btn btn-outline-secondary btn-sm" title="Toggle snoozed">
-          <i class="bi bi-moon"></i>
-          {% if stats.snoozed_count %}
-            <span class="badge rounded-pill text-bg-secondary ms-1">{{ stats.snoozed_count }}</span>
-          {% endif %}
         </a>
         <a href="{{ url_for('tickets.new_ticket') }}" class="btn btn-primary btn-sm">
           <i class="bi bi-plus-lg me-1"></i>New Ticket
@@ -86,86 +70,44 @@
       </div>
     </div>
   </div>
-  <!-- Ticket Sources Pie Chart Widget -->
+  <!-- Snoozed count badge -->
   <div class="col-md-3">
-    <div class="card shadow-sm h-100" id="sourceChartCard" style="cursor:pointer;" title="Click to change time range">
-      <div class="card-body d-flex flex-column align-items-center p-2">
-        <div class="text-muted small mb-1" id="sourceChartLabel">Sources (30 days)</div>
-        <canvas id="sourceChart" style="max-height:140px;"></canvas>
+    <div class="card shadow-sm h-100">
+      <div class="card-body text-center">
+        <i class="bi bi-moon text-secondary fs-1 mb-2"></i>
+        <div class="h2 mb-1">{{ stats.snoozed_count }}</div>
+        <div class="text-muted small">Snoozed Tickets</div>
+        <a href="{{ url_for('tickets.list_tickets', show_snoozed=1) }}" class="btn btn-outline-secondary btn-sm mt-2">View</a>
       </div>
     </div>
   </div>
 </div>
 
-<!-- Recent Open Tickets -->
-<div class="card shadow-sm">
-  <div class="card-header bg-body-tertiary">
-    <div class="d-flex align-items-center justify-content-between">
-      <h6 class="mb-0"><i class="bi bi-list-task me-1"></i>Recent Open Tickets</h6>
-      <a href="{{ url_for('tickets.list_tickets', status='open') }}" class="btn btn-outline-secondary btn-sm">
-        <i class="bi bi-arrow-right me-1"></i>View All Open
-      </a>
+<!-- Top Tags Chart -->
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="card shadow-sm h-100" id="topTagsCard" style="cursor:pointer;" title="Click to change time range">
+      <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+        <h6 class="mb-0"><i class="bi bi-tags-fill text-primary me-1"></i>Top Tags</h6>
+        <span class="text-muted small" id="topTagsLabel">Last 30 days</span>
+      </div>
+      <div class="card-body d-flex align-items-center justify-content-center" style="min-height:220px;">
+        <canvas id="topTagsChart"></canvas>
+        <div id="topTagsEmpty" class="text-center text-muted" style="display:none;">
+          <i class="bi bi-tags display-4 opacity-25 d-block mb-2"></i>
+          <span class="small">No tagged tickets yet in this period.</span>
+        </div>
+      </div>
     </div>
   </div>
-  <div class="card-body p-0">
-    {% if tickets %}
-      <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0">
-          <thead class="table-light">
-            <tr>
-              <th class="border-0">Ticket</th>
-              <th class="border-0">Requester</th>
-              <th class="border-0">Assignee</th>
-              <th class="border-0">Status</th>
-              <th class="border-0">Priority</th>
-              <th class="border-0">Age</th>
-              <th class="border-0"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for t in tickets %}
-              <tr class="clickable-row {% if t.priority == 'high' %}table-danger{% endif %}" data-href="{{ url_for('tickets.show_ticket', ticket_id=t.id) }}">
-                <td>
-                  <div class="fw-semibold">#{{ t.id }}</div>
-                  <div class="text-muted small text-truncate" style="max-width: 250px;">{{ t.subject }}
-                    {% if show_snoozed and t.is_snoozed %}
-                      <span class="ms-1"><i class="bi bi-moon"></i> {{ t.snoozed_until|cst_datetime('%m/%d/%Y') }}</span>
-                    {% endif %}
-                  </div>
-                </td>
-                <td class="small">{{ t.requester_name or t.requester_email or '—' }}</td>
-                <td class="small">{{ t.assignee.name if t.assignee else '—' }}</td>
-                <td>
-                  <span class="badge text-bg-{{ t.status|status_color }}">{{ t.status|status_label }}</span>
-                </td>
-                <td>
-                  {% if t.priority == 'high' %}
-                    <span class="badge text-bg-danger">High</span>
-                  {% elif t.priority == 'medium' %}
-                    <span class="badge text-bg-warning">Medium</span>
-                  {% else %}
-                    <span class="badge text-bg-secondary">Low</span>
-                  {% endif %}
-                </td>
-                <td class="small">{{ t.age_days }}d</td>
-                <td>
-                  <i class="bi bi-chevron-right text-muted"></i>
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+  <div class="col-lg-4">
+    <!-- Ticket Source Pie Chart (moved here) -->
+    <div class="card shadow-sm h-100" id="sourceChartCard" style="cursor:pointer;" title="Click to change time range">
+      <div class="card-body d-flex flex-column align-items-center p-2">
+        <div class="text-muted small mb-1" id="sourceChartLabel">Sources (30 days)</div>
+        <canvas id="sourceChart" style="max-height:200px;"></canvas>
       </div>
-    {% else %}
-      <div class="text-center py-5">
-        <i class="bi bi-check-circle display-1 text-success opacity-25"></i>
-        <h5 class="mt-3 mb-2">All Caught Up!</h5>
-        <p class="text-muted mb-3">No open tickets at this time.</p>
-        <a href="{{ url_for('tickets.new_ticket') }}" class="btn btn-primary">
-          <i class="bi bi-plus-lg me-1"></i>Create New Ticket
-        </a>
-      </div>
-    {% endif %}
+    </div>
   </div>
 </div>
 <!-- Health Breakdown Modal -->
@@ -247,6 +189,7 @@
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script>
+// ── Source Pie Chart ──────────────────────────────────────────────────────────
 (function() {
   const PERIODS = [
     { days: 7,  label: 'Sources (1 week)' },
@@ -254,7 +197,7 @@
     { days: 60, label: 'Sources (60 days)' },
     { days: 90, label: 'Sources (90 days)' },
   ];
-  let periodIdx = 1; // default 30 days
+  let periodIdx = 1;
   const COLORS = [
     '#0d6efd','#6610f2','#6f42c1','#d63384','#dc3545',
     '#fd7e14','#ffc107','#198754','#20c997','#0dcaf0'
@@ -282,7 +225,7 @@
     }
   });
 
-  function load(days, label) {
+  function loadSource(days, label) {
     fetch('{{ url_for("dashboard.ticket_sources") }}?days=' + days)
       .then(r => r.json())
       .then(d => {
@@ -293,13 +236,84 @@
       });
   }
 
-  // Initial load
-  load(PERIODS[periodIdx].days, PERIODS[periodIdx].label);
+  loadSource(PERIODS[periodIdx].days, PERIODS[periodIdx].label);
 
-  // Click to cycle
   document.getElementById('sourceChartCard').addEventListener('click', function() {
     periodIdx = (periodIdx + 1) % PERIODS.length;
-    load(PERIODS[periodIdx].days, PERIODS[periodIdx].label);
+    loadSource(PERIODS[periodIdx].days, PERIODS[periodIdx].label);
+  });
+})();
+
+// ── Top Tags Bar Chart ────────────────────────────────────────────────────────
+(function() {
+  const TAG_PERIODS = [
+    { days: 7,  label: 'Last 7 days' },
+    { days: 30, label: 'Last 30 days' },
+    { days: 60, label: 'Last 60 days' },
+    { days: 90, label: 'Last 90 days' },
+  ];
+  let tagPeriodIdx = 1;
+  let tagChart = null;
+
+  const canvas = document.getElementById('topTagsChart');
+  const empty  = document.getElementById('topTagsEmpty');
+
+  function loadTags(days, label) {
+    fetch('{{ url_for("dashboard.top_tags") }}?days=' + days)
+      .then(r => r.json())
+      .then(d => {
+        document.getElementById('topTagsLabel').textContent = label;
+        if (!d.labels || !d.labels.length) {
+          canvas.style.display = 'none';
+          empty.style.display  = '';
+          return;
+        }
+        canvas.style.display = '';
+        empty.style.display  = 'none';
+
+        if (tagChart) {
+          tagChart.data.labels = d.labels;
+          tagChart.data.datasets[0].data            = d.counts;
+          tagChart.data.datasets[0].backgroundColor = d.colors;
+          tagChart.update();
+        } else {
+          tagChart = new Chart(canvas.getContext('2d'), {
+            type: 'bar',
+            data: {
+              labels: d.labels,
+              datasets: [{
+                data: d.counts,
+                backgroundColor: d.colors,
+                borderRadius: 4,
+              }]
+            },
+            options: {
+              indexAxis: 'y',
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  callbacks: {
+                    label: c => ' ' + c.raw + ' ticket' + (c.raw !== 1 ? 's' : '')
+                  }
+                }
+              },
+              scales: {
+                x: { beginAtZero: true, ticks: { precision: 0 } },
+                y: { ticks: { font: { size: 12 } } }
+              }
+            }
+          });
+        }
+      });
+  }
+
+  loadTags(TAG_PERIODS[tagPeriodIdx].days, TAG_PERIODS[tagPeriodIdx].label);
+
+  document.getElementById('topTagsCard').addEventListener('click', function() {
+    tagPeriodIdx = (tagPeriodIdx + 1) % TAG_PERIODS.length;
+    loadTags(TAG_PERIODS[tagPeriodIdx].days, TAG_PERIODS[tagPeriodIdx].label);
   });
 })();
 </script>

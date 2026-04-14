@@ -319,7 +319,7 @@ def create_app():
     TicketProcessItem, AllowedDomain, TicketAttachment, Contact, DenyFilter,
     TicketTask, OrderItem, PurchaseOrder, Vendor, Company, ShippingLocation,
     DocumentCategory, Document, Asset, AssetCategory, AssetManufacturer, AssetCondition, AssetLocation,
-    EmailCheck, EmailCheckEntry, ApprovalRequest
+    EmailCheck, EmailCheckEntry, ApprovalRequest, Tag, ticket_tags, asset_tags
     )
 
     with app.app_context():
@@ -384,6 +384,15 @@ def create_app():
         except Exception:
             pass
 
+        # Ensure tag tables exist (isolated so earlier migration failures can't suppress this)
+        try:
+            from .utils.db_migrate import ensure_tags_tables, ensure_tag_columns
+            ensure_tags_tables(db.engine)
+            ensure_tag_columns(db.engine)   # adds `keywords` column to existing DBs
+            db.create_all()  # pick up any SQLAlchemy-tracked tables not yet in the DB
+        except Exception as e:
+            app.logger.warning(f'Failed to ensure tag tables: {e}')
+
         # One-time backfill for legacy notes missing is_private
         try:
             from .models import TicketNote as _TicketNote
@@ -404,6 +413,13 @@ def create_app():
             TicketStatus.ensure_defaults()
         except Exception as e:
             app.logger.warning(f'Failed to initialize ticket statuses: {e}')
+
+        # Seed default tags if none exist
+        try:
+            from .utils.db_migrate import seed_default_tags
+            seed_default_tags(db)
+        except Exception as e:
+            app.logger.warning(f'Failed to seed default tags: {e}')
 
         # Migrate unencrypted sensitive settings to encrypted format
         try:

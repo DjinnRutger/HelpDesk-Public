@@ -88,7 +88,7 @@ def new_project_ticket(project_id):
 			requester=form.requester.data,
 			requester_email=form.requester.data,
 			body=form.body.data,
-			status=form.status.data,
+			status='new',
 			priority=form.priority.data or 'medium',
 			source=form.source.data or 'manual',
 			project_id=p.id,

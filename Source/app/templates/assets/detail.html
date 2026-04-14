@@ -404,6 +404,32 @@
       </div>
     </div>
 
+    <!-- Tags Card (view mode only) -->
+    {% if not edit %}
+    <div class="card shadow-sm mb-3" id="asset-tags-card">
+      <div class="card-header bg-body-tertiary">
+        <h6 class="mb-0"><i class="bi bi-tags-fill me-1"></i>Tags</h6>
+      </div>
+      <div class="card-body pb-2">
+        <div id="asset-tag-pills" class="d-flex flex-wrap gap-1 mb-2">
+          {% for tag in asset.tags %}
+          <span class="badge text-bg-{{ tag.effective_color }} rounded-pill d-inline-flex align-items-center gap-1 asset-tag-pill" data-tag-id="{{ tag.id }}">
+            {{ tag.full_path }}
+            <button type="button" class="btn-close btn-close-white ms-1" style="font-size:.6rem;" aria-label="Remove" onclick="removeAssetTag({{ tag.id }}, this)"></button>
+          </span>
+          {% endfor %}
+          {% if not asset.tags %}
+          <span class="text-muted small fst-italic" id="no-asset-tags-msg">No tags yet</span>
+          {% endif %}
+        </div>
+        <div class="position-relative">
+          <input type="text" id="asset-tag-search-input" class="form-control form-control-sm" placeholder="Search tags to add…" autocomplete="off">
+          <ul id="asset-tag-dropdown" class="dropdown-menu w-100 p-1" style="display:none; max-height:200px; overflow-y:auto; position:absolute; z-index:1055;"></ul>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
   </div>
   {% endif %}
 </div>
@@ -513,4 +539,131 @@
     }
   })();
 </script>
+
+{% if not edit %}
+<script>
+// ── Asset Tag System ──────────────────────────────────────────────────────────
+(function () {
+  'use strict';
+  const ASSET_ID = {{ asset.id }};
+  const CSRF     = document.querySelector('meta[name="csrf-token"]')?.content || '';
+  const input    = document.getElementById('asset-tag-search-input');
+  const dropdown = document.getElementById('asset-tag-dropdown');
+  const pillBox  = document.getElementById('asset-tag-pills');
+  let debounce   = null;
+
+  function getExistingTagIds() {
+    return new Set(
+      [...document.querySelectorAll('#asset-tag-pills .asset-tag-pill')]
+        .map(el => parseInt(el.dataset.tagId))
+    );
+  }
+
+  function makeTagPill(tag) {
+    const span = document.createElement('span');
+    span.className = `badge text-bg-${tag.color} rounded-pill d-inline-flex align-items-center gap-1 asset-tag-pill`;
+    span.dataset.tagId = tag.id;
+    span.textContent = tag.full_path;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn-close btn-close-white ms-1';
+    btn.style.fontSize = '.6rem';
+    btn.setAttribute('aria-label', 'Remove');
+    btn.addEventListener('click', () => removeAssetTag(tag.id, btn));
+    span.appendChild(btn);
+    return span;
+  }
+
+  function hideDropdown() {
+    dropdown.style.display = 'none';
+    dropdown.innerHTML = '';
+  }
+
+  function showResults(tags) {
+    dropdown.innerHTML = '';
+    const existing = getExistingTagIds();
+    const filtered = tags.filter(t => !existing.has(t.id));
+    if (!filtered.length) { dropdown.style.display = 'none'; return; }
+    filtered.forEach(tag => {
+      const li = document.createElement('li');
+      li.innerHTML = `<button class="dropdown-item d-flex align-items-center gap-2" type="button">
+        <span class="badge text-bg-${tag.color} rounded-pill px-2">${tag.full_path}</span>
+      </button>`;
+      li.querySelector('button').addEventListener('click', () => {
+        addAssetTag(tag);
+        input.value = '';
+        hideDropdown();
+      });
+      dropdown.appendChild(li);
+    });
+    dropdown.style.display = 'block';
+  }
+
+  if (input) {
+    input.addEventListener('input', function () {
+      clearTimeout(debounce);
+      const q = this.value.trim();
+      if (!q) { hideDropdown(); return; }
+      debounce = setTimeout(() => {
+        fetch(`/tickets/api/tags/search?q=${encodeURIComponent(q)}`)
+          .then(r => r.json())
+          .then(data => showResults(data))
+          .catch(() => hideDropdown());
+      }, 200);
+    });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { hideDropdown(); input.value = ''; }
+    });
+  }
+
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest('#asset-tags-card')) hideDropdown();
+  });
+
+  window.addAssetTag = function (tag) {
+    fetch(`/assets/${ASSET_ID}/tags/add`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': CSRF,
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify({ tag_id: tag.id })
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        const noMsg = document.getElementById('no-asset-tags-msg');
+        if (noMsg) noMsg.remove();
+        pillBox.appendChild(makeTagPill(data.tag));
+      }
+    });
+  };
+
+  window.removeAssetTag = function (tagId, btn) {
+    fetch(`/assets/${ASSET_ID}/tags/remove/${tagId}`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': CSRF,
+        'X-Requested-With': 'XMLHttpRequest'
+      }
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        const pill = btn.closest('.asset-tag-pill');
+        if (pill) pill.remove();
+        if (!pillBox.querySelector('.asset-tag-pill')) {
+          const msg = document.createElement('span');
+          msg.id = 'no-asset-tags-msg';
+          msg.className = 'text-muted small fst-italic';
+          msg.textContent = 'No tags yet';
+          pillBox.appendChild(msg);
+        }
+      }
+    });
+  };
+})();
+</script>
+{% endif %}
 {% endblock %}
