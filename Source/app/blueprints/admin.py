@@ -2248,6 +2248,43 @@ def assets_picklists_data():
 
 
 @admin_bp.route('/documents/<int:category_id>/delete', methods=['POST'])
+@admin_bp.route('/documents/categories/<int:category_id>/rename', methods=['POST'])
+@login_required
+def documents_category_rename(category_id):
+    c = DocumentCategory.query.get_or_404(category_id)
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.accept_mimetypes.accept_json
+    new_name = (request.form.get('name') or '').strip()
+    if not new_name:
+        if is_ajax:
+            return jsonify({'success': False, 'error': 'Category name is required'})
+        flash('Category name is required', 'danger')
+        return redirect(url_for('admin.documents_categories'))
+    # Check uniqueness within the same parent, excluding self
+    exists = DocumentCategory.query.filter(
+        DocumentCategory.id != c.id,
+        DocumentCategory.parent_id == c.parent_id,
+        DocumentCategory.name.ilike(new_name)
+    ).first()
+    if exists:
+        if is_ajax:
+            return jsonify({'success': False, 'error': 'A category with that name already exists at this level'})
+        flash('A category with that name already exists at this level.', 'warning')
+        return redirect(url_for('admin.documents_categories'))
+    try:
+        c.name = new_name
+        db.session.commit()
+        if is_ajax:
+            return jsonify({'success': True, 'id': c.id, 'name': c.name})
+        flash('Category renamed', 'success')
+        return redirect(url_for('admin.documents_categories'))
+    except Exception as e:
+        db.session.rollback()
+        if is_ajax:
+            return jsonify({'success': False, 'error': str(e)})
+        flash(f'Error renaming category: {str(e)}', 'danger')
+        return redirect(url_for('admin.documents_categories'))
+
+
 @admin_bp.route('/documents/categories/<int:category_id>/delete', methods=['POST'])
 @login_required
 def documents_category_delete(category_id):

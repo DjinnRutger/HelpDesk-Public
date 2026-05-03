@@ -29,6 +29,43 @@ html, body {
   color: var(--fallout-text) !important;
 }
 
+/* Dropdown items — override Bootstrap's grey hover/active and link colors */
+.dropdown-menu {
+  --bs-dropdown-bg: var(--fallout-panel);
+  --bs-dropdown-color: var(--fallout-text);
+  --bs-dropdown-border-color: var(--fallout-border);
+  --bs-dropdown-link-color: var(--fallout-text);
+  --bs-dropdown-link-hover-color: var(--fallout-accent);
+  --bs-dropdown-link-hover-bg: rgba(0, 255, 102, 0.08);
+  --bs-dropdown-link-active-color: var(--fallout-accent);
+  --bs-dropdown-link-active-bg: rgba(0, 255, 102, 0.15);
+  --bs-dropdown-header-color: rgba(124, 255, 128, 0.65);
+  --bs-dropdown-divider-bg: var(--fallout-border);
+}
+
+.dropdown-item {
+  color: var(--fallout-text) !important;
+}
+
+.dropdown-item:hover,
+.dropdown-item:focus {
+  background-color: rgba(0, 255, 102, 0.08) !important;
+  color: var(--fallout-accent) !important;
+}
+
+.dropdown-item.active,
+.dropdown-item:active {
+  background-color: rgba(0, 255, 102, 0.15) !important;
+  color: var(--fallout-accent) !important;
+}
+
+/* Native <select> options — limited browser support but sets bg/color where allowed */
+select option,
+.form-select option {
+  background-color: var(--fallout-panel) !important;
+  color: var(--fallout-text) !important;
+}
+
 .bg-body-tertiary {
   background-color: var(--fallout-panel) !important;
   color: var(--fallout-text) !important;
@@ -43,14 +80,14 @@ html, body {
   border: 1px solid var(--fallout-border) !important;
 }
 
-/* Links */
-a,
+/* Links — exclude anchors that are styled as buttons so they inherit button colors */
+a:not(.btn),
 .nav-link,
 .btn-link {
   color: var(--fallout-link) !important;
 }
 
-a:hover,
+a:not(.btn):hover,
 .nav-link:hover,
 .btn-link:hover {
   color: var(--fallout-accent) !important;

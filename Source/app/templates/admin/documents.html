@@ -74,38 +74,50 @@
           <li class="cat-item root-item mb-0" data-id="{{ c.id }}">
             <!-- Root row -->
             <div class="cat-row d-flex align-items-center justify-content-between px-2 py-2 rounded bg-body-secondary">
-              <div class="d-flex align-items-center gap-2">
+              <div class="d-flex align-items-center gap-2 cat-name-wrap" data-id="{{ c.id }}">
                 <i class="bi bi-grip-vertical drag-handle fs-5"></i>
                 <i class="bi bi-folder-fill text-warning"></i>
-                <span class="fw-semibold">{{ c.name }}</span>
+                <span class="fw-semibold cat-name" data-id="{{ c.id }}">{{ c.name }}</span>
                 <span class="text-muted small doc-count" data-id="{{ c.id }}">({{ c.documents.count() }} docs)</span>
               </div>
-              <form method="post" action="{{ url_for('admin.documents_category_delete', category_id=c.id) }}"
-                    class="m-0" onsubmit="return confirm('Delete \'{{ c.name }}\' and all its sub-categories and documents?')">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2" title="Delete">
-                  <i class="bi bi-trash"></i>
+              <div class="d-flex gap-1">
+                <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2 cat-rename-btn"
+                        data-id="{{ c.id }}" title="Rename">
+                  <i class="bi bi-pencil"></i>
                 </button>
-              </form>
+                <form method="post" action="{{ url_for('admin.documents_category_delete', category_id=c.id) }}"
+                      class="m-0" onsubmit="return confirm('Delete \'{{ c.name }}\' and all its sub-categories and documents?')">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2" title="Delete">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+              </div>
             </div>
             <!-- Sub-categories drop zone -->
             <ul class="sub-list list-unstyled ms-4 mb-1 rounded{% if c.subcategories %} has-children{% endif %}" data-parent-id="{{ c.id }}">
               {% for sub in c.subcategories|sort(attribute='position') %}
               <li class="cat-item sub-item is-sub mb-1" data-id="{{ sub.id }}">
                 <div class="cat-row d-flex align-items-center justify-content-between px-2 py-1 rounded" style="background:var(--bs-body-bg);">
-                  <div class="d-flex align-items-center gap-2">
+                  <div class="d-flex align-items-center gap-2 cat-name-wrap" data-id="{{ sub.id }}">
                     <i class="bi bi-grip-vertical drag-handle fs-5"></i>
                     <i class="bi bi-folder text-secondary"></i>
-                    <span>{{ sub.name }}</span>
+                    <span class="cat-name" data-id="{{ sub.id }}">{{ sub.name }}</span>
                     <span class="text-muted small doc-count" data-id="{{ sub.id }}">({{ sub.documents.count() }} docs)</span>
                   </div>
-                  <form method="post" action="{{ url_for('admin.documents_category_delete', category_id=sub.id) }}"
-                        class="m-0" onsubmit="return confirm('Delete \'{{ sub.name }}\' and all its documents?')">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2" title="Delete">
-                      <i class="bi bi-trash"></i>
+                  <div class="d-flex gap-1">
+                    <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2 cat-rename-btn"
+                            data-id="{{ sub.id }}" title="Rename">
+                      <i class="bi bi-pencil"></i>
                     </button>
-                  </form>
+                    <form method="post" action="{{ url_for('admin.documents_category_delete', category_id=sub.id) }}"
+                          class="m-0" onsubmit="return confirm('Delete \'{{ sub.name }}\' and all its documents?')">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2" title="Delete">
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </form>
+                  </div>
                 </div>
               </li>
               {% endfor %}
@@ -350,6 +362,101 @@
       initSubList(subList);
     });
   }
+
+  // ── Inline rename ───────────────────────────────────────────────────────────
+  function startRename(catId) {
+    const span = document.querySelector('.cat-name[data-id="' + catId + '"]');
+    if (!span || span.dataset.editing === '1') return;
+    const original = span.textContent;
+    span.dataset.editing = '1';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = original;
+    input.className = 'form-control form-control-sm py-0';
+    input.style.maxWidth = '260px';
+    input.dataset.id = catId;
+    span.replaceWith(input);
+    input.focus();
+    input.select();
+
+    const restoreSpan = (newName) => {
+      const newSpan = document.createElement('span');
+      // Re-apply original classes — root has fw-semibold, sub does not
+      const isRoot = !!input.closest('.root-item');
+      newSpan.className = 'cat-name' + (isRoot ? ' fw-semibold' : '');
+      newSpan.dataset.id = catId;
+      newSpan.textContent = newName;
+      input.replaceWith(newSpan);
+    };
+
+    let finalized = false;
+    const commit = () => {
+      if (finalized) return;
+      finalized = true;
+      const newName = input.value.trim();
+      if (!newName || newName === original) {
+        restoreSpan(original);
+        return;
+      }
+      showStatus('saving');
+      const fd = new FormData();
+      fd.append('csrf_token', CSRF);
+      fd.append('name', newName);
+      fetch('/admin/documents/categories/' + catId + '/rename', {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': CSRF },
+        body: fd
+      })
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          showStatus('done');
+          restoreSpan(data.name || newName);
+          // Update the inline confirm() messages on this row's delete form so
+          // they reference the new name without a full page reload.
+          const wrap = document.querySelector('.cat-name-wrap[data-id="' + catId + '"]');
+          if (wrap) {
+            const li = wrap.closest('.cat-item');
+            const delForm = li ? li.querySelector(':scope > .cat-row form') : null;
+            if (delForm) {
+              const msg = li.classList.contains('root-item')
+                ? "Delete '" + data.name + "' and all its sub-categories and documents?"
+                : "Delete '" + data.name + "' and all its documents?";
+              delForm.setAttribute('onsubmit', "return confirm(" + JSON.stringify(msg) + ")");
+            }
+          }
+        } else {
+          showStatus('error');
+          alert(data.error || 'Failed to rename');
+          restoreSpan(original);
+        }
+      })
+      .catch(err => {
+        showStatus('error');
+        console.error('Rename failed:', err);
+        restoreSpan(original);
+      });
+    };
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commit();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        finalized = true;
+        restoreSpan(original);
+      }
+    });
+    input.addEventListener('blur', commit);
+  }
+
+  document.body.addEventListener('click', (e) => {
+    const btn = e.target.closest('.cat-rename-btn');
+    if (!btn) return;
+    e.preventDefault();
+    startRename(btn.dataset.id);
+  });
 })();
 </script>
 {% endblock %}

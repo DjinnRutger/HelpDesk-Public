@@ -2303,7 +2303,10 @@ function renderDocCategories() {
             <span>${escapeHtml(sub.name)}</span>
             <span class="text-muted small">(${sub.documents_count} docs)</span>
           </div>
-          <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="deleteDocCategory(${sub.id},'${escapeHtml(sub.name).replace(/'/g,"\\'")}')"><i class="bi bi-trash"></i></button>
+          <div class="d-flex gap-1">
+            <button class="btn btn-sm btn-outline-primary py-0 px-2" title="Rename" onclick="renameDocCategory(${sub.id},'${escapeHtml(sub.name).replace(/'/g,"\\'")}')"><i class="bi bi-pencil"></i></button>
+            <button class="btn btn-sm btn-outline-danger py-0 px-2" title="Delete" onclick="deleteDocCategory(${sub.id},'${escapeHtml(sub.name).replace(/'/g,"\\'")}')"><i class="bi bi-trash"></i></button>
+          </div>
         </div>
       </li>
     `).join('');
@@ -2319,7 +2322,10 @@ function renderDocCategories() {
           <strong>${escapeHtml(cat.name)}</strong>
           <span class="text-muted small">(${cat.documents_count} docs)</span>
         </div>
-        <button class="btn btn-sm btn-danger py-0 px-2" onclick="deleteDocCategory(${cat.id},'${escapeHtml(cat.name).replace(/'/g,"\\'")}')"><i class="bi bi-trash"></i></button>
+        <div class="d-flex gap-1">
+          <button class="btn btn-sm btn-outline-primary py-0 px-2" title="Rename" onclick="renameDocCategory(${cat.id},'${escapeHtml(cat.name).replace(/'/g,"\\'")}')"><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-sm btn-danger py-0 px-2" title="Delete" onclick="deleteDocCategory(${cat.id},'${escapeHtml(cat.name).replace(/'/g,"\\'")}')"><i class="bi bi-trash"></i></button>
+        </div>
       </div>
       <ul class="doc-sub-list list-unstyled ms-3 mb-1${subs.length ? ' doc-has-children' : ''}" data-parent-id="${cat.id}">
         ${subsItemsHtml}
@@ -2387,6 +2393,27 @@ function submitDocCategoryForm(event) {
     else alert(data.error || 'Error creating document category');
   })
   .catch(() => alert('Error creating document category'));
+}
+
+function renameDocCategory(id, currentName) {
+  const newName = prompt('Rename category:', currentName || '');
+  if (newName === null) return; // cancelled
+  const trimmed = newName.trim();
+  if (!trimmed || trimmed === currentName) return;
+  const formData = new FormData();
+  formData.append('csrf_token', '{{ csrf_token() }}');
+  formData.append('name', trimmed);
+  fetch(`/admin/documents/categories/${id}/rename`, {
+    method: 'POST',
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    body: formData
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.success) loadDocCategories();
+    else alert(data.error || 'Error renaming category');
+  })
+  .catch(() => alert('Error renaming category'));
 }
 
 function deleteDocCategory(id, name) {
