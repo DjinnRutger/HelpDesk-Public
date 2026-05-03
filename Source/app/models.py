@@ -140,6 +140,8 @@ class Ticket(db.Model):
     priority = db.Column(db.String(20), default="medium")  # low, medium, high
     assignee_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     assignee = db.relationship('User', foreign_keys=[assignee_id])
+    co_assignee_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    co_assignee = db.relationship('User', foreign_keys=[co_assignee_id])
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     closed_at = db.Column(db.DateTime, nullable=True)

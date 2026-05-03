@@ -24,6 +24,7 @@
             <span class="badge text-bg-{{ priority_class }} text-capitalize">{{ t.priority }}</span> ·
             <span class="badge text-bg-{{ t.status|status_color }}">{{ t.status|status_label }}</span>
             {% if t.project_id %}<span class="badge text-bg-dark ms-1">Project</span>{% endif %}
+            {% if t.co_assignee %}<span class="badge text-bg-info ms-1" title="Co-Tech">Co: {{ t.co_assignee.name }}</span>{% endif %}
           </small>
         </div>
       </div>
@@ -480,6 +481,7 @@
           <div class="mb-2">{{ update_form.priority.label(class='form-label') }} {{ update_form.priority(class='form-select') }}</div>
           <div class="mb-2">{{ update_form.source.label(class='form-label') }} {{ update_form.source(class='form-select') }}</div>
           <div class="mb-2">{{ update_form.assignee_id.label('Assignee', class='form-label') }} {{ update_form.assignee_id(class='form-select') }}</div>
+          <div class="mb-2">{{ update_form.co_assignee_id.label('Co-Tech', class='form-label') }} {{ update_form.co_assignee_id(class='form-select') }}</div>
           <div class="d-grid">{{ update_form.submit_update(class='btn btn-primary') }}</div>
         </form>
       </div>

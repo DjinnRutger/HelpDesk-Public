@@ -40,13 +40,16 @@ def list_tickets():
     tag_id = request.args.get('tag_id', type=int)
 
     me_id = getattr(current_user, 'id', -1)
-    base = Ticket.query.options(joinedload(Ticket.assignee), joinedload(Ticket.project))
+    base = Ticket.query.options(joinedload(Ticket.assignee), joinedload(Ticket.co_assignee), joinedload(Ticket.project))
     # If searching (q provided) include ALL tickets (project + non-project) so project tickets are discoverable.
     # Otherwise (no search) keep existing behavior: hide project tickets unless assigned to current user.
     if q:
         query = base
     else:
-        query = base.filter((Ticket.project_id.is_(None)) | ((Ticket.project_id.isnot(None)) & (Ticket.assignee_id == me_id)))
+        query = base.filter(
+            (Ticket.project_id.is_(None)) |
+            ((Ticket.project_id.isnot(None)) & ((Ticket.assignee_id == me_id) | (Ticket.co_assignee_id == me_id)))
+        )
 
     if status == 'open':
         query = query.filter(~Ticket.status.in_(closed_statuses))
@@ -54,9 +57,13 @@ def list_tickets():
     if not show_snoozed:
         query = query.filter((Ticket.snoozed_until.is_(None)) | (Ticket.snoozed_until <= datetime.utcnow()))
     if assigned == 'me':
-        query = query.filter(Ticket.assignee_id == me_id)
+        query = query.filter((Ticket.assignee_id == me_id) | (Ticket.co_assignee_id == me_id))
     elif assigned == 'me_or_unassigned':
-        query = query.filter((Ticket.assignee_id == me_id) | (Ticket.assignee_id.is_(None)))
+        query = query.filter(
+            (Ticket.assignee_id == me_id) |
+            (Ticket.co_assignee_id == me_id) |
+            (Ticket.assignee_id.is_(None) & Ticket.co_assignee_id.is_(None))
+        )
     elif assigned == 'any':
         # Any = include all tickets regardless of assignment (assigned to any tech OR unassigned)
         pass
@@ -356,6 +363,12 @@ def new_ticket():
         assignee_id = form.assignee_id.data if form.assignee_id.data else None
         if assignee_id == 0:
             assignee_id = None
+        co_assignee_id = form.co_assignee_id.data if form.co_assignee_id.data else None
+        if co_assignee_id == 0:
+            co_assignee_id = None
+        if co_assignee_id is not None and co_assignee_id == assignee_id:
+            flash('Co-Tech cannot be the same as the primary Assignee.', 'warning')
+            return redirect(url_for('tickets.new_ticket'))
         t = Ticket(
             subject=form.subject.data,
             requester=form.requester.data,
@@ -368,6 +381,7 @@ def new_ticket():
             created_by_user_id=getattr(current_user, 'id', None),
             asset_id=(form.asset_id.data if form.asset_id.data else None) if form.asset_id.data != 0 else None,
             assignee_id=assignee_id,
+            co_assignee_id=co_assignee_id,
         )
         db.session.add(t)
         db.session.flush()  # get t.id before commit
@@ -395,6 +409,24 @@ def new_ticket():
                         <p><a href="{link}">View ticket</a></p>
                     """
                     send_mail(new_assignee.email, f"New Ticket Assigned: #{t.id}", html, to_name=new_assignee.name, category='ticket_assigned', ticket_id=t.id)
+            except Exception:
+                pass
+        # Email the co-tech if set and not the creator
+        if co_assignee_id and co_assignee_id != getattr(current_user, 'id', None):
+            try:
+                from ..services.ms_graph import send_mail
+                new_co = User.query.get(co_assignee_id)
+                if new_co and new_co.email:
+                    link = url_for('tickets.show_ticket', ticket_id=t.id, _external=True)
+                    requester = t.requester_name or t.requester_email or t.requester or 'Unknown'
+                    html = f"""
+                        <p>Hi {new_co.name},</p>
+                        <p>You have been added as a co-tech on a new ticket.</p>
+                        <p><strong>Ticket #{t.id}</strong>: {t.subject}</p>
+                        <p><strong>From:</strong> {requester}</p>
+                        <p><a href="{link}">View ticket</a></p>
+                    """
+                    send_mail(new_co.email, f"New Ticket Co-Assigned: #{t.id}", html, to_name=new_co.name, category='ticket_assigned', ticket_id=t.id)
             except Exception:
                 pass
         flash('Ticket created', 'success')
@@ -452,6 +484,7 @@ def show_ticket(ticket_id):
     # Populate assignee choices
     techs = User.query.order_by(User.name.asc()).all()
     update_form.assignee_id.choices = [(0, 'Unassigned')] + [(u.id, u.name) for u in techs]
+    update_form.co_assignee_id.choices = [(0, '— None —')] + [(u.id, u.name) for u in techs]
     task_form.assigned_tech_id.choices = [(0, 'Unassigned')] + [(u.id, u.name) for u in techs]
     # Populate project choices (open projects only)
     open_projects = Project.query.filter(Project.status != 'closed').order_by(Project.created_at.desc()).all()
@@ -483,6 +516,7 @@ def show_ticket(ticket_id):
     # Enforce that ticket cannot be closed unless all checkbox items on attached processes are checked
     if update_form.submit_update.data and update_form.validate_on_submit():
         prev_assignee_id = t.assignee_id
+        prev_co_assignee_id = t.co_assignee_id
         prev_status = t.status
         prev_priority = t.priority
         new_status = update_form.status.data
@@ -516,8 +550,14 @@ def show_ticket(ticket_id):
         t.priority = update_form.priority.data
         t.source = update_form.source.data or t.source
         t.assignee_id = None if update_form.assignee_id.data == 0 else update_form.assignee_id.data
+        new_co_id = None if update_form.co_assignee_id.data == 0 else update_form.co_assignee_id.data
+        if new_co_id is not None and new_co_id == t.assignee_id:
+            db.session.rollback()
+            flash('Co-Tech cannot be the same as the primary Assignee.', 'warning')
+            return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
+        t.co_assignee_id = new_co_id
         db.session.commit()
-        
+
         # Build list of changes for watcher notifications
         changes = []
         if new_status != prev_status:
@@ -530,6 +570,12 @@ def show_ticket(ticket_id):
             old_name = old_assignee.name if old_assignee else 'Unassigned'
             new_name = new_assignee_obj.name if new_assignee_obj else 'Unassigned'
             changes.append(f"Assignee changed from '{old_name}' to '{new_name}'")
+        if t.co_assignee_id != prev_co_assignee_id:
+            old_co = User.query.get(prev_co_assignee_id) if prev_co_assignee_id else None
+            new_co = User.query.get(t.co_assignee_id) if t.co_assignee_id else None
+            old_co_name = old_co.name if old_co else 'None'
+            new_co_name = new_co.name if new_co else 'None'
+            changes.append(f"Co-Tech changed from '{old_co_name}' to '{new_co_name}'")
         
         # Notify watchers of changes
         if changes:
@@ -552,6 +598,25 @@ def show_ticket(ticket_id):
                         <p><a href="{link}">View ticket</a></p>
                     """
                     send_mail(new_assignee.email, subject, html, to_name=new_assignee.name, category='ticket_assigned', ticket_id=t.id)
+        except Exception:
+            pass
+        # Notify new co-tech if changed and not the actor
+        try:
+            if t.co_assignee_id and t.co_assignee_id != prev_co_assignee_id and t.co_assignee_id != getattr(current_user, 'id', None):
+                new_co = User.query.get(t.co_assignee_id)
+                if new_co and new_co.email:
+                    from ..services.ms_graph import send_mail
+                    subject = f"New Ticket Co-Assigned: #{t.id}"
+                    link = url_for('tickets.show_ticket', ticket_id=t.id, _external=True)
+                    requester = t.requester_name or t.requester_email or t.requester or 'Unknown'
+                    html = f"""
+                        <p>Hi {new_co.name},</p>
+                        <p>You have been added as a co-tech on a ticket.</p>
+                        <p><strong>Ticket #{t.id}</strong>: {t.subject}</p>
+                        <p><strong>From:</strong> {requester}</p>
+                        <p><a href="{link}">View ticket</a></p>
+                    """
+                    send_mail(new_co.email, subject, html, to_name=new_co.name, category='ticket_assigned', ticket_id=t.id)
         except Exception:
             pass
         flash('Ticket updated', 'success')
@@ -743,6 +808,7 @@ def show_ticket(ticket_id):
     update_form.priority.data = t.priority
     update_form.source.data = (t.source or 'email')
     update_form.assignee_id.data = t.assignee_id or 0
+    update_form.co_assignee_id.data = t.co_assignee_id or 0
     order_items = OrderItem.query.filter_by(ticket_id=t.id).options(joinedload(OrderItem.purchase_order)).order_by(OrderItem.created_at.desc()).all()
     # Assets assigned to this contact (for asset linking widget)
     contact_assets = []
@@ -761,8 +827,8 @@ def show_ticket(ticket_id):
     user_id = getattr(current_user, 'id', None)
     is_watching = False
     if user_id:
-        # Auto-watch if assigned to current user and not already watching
-        if t.assignee_id == user_id:
+        # Auto-watch if assigned (primary or co-tech) and not already watching
+        if t.assignee_id == user_id or t.co_assignee_id == user_id:
             existing_watch = TicketWatcher.query.filter_by(ticket_id=t.id, user_id=user_id).first()
             if not existing_watch:
                 auto_watch = TicketWatcher(ticket_id=t.id, user_id=user_id)

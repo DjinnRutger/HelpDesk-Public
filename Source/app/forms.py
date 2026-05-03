@@ -29,6 +29,7 @@ class TicketForm(FlaskForm):
     requester = StringField('Requester', validators=[Optional(), Email()])
     body = TextAreaField('Body', validators=[Optional()])
     assignee_id = SelectField('Assignee', coerce=int, validators=[Optional()])
+    co_assignee_id = SelectField('Co-Tech', coerce=int, validators=[Optional()])
     priority = SelectField('Priority', choices=[('low','Low'), ('medium','Medium'), ('high','High')], default='medium')
     source = SelectField('Source', choices=[('email','Email'), ('zoom','Zoom'), ('walk_in','Walk In'), ('phone','Phone')], default='email')
     asset_id = SelectField('Asset', coerce=int, validators=[Optional()], choices=[])
@@ -39,6 +40,7 @@ class TicketForm(FlaskForm):
         from .models import User
         techs = User.query.filter_by(is_active=True).order_by(User.name.asc()).all()
         self.assignee_id.choices = [(0, '— Unassigned —')] + [(u.id, u.name) for u in techs]
+        self.co_assignee_id.choices = [(0, '— None —')] + [(u.id, u.name) for u in techs]
 
 class NoteForm(FlaskForm):
     content = TextAreaField('Add note', validators=[DataRequired(), Length(min=1)])
@@ -49,6 +51,7 @@ class TicketUpdateForm(FlaskForm):
     status = SelectField('Status', choices=[], validators=[DataRequired()])  # Populated dynamically
     priority = SelectField('Priority', choices=[('low','Low'), ('medium','Medium'), ('high','High')], validators=[DataRequired()])
     assignee_id = SelectField('Assignee', coerce=int, validators=[Optional()])
+    co_assignee_id = SelectField('Co-Tech', coerce=int, validators=[Optional()])
     source = SelectField('Source', choices=[('email','Email'), ('zoom','Zoom'), ('walk_in','Walk In'), ('phone','Phone')])
     submit_update = SubmitField('Update')
     

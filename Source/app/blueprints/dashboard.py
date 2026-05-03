@@ -57,6 +57,7 @@ def index():
         (Ticket.project_id.is_(None)) &
         ((Ticket.snoozed_until.is_(None)) | (Ticket.snoozed_until <= datetime.utcnow())) &
         (Ticket.assignee_id.is_(None)) &
+        (Ticket.co_assignee_id.is_(None)) &
         (Ticket.created_at < now - timedelta(hours=24))
     ).count()
 
@@ -109,7 +110,8 @@ def index():
         User.name,
         func.count(Ticket.id).label('closed_count')
     ).join(
-        Ticket, Ticket.assignee_id == User.id
+        Ticket,
+        (Ticket.assignee_id == User.id) | (Ticket.co_assignee_id == User.id)
     ).filter(
         Ticket.status.in_(closed_statuses) &
         (Ticket.closed_at >= week_start) &
@@ -147,11 +149,12 @@ def index():
             avg_hours = int((avg_s % 86400) // 3600)
             avg_resolution = f"{avg_days}d {avg_hours}h" if avg_days > 0 else f"{avg_hours}h"
 
-    # Unassigned open tickets
+    # Unassigned open tickets (both primary and co-tech slots empty)
     unassigned_open = Ticket.query.filter(
         ~Ticket.status.in_(closed_statuses),
         Ticket.project_id.is_(None),
         Ticket.assignee_id.is_(None),
+        Ticket.co_assignee_id.is_(None),
         (Ticket.snoozed_until.is_(None)) | (Ticket.snoozed_until <= now),
     ).count()
 

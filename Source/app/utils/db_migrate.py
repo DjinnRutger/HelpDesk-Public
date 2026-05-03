@@ -11,6 +11,7 @@ def ensure_ticket_columns(engine):
         'status': "TEXT",
         'priority': "TEXT",
         'assignee_id': "INTEGER",
+        'co_assignee_id': "INTEGER",
         'created_at': "DATETIME",
         'updated_at': "DATETIME",
         'closed_at': "DATETIME",

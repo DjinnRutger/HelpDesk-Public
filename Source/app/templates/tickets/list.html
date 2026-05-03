@@ -142,7 +142,17 @@
                   {% endif %}
                 </td>
                 <td class="small">{{ t.requester_name or t.requester_email or '—' }}</td>
-                <td class="small">{{ t.assignee.name if t.assignee else '—' }}</td>
+                <td class="small">
+                  {% if t.assignee and t.co_assignee %}
+                    {{ t.assignee.name }}, {{ t.co_assignee.name }}
+                  {% elif t.assignee %}
+                    {{ t.assignee.name }}
+                  {% elif t.co_assignee %}
+                    {{ t.co_assignee.name }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
                 <td>
                   <span class="badge text-bg-{{ t.status|status_color }}">{{ t.status|status_label }}</span>
                 </td>
