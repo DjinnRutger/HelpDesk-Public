@@ -62,7 +62,7 @@
         {% if _body != 'No description provided' and ('<' not in _body and '>' not in _body) %}
           <div class="preserve-ws">{{ _body }}</div>
         {% else %}
-          <div>{{ _body|safe }}</div>
+          <div class="email-html">{{ _body|safe }}</div>
         {% endif %}
         
         {% if t.attachments %}
@@ -314,7 +314,7 @@
                 {% endif %}
               {% endif %}
             </div>
-            <div class="border rounded p-2 bg-body-tertiary note-content" data-note-id="{{ n.id }}">{{ n.content|safe }}</div>
+            <div class="border rounded p-2 bg-body-tertiary note-content email-html" data-note-id="{{ n.id }}">{{ n.content|safe }}</div>
           </li>
           {% else %}
           <li class="list-group-item text-muted">No notes yet.</li>

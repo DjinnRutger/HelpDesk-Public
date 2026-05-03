@@ -317,6 +317,44 @@
         {% endif %}
       </div>
     </div>
+
+    <!-- Tickets Card -->
+    <div class="card shadow-sm mt-3">
+      <div class="card-header bg-body-tertiary">
+        <div class="d-flex align-items-center justify-content-between">
+          <h6 class="mb-0"><i class="bi bi-ticket-perforated me-1"></i>Recent Tickets</h6>
+          <a href="{{ url_for('tickets.new_ticket', contact_id=contact.id) }}" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-plus-lg me-1"></i>New Ticket
+          </a>
+        </div>
+      </div>
+      <div class="card-body p-0">
+        {% if tickets %}
+          <div class="list-group list-group-flush">
+            {% for t in tickets %}
+            <a href="{{ url_for('tickets.show_ticket', ticket_id=t.id) }}" class="list-group-item list-group-item-action">
+              <div class="d-flex justify-content-between align-items-start">
+                <div class="flex-grow-1 me-2">
+                  <div class="fw-semibold">#{{ t.id }} · {{ t.subject }}</div>
+                  <div class="small text-muted">
+                    <i class="bi bi-calendar me-1"></i>{{ t.created_at|cst_datetime }}
+                  </div>
+                </div>
+                <div class="d-flex align-items-center">
+                  <span class="badge text-bg-{{ t.status|status_color }}">{{ t.status|status_label }}</span>
+                </div>
+              </div>
+            </a>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="text-center py-3">
+            <i class="bi bi-ticket-perforated display-6 text-muted opacity-25"></i>
+            <p class="small text-muted mb-0 mt-2">No tickets found</p>
+          </div>
+        {% endif %}
+      </div>
+    </div>
   </div>
 
   <!-- Sidebar -->
@@ -540,43 +578,6 @@
       })();
     </script>
 
-    <!-- Tickets Card -->
-    <div class="card shadow-sm mt-3">
-      <div class="card-header bg-body-tertiary">
-        <div class="d-flex align-items-center justify-content-between">
-          <h6 class="mb-0"><i class="bi bi-ticket-perforated me-1"></i>Recent Tickets</h6>
-          <a href="{{ url_for('tickets.new_ticket', contact_id=contact.id) }}" class="btn btn-outline-primary btn-sm">
-            <i class="bi bi-plus-lg me-1"></i>New Ticket
-          </a>
-        </div>
-      </div>
-      <div class="card-body p-0">
-        {% if tickets %}
-          <div class="list-group list-group-flush">
-            {% for t in tickets %}
-            <a href="{{ url_for('tickets.show_ticket', ticket_id=t.id) }}" class="list-group-item list-group-item-action">
-              <div class="d-flex justify-content-between align-items-start">
-                <div class="flex-grow-1 me-2">
-                  <div class="fw-semibold">#{{ t.id }} · {{ t.subject }}</div>
-                  <div class="small text-muted">
-                    <i class="bi bi-calendar me-1"></i>{{ t.created_at|cst_datetime }}
-                  </div>
-                </div>
-                <div class="d-flex align-items-center">
-                  <span class="badge text-bg-{{ t.status|status_color }}">{{ t.status|status_label }}</span>
-                </div>
-              </div>
-            </a>
-            {% endfor %}
-          </div>
-        {% else %}
-          <div class="text-center py-3">
-            <i class="bi bi-ticket-perforated display-6 text-muted opacity-25"></i>
-            <p class="small text-muted mb-0 mt-2">No tickets found</p>
-          </div>
-        {% endif %}
-      </div>
-    </div>
   </div>
 </div>
 

@@ -648,7 +648,7 @@ def show_ticket(ticket_id):
             t.closed_at = datetime.utcnow()
             db.session.commit()
             flash('Note added and ticket closed', 'success')
-            return redirect(url_for('dashboard.index'))
+            return redirect(url_for('tickets.list_tickets'))
         flash('Note added', 'success')
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
 

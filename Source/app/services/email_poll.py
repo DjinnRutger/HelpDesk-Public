@@ -190,12 +190,15 @@ def poll_ms_graph(app=None):
                     logger.info("email_poll: MS disabled or missing config; skipping MS Graph")
 
         # If MS enabled and we had no messages, add a 'none' log for visibility
+        # (suppressible via EMAIL_LOG_NO_NEW_MESSAGES so logs don't fill up when healthy)
         if ms_enabled and not messages:
-            try:
-                db.session.add(EmailCheckEntry(check_id=check.id, sender='', subject='No New Messages', action='none', ticket_id=None, note=''))
-                db.session.commit()
-            except Exception:
-                db.session.rollback()
+            log_none = (Setting.get('EMAIL_LOG_NO_NEW_MESSAGES', '1') or '1') in ('1', 'true', 'on', 'yes')
+            if log_none:
+                try:
+                    db.session.add(EmailCheckEntry(check_id=check.id, sender='', subject='No New Messages', action='none', ticket_id=None, note=''))
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
         tickets_created = 0
         notes_created = 0
         to_mark_read = []

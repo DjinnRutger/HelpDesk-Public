@@ -24,6 +24,14 @@
       }
   /* Preserve user-entered whitespace (newlines, multiple spaces) */
   .preserve-ws { white-space: pre-wrap; }
+  /* Override hardcoded colors/backgrounds embedded in email HTML (Outlook etc.)
+     so dark mode stays readable. Light themes keep their original look. */
+  [data-bs-theme="dark"] .email-html,
+  [data-bs-theme="dark"] .email-html * {
+    color: inherit !important;
+    background-color: transparent !important;
+  }
+  [data-bs-theme="dark"] .email-html a { color: var(--bs-link-color) !important; }
   /* Make table rows look clickable and links inside look like plain text */
   .table .clickable-row { cursor: pointer; }
   .table .clickable-row a { text-decoration: none; color: inherit; }

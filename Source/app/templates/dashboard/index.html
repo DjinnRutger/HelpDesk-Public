@@ -24,7 +24,7 @@
   </div>
 </div>
 
-<!-- Statistics Cards -->
+<!-- Row 1: Core Stats -->
 <div class="row g-3 mb-3">
   <!-- Health Widget -->
   <div class="col-md-3">
@@ -36,7 +36,7 @@
       </div>
     </div>
   </div>
-  <!-- Total Open Tickets Widget -->
+  <!-- Total Open Tickets -->
   <div class="col-md-3">
     <div class="card shadow-sm h-100">
       <div class="card-body text-center">
@@ -46,7 +46,7 @@
       </div>
     </div>
   </div>
-  <!-- Leaders Widget -->
+  <!-- Leaders -->
   <div class="col-md-3">
     <div class="card shadow-sm h-100">
       <div class="card-body">
@@ -70,7 +70,7 @@
       </div>
     </div>
   </div>
-  <!-- Snoozed count badge -->
+  <!-- Snoozed -->
   <div class="col-md-3">
     <div class="card shadow-sm h-100">
       <div class="card-body text-center">
@@ -83,25 +83,112 @@
   </div>
 </div>
 
-<!-- Top Tags Chart -->
-<div class="row g-3">
+<!-- Row 2: Extra Metrics -->
+<div class="row g-3 mb-3">
+  <!-- Avg Resolution Time -->
+  <div class="col-md-3">
+    <div class="card shadow-sm h-100">
+      <div class="card-body text-center">
+        <i class="bi bi-stopwatch text-info fs-1 mb-2"></i>
+        <div class="h2 mb-1">{{ stats.avg_resolution }}</div>
+        <div class="text-muted small">Avg Resolution <span class="text-muted">(30d)</span></div>
+      </div>
+    </div>
+  </div>
+  <!-- Unassigned Open -->
+  <div class="col-md-3">
+    <div class="card shadow-sm h-100">
+      <div class="card-body text-center">
+        <i class="bi bi-person-x text-warning fs-1 mb-2"></i>
+        <div class="h2 mb-1">{{ stats.unassigned_open }}</div>
+        <div class="text-muted small">Unassigned Open</div>
+      </div>
+    </div>
+  </div>
+  <!-- Opened / Closed This Week -->
+  <div class="col-md-3">
+    <div class="card shadow-sm h-100">
+      <div class="card-body text-center d-flex flex-column justify-content-center">
+        <i class="bi bi-calendar-week text-primary fs-1 mb-2"></i>
+        <div class="d-flex justify-content-around">
+          <div>
+            <div class="h4 mb-0 text-primary">{{ stats.opened_this_week }}</div>
+            <div class="text-muted" style="font-size:0.7rem;">Opened</div>
+          </div>
+          <div class="vr mx-2"></div>
+          <div>
+            <div class="h4 mb-0 text-success">{{ stats.closed_this_week }}</div>
+            <div class="text-muted" style="font-size:0.7rem;">Closed</div>
+          </div>
+        </div>
+        <div class="text-muted small mt-2">This Week</div>
+      </div>
+    </div>
+  </div>
+  <!-- Priority Breakdown -->
+  <div class="col-md-3">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <div class="text-center mb-3">
+          <i class="bi bi-bar-chart-steps text-secondary fs-4"></i>
+          <div class="text-muted small mt-1">Open by Priority</div>
+        </div>
+        <div class="d-flex flex-column gap-2">
+          <div class="d-flex justify-content-between align-items-center">
+            <span class="badge text-bg-danger px-2">High</span>
+            <span class="fw-semibold">{{ stats.priority_breakdown.high }}</span>
+          </div>
+          <div class="d-flex justify-content-between align-items-center">
+            <span class="badge text-bg-warning text-dark px-2">Medium</span>
+            <span class="fw-semibold">{{ stats.priority_breakdown.medium }}</span>
+          </div>
+          <div class="d-flex justify-content-between align-items-center">
+            <span class="badge text-bg-secondary px-2">Low</span>
+            <span class="fw-semibold">{{ stats.priority_breakdown.low }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Row 3: Top Tags (split) + Ticket Sources -->
+<div class="row g-3 mb-3">
   <div class="col-lg-8">
     <div class="card shadow-sm h-100" id="topTagsCard" style="cursor:pointer;" title="Click to change time range">
       <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
         <h6 class="mb-0"><i class="bi bi-tags-fill text-primary me-1"></i>Top Tags</h6>
         <span class="text-muted small" id="topTagsLabel">Last 30 days</span>
       </div>
-      <div class="card-body d-flex align-items-center justify-content-center" style="min-height:220px;">
-        <canvas id="topTagsChart"></canvas>
-        <div id="topTagsEmpty" class="text-center text-muted" style="display:none;">
-          <i class="bi bi-tags display-4 opacity-25 d-block mb-2"></i>
-          <span class="small">No tagged tickets yet in this period.</span>
+      <div class="card-body">
+        <div class="row g-3">
+          <!-- Categories -->
+          <div class="col-md-6">
+            <div class="text-center fw-semibold small text-muted mb-2">Categories</div>
+            <div style="position:relative; height:220px;">
+              <canvas id="topCategoriesChart"></canvas>
+            </div>
+            <div id="topCategoriesEmpty" class="text-center text-muted py-4" style="display:none;">
+              <i class="bi bi-tags display-4 opacity-25 d-block mb-2"></i>
+              <span class="small">No category data in this period.</span>
+            </div>
+          </div>
+          <!-- Individual Tags -->
+          <div class="col-md-6">
+            <div class="text-center fw-semibold small text-muted mb-2">Individual Tags</div>
+            <div style="position:relative; height:220px;">
+              <canvas id="topTagsChart"></canvas>
+            </div>
+            <div id="topTagsEmpty" class="text-center text-muted py-4" style="display:none;">
+              <i class="bi bi-tag display-4 opacity-25 d-block mb-2"></i>
+              <span class="small">No individual tag data in this period.</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   </div>
   <div class="col-lg-4">
-    <!-- Ticket Source Pie Chart (moved here) -->
     <div class="card shadow-sm h-100" id="sourceChartCard" style="cursor:pointer;" title="Click to change time range">
       <div class="card-body d-flex flex-column align-items-center p-2">
         <div class="text-muted small mb-1" id="sourceChartLabel">Sources (30 days)</div>
@@ -110,6 +197,47 @@
     </div>
   </div>
 </div>
+
+<!-- Row 4: Ticket Volume Trend + Top Requesters -->
+<div class="row g-3 mb-3">
+  <div class="col-lg-8">
+    <div class="card shadow-sm h-100" id="weeklyTrendCard" style="cursor:pointer;" title="Click to change time range">
+      <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+        <h6 class="mb-0"><i class="bi bi-graph-up text-success me-1"></i>Ticket Volume</h6>
+        <span class="text-muted small" id="weeklyTrendLabel">Last 4 weeks</span>
+      </div>
+      <div class="card-body" style="min-height:220px;">
+        <canvas id="weeklyTrendChart"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-header bg-body-tertiary">
+        <h6 class="mb-0"><i class="bi bi-person-lines-fill text-secondary me-1"></i>Top Requesters <span class="text-muted fw-normal small">(30d)</span></h6>
+      </div>
+      <div class="card-body p-2">
+        {% if stats.top_requesters %}
+          <ul class="list-unstyled mb-0">
+            {% for req in stats.top_requesters %}
+              <li class="d-flex justify-content-between align-items-center py-2 border-bottom border-opacity-25">
+                {% if req.contact_id %}
+                  <a href="{{ url_for('users.show_user', contact_id=req.contact_id) }}" class="text-truncate small me-2 text-decoration-none" style="max-width:175px;" title="{{ req.name }}">{{ req.name }}</a>
+                {% else %}
+                  <a href="{{ url_for('tickets.list_tickets', q=req.email) }}" class="text-truncate small me-2 text-decoration-none" style="max-width:175px;" title="{{ req.email }}">{{ req.name }}</a>
+                {% endif %}
+                <span class="badge text-bg-secondary">{{ req.cnt }}</span>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <div class="text-center text-muted fst-italic small py-3">No data yet</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Health Breakdown Modal -->
 <div class="modal fade" id="healthModal" tabindex="-1" aria-labelledby="healthModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
@@ -244,7 +372,7 @@
   });
 })();
 
-// ── Top Tags Bar Chart ────────────────────────────────────────────────────────
+// ── Top Tags: Categories + Individual ────────────────────────────────────────
 (function() {
   const TAG_PERIODS = [
     { days: 7,  label: 'Last 7 days' },
@@ -253,59 +381,71 @@
     { days: 90, label: 'Last 90 days' },
   ];
   let tagPeriodIdx = 1;
+  let catChart = null;
   let tagChart = null;
 
-  const canvas = document.getElementById('topTagsChart');
-  const empty  = document.getElementById('topTagsEmpty');
+  const catCanvas = document.getElementById('topCategoriesChart');
+  const catEmpty  = document.getElementById('topCategoriesEmpty');
+  const tagCanvas = document.getElementById('topTagsChart');
+  const tagEmpty  = document.getElementById('topTagsEmpty');
+
+  function makeBarChart(canvas, data) {
+    return new Chart(canvas.getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels: data.labels,
+        datasets: [{
+          data: data.counts,
+          backgroundColor: data.colors,
+          borderRadius: 4,
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: c => ' ' + c.raw + ' ticket' + (c.raw !== 1 ? 's' : '')
+            }
+          }
+        },
+        scales: {
+          x: { beginAtZero: true, ticks: { precision: 0 } },
+          y: { ticks: { font: { size: 11 } } }
+        }
+      }
+    });
+  }
+
+  function updateOrCreate(chart, canvas, empty, data) {
+    if (!data.labels || !data.labels.length) {
+      canvas.style.display = 'none';
+      empty.style.display  = '';
+      if (chart) { chart.destroy(); }
+      return null;
+    }
+    canvas.style.display = '';
+    empty.style.display  = 'none';
+    if (chart) {
+      chart.data.labels = data.labels;
+      chart.data.datasets[0].data            = data.counts;
+      chart.data.datasets[0].backgroundColor = data.colors;
+      chart.update();
+      return chart;
+    }
+    return makeBarChart(canvas, data);
+  }
 
   function loadTags(days, label) {
     fetch('{{ url_for("dashboard.top_tags") }}?days=' + days)
       .then(r => r.json())
       .then(d => {
         document.getElementById('topTagsLabel').textContent = label;
-        if (!d.labels || !d.labels.length) {
-          canvas.style.display = 'none';
-          empty.style.display  = '';
-          return;
-        }
-        canvas.style.display = '';
-        empty.style.display  = 'none';
-
-        if (tagChart) {
-          tagChart.data.labels = d.labels;
-          tagChart.data.datasets[0].data            = d.counts;
-          tagChart.data.datasets[0].backgroundColor = d.colors;
-          tagChart.update();
-        } else {
-          tagChart = new Chart(canvas.getContext('2d'), {
-            type: 'bar',
-            data: {
-              labels: d.labels,
-              datasets: [{
-                data: d.counts,
-                backgroundColor: d.colors,
-                borderRadius: 4,
-              }]
-            },
-            options: {
-              indexAxis: 'y',
-              responsive: true,
-              maintainAspectRatio: false,
-              plugins: {
-                legend: { display: false },
-                tooltip: {
-                  callbacks: {
-                    label: c => ' ' + c.raw + ' ticket' + (c.raw !== 1 ? 's' : '')
-                  }
-                }
-              },
-              scales: {
-                x: { beginAtZero: true, ticks: { precision: 0 } },
-                y: { ticks: { font: { size: 12 } } }
-              }
-            }
-          });
-        }
+        catChart = updateOrCreate(catChart, catCanvas, catEmpty, d.categories);
+        tagChart = updateOrCreate(tagChart, tagCanvas, tagEmpty, d.tags);
       });
   }
 
@@ -314,6 +454,81 @@
   document.getElementById('topTagsCard').addEventListener('click', function() {
     tagPeriodIdx = (tagPeriodIdx + 1) % TAG_PERIODS.length;
     loadTags(TAG_PERIODS[tagPeriodIdx].days, TAG_PERIODS[tagPeriodIdx].label);
+  });
+})();
+
+// ── Ticket Volume (Weekly Trend) ──────────────────────────────────────────────
+(function() {
+  const RANGES = [
+    { range: '4w', label: 'Last 4 weeks' },
+    { range: '2m', label: 'Last 2 months' },
+    { range: '3m', label: 'Last 3 months' },
+    { range: '6m', label: 'Last 6 months' },
+    { range: '1y', label: 'Last year' },
+  ];
+  let rangeIdx = 0;
+  let weeklyChart = null;
+
+  const canvas = document.getElementById('weeklyTrendChart');
+
+  function loadWeekly(range, label) {
+    fetch('{{ url_for("dashboard.tickets_per_week") }}?range=' + range)
+      .then(r => r.json())
+      .then(d => {
+        document.getElementById('weeklyTrendLabel').textContent = label;
+        if (weeklyChart) {
+          weeklyChart.data.labels = d.labels;
+          weeklyChart.data.datasets[0].data = d.opened;
+          weeklyChart.data.datasets[1].data = d.closed;
+          weeklyChart.update();
+        } else {
+          weeklyChart = new Chart(canvas.getContext('2d'), {
+            type: 'line',
+            data: {
+              labels: d.labels,
+              datasets: [
+                {
+                  label: 'Opened',
+                  data: d.opened,
+                  borderColor: '#0d6efd',
+                  backgroundColor: 'rgba(13,110,253,0.1)',
+                  fill: true,
+                  tension: 0.3,
+                  pointRadius: 4,
+                },
+                {
+                  label: 'Closed',
+                  data: d.closed,
+                  borderColor: '#198754',
+                  backgroundColor: 'rgba(25,135,84,0.1)',
+                  fill: true,
+                  tension: 0.3,
+                  pointRadius: 4,
+                },
+              ]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+                tooltip: { mode: 'index', intersect: false }
+              },
+              scales: {
+                x: { ticks: { font: { size: 11 } } },
+                y: { beginAtZero: true, ticks: { precision: 0 } }
+              }
+            }
+          });
+        }
+      });
+  }
+
+  loadWeekly(RANGES[rangeIdx].range, RANGES[rangeIdx].label);
+
+  document.getElementById('weeklyTrendCard').addEventListener('click', function() {
+    rangeIdx = (rangeIdx + 1) % RANGES.length;
+    loadWeekly(RANGES[rangeIdx].range, RANGES[rangeIdx].label);
   });
 })();
 </script>

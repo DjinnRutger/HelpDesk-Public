@@ -2556,6 +2556,7 @@ def email_settings():
     # Email log retention settings
     email_log_retention_enabled = (Setting.get('EMAIL_LOG_RETENTION_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes')
     email_log_retention_days = int(Setting.get('EMAIL_LOG_RETENTION_DAYS', '90') or '90')
+    email_log_no_new_messages = (Setting.get('EMAIL_LOG_NO_NEW_MESSAGES', '1') or '1') in ('1', 'true', 'on', 'yes')
     return render_template(
         'admin/email_settings.html',
         form=form,
@@ -2563,7 +2564,8 @@ def email_settings():
         deny_form=deny_form,
         denies=denies,
         email_log_retention_enabled=email_log_retention_enabled,
-        email_log_retention_days=email_log_retention_days
+        email_log_retention_days=email_log_retention_days,
+        email_log_no_new_messages=email_log_no_new_messages
     )
 
 
@@ -2605,6 +2607,18 @@ def email_log_retention_settings():
         except Exception:
             pass
     flash(f'Email log retention settings saved. Auto-delete is {"enabled" if enabled else "disabled"}.', 'success')
+    return redirect(url_for('admin.email_settings'))
+
+
+@admin_bp.route('/email/log-no-new-messages', methods=['POST'])
+@login_required
+def email_log_no_new_messages_settings():
+    """Toggle whether 'No New Messages' rows are written on each poll."""
+    if not admin_required():
+        return redirect(url_for('dashboard.index'))
+    enabled = request.form.get('email_log_no_new_messages') in ('1', 'on', 'true', 'yes')
+    Setting.set('EMAIL_LOG_NO_NEW_MESSAGES', '1' if enabled else '0')
+    flash(f'"No New Messages" logging {"enabled" if enabled else "disabled"}.', 'success')
     return redirect(url_for('admin.email_settings'))
 
 
@@ -3483,6 +3497,9 @@ def tags_reorder():
             if not tag:
                 continue
             new_parent_id = item.get('parent_id')
+            # Prevent a tag from being its own parent (safety net for drag-and-drop)
+            if new_parent_id == tag.id:
+                new_parent_id = None
             tag.parent_id = new_parent_id
             tag.position  = item.get('position', 0)
         db.session.commit()
@@ -3490,3 +3507,64 @@ def tags_reorder():
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+_DEFAULT_TAGS = [
+    {'name': 'Hardware', 'color': 'primary', 'children': [
+        'Laptop', 'Desktop', 'Monitor', 'Printer', 'Phone / Mobile', 'Peripheral',
+    ]},
+    {'name': 'Software', 'color': 'info', 'children': [
+        'Office / M365', 'Operating System', 'Email', 'Browser', 'Application',
+    ]},
+    {'name': 'Network', 'color': 'success', 'children': [
+        'WiFi', 'VPN', 'Internet', 'Shared Drive',
+    ]},
+    {'name': 'Account', 'color': 'warning', 'children': [
+        'Password Reset', 'Access Request', 'New User Setup', 'Offboarding',
+    ]},
+    {'name': 'Other', 'color': 'secondary', 'children': []},
+]
+
+
+@admin_bp.route('/tags/reset', methods=['POST'])
+@login_required
+def tags_reset():
+    """Delete all unused tags and restore the default set."""
+    all_tags = Tag.query.all()
+    skipped = []
+    for tag in all_tags:
+        in_use = bool(tag.tickets) or bool(tag.assets)
+        if in_use:
+            skipped.append(tag.name)
+        else:
+            db.session.delete(tag)
+    db.session.commit()
+
+    # Re-create defaults (skip any whose name already exists after the above purge)
+    existing_names = {t.name for t in Tag.query.all()}
+    pos = Tag.query.filter_by(parent_id=None).count()
+    for group in _DEFAULT_TAGS:
+        if group['name'] not in existing_names:
+            parent = Tag(name=group['name'], color=group['color'], parent_id=None, position=pos)
+            db.session.add(parent)
+            db.session.flush()  # get parent.id
+            existing_names.add(group['name'])
+            pos += 1
+        else:
+            parent = Tag.query.filter_by(name=group['name'], parent_id=None).first()
+
+        if parent:
+            child_pos = Tag.query.filter_by(parent_id=parent.id).count()
+            for child_name in group['children']:
+                if child_name not in existing_names:
+                    db.session.add(Tag(name=child_name, color=None, parent_id=parent.id, position=child_pos))
+                    existing_names.add(child_name)
+                    child_pos += 1
+
+    db.session.commit()
+
+    if skipped:
+        flash(f'Reset complete. Default tags restored. Some tags still in use could not be removed: {", ".join(skipped)}.', 'warning')
+    else:
+        flash('All tags reset to defaults.', 'success')
+    return redirect(url_for('admin.tags'))

@@ -46,11 +46,14 @@
 {% endblock %}
 
 {% block content %}
-<div class="d-flex align-items-center gap-2 mb-3">
+<div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
   <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm">
     <i class="bi bi-arrow-left me-1"></i>Admin
   </a>
-  <h1 class="h5 mb-0"><i class="bi bi-tags-fill text-primary me-2"></i>Tag Management</h1>
+  <h1 class="h5 mb-0 me-auto"><i class="bi bi-tags-fill text-primary me-2"></i>Tag Management</h1>
+  <button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#resetTagsModal">
+    <i class="bi bi-arrow-counterclockwise me-1"></i>Reset to Defaults
+  </button>
 </div>
 
 <div class="row g-3">
@@ -165,58 +168,130 @@
       </div>
     </div>
 
-    <!-- Create Tag Form -->
+    <!-- Create / Edit Tag Card -->
     <div class="card shadow-sm">
-      <div class="card-header bg-body-tertiary">
-        <h2 class="h6 mb-0"><i class="bi bi-plus-circle me-1"></i>New Tag</h2>
+      <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+        <h2 class="h6 mb-0" id="tag-form-title"><i class="bi bi-plus-circle me-1"></i>New Tag</h2>
+        <div class="btn-group btn-group-sm" role="group">
+          <button type="button" class="btn btn-outline-secondary active" id="tab-create-btn" onclick="switchTagTab('create')">Create New</button>
+          <button type="button" class="btn btn-outline-secondary" id="tab-edit-btn" onclick="switchTagTab('edit')">Edit Existing</button>
+        </div>
       </div>
       <div class="card-body">
-        <form method="post" action="{{ url_for('admin.tags') }}" id="create-tag-form">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="hidden" name="color" id="create-color-input" value="secondary">
-          <div class="row g-3">
-            <div class="col-md-5">
-              <label class="form-label small fw-semibold">Tag Name</label>
-              <input name="name" id="create-name" class="form-control" placeholder="e.g., Docking Station" required>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label small fw-semibold">Parent Tag <span class="text-muted fw-normal">(optional)</span></label>
-              <select name="parent_id" id="create-parent-id" class="form-select">
-                <option value="" data-color="">None (root tag)</option>
-                {% for t in all_tags %}
-                <option value="{{ t.id }}" data-color="{{ t.effective_color }}">{{ t.full_path }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label small fw-semibold">Color</label>
-              <div class="d-flex gap-2 align-items-center mt-1" id="create-color-picker">
-                {% for c in ['primary','success','danger','warning','info','secondary'] %}
-                <span class="color-btn {% if c == 'secondary' %}selected{% endif %}"
-                      data-color="{{ c }}" title="{{ c }}"
-                      onclick="selectColor('create', '{{ c }}')"></span>
-                {% endfor %}
+
+        <!-- ── Create New ── -->
+        <div id="tab-create-pane">
+          <form method="post" action="{{ url_for('admin.tags') }}" id="create-tag-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="color" id="create-color-input" value="secondary">
+            <div class="row g-3">
+              <div class="col-md-5">
+                <label class="form-label small fw-semibold">Tag Name</label>
+                <input name="name" id="create-name" class="form-control" placeholder="e.g., Docking Station" required>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small fw-semibold">Parent Tag <span class="text-muted fw-normal">(optional)</span></label>
+                <select name="parent_id" id="create-parent-id" class="form-select">
+                  <option value="" data-color="">None (root tag)</option>
+                  {% for t in all_tags %}
+                  <option value="{{ t.id }}" data-color="{{ t.effective_color }}">{{ t.full_path }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label small fw-semibold">Color</label>
+                <div class="d-flex gap-2 align-items-center mt-1" id="create-color-picker">
+                  {% for c in ['primary','success','danger','warning','info','secondary'] %}
+                  <span class="color-btn {% if c == 'secondary' %}selected{% endif %}"
+                        data-color="{{ c }}" title="{{ c }}"
+                        onclick="selectColor('create', '{{ c }}')"></span>
+                  {% endfor %}
+                </div>
               </div>
             </div>
+            <div class="mt-3">
+              <label class="form-label small fw-semibold mb-1">
+                Keywords <span class="text-muted fw-normal">(optional)</span>
+              </label>
+              <textarea name="keywords" class="form-control form-control-sm" rows="2"
+                        placeholder="e.g., laptop, notebook, dell, macbook"></textarea>
+              <div class="form-text small">Comma-separated. When any of these appear in a ticket's subject, body, or notes, this tag is shown as a suggestion.</div>
+            </div>
+            <div class="mt-3">
+              <span class="text-muted small me-2">Preview:</span>
+              <span id="create-preview" class="badge text-bg-secondary rounded-pill px-2">Tag Name</span>
+            </div>
+            <div class="mt-3">
+              <button class="btn btn-primary" type="submit">
+                <i class="bi bi-plus-lg me-1"></i>Create Tag
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- ── Edit Existing ── -->
+        <div id="tab-edit-pane" style="display:none">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Select Tag to Edit</label>
+            <select id="edit-existing-select" class="form-select">
+              <option value="">— choose a tag —</option>
+              {% for t in all_tags %}
+              <option value="{{ t.id }}">{{ t.full_path }}</option>
+              {% endfor %}
+            </select>
           </div>
-          <div class="mt-3">
-            <label class="form-label small fw-semibold mb-1">
-              Keywords <span class="text-muted fw-normal">(optional)</span>
-            </label>
-            <textarea name="keywords" class="form-control form-control-sm" rows="2"
-                      placeholder="e.g., laptop, notebook, dell, macbook"></textarea>
-            <div class="form-text small">Comma-separated. When any of these appear in a ticket's subject, body, or notes, this tag is shown as a suggestion.</div>
+          <div id="edit-existing-fields" style="display:none">
+            <form method="post" id="edit-existing-form" action="">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="color" id="edit-existing-color-input" value="secondary">
+              <div class="row g-3">
+                <div class="col-md-5">
+                  <label class="form-label small fw-semibold">Tag Name</label>
+                  <input type="text" name="name" id="edit-existing-name" class="form-control" required>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label small fw-semibold">Parent Tag <span class="text-muted fw-normal">(optional)</span></label>
+                  <select name="parent_id" id="edit-existing-parent-id" class="form-select">
+                    <option value="">None (root tag)</option>
+                    {% for t in all_tags %}
+                    <option value="{{ t.id }}" data-color="{{ t.effective_color }}">{{ t.full_path }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label small fw-semibold">Color</label>
+                  <div class="d-flex gap-2 align-items-center mt-1" id="edit-existing-color-picker">
+                    {% for c in ['primary','success','danger','warning','info','secondary'] %}
+                    <span class="color-btn" data-color="{{ c }}" title="{{ c }}"
+                          onclick="selectColor('edit-existing', '{{ c }}')"></span>
+                    {% endfor %}
+                  </div>
+                </div>
+              </div>
+              <div class="mt-3">
+                <label class="form-label small fw-semibold mb-1">
+                  Keywords <span class="text-muted fw-normal">(optional)</span>
+                </label>
+                <textarea name="keywords" id="edit-existing-keywords" class="form-control form-control-sm" rows="2"
+                          placeholder="e.g., laptop, notebook, dell, macbook"></textarea>
+                <div class="form-text small">Comma-separated. When any of these appear in a ticket's subject, body, or notes, this tag is shown as a suggestion.</div>
+              </div>
+              <div class="mt-3">
+                <span class="text-muted small me-2">Preview:</span>
+                <span id="edit-existing-preview" class="badge text-bg-secondary rounded-pill px-2">Tag Name</span>
+              </div>
+              <div class="mt-3">
+                <button class="btn btn-primary" type="submit">
+                  <i class="bi bi-check-lg me-1"></i>Save Changes
+                </button>
+              </div>
+            </form>
           </div>
-          <div class="mt-3">
-            <span class="text-muted small me-2">Preview:</span>
-            <span id="create-preview" class="badge text-bg-secondary rounded-pill px-2">Tag Name</span>
+          <div id="edit-existing-placeholder" class="text-center py-4 text-muted small">
+            <i class="bi bi-arrow-up me-1"></i>Select a tag above to edit it
           </div>
-          <div class="mt-3">
-            <button class="btn btn-primary" type="submit">
-              <i class="bi bi-plus-lg me-1"></i>Create Tag
-            </button>
-          </div>
-        </form>
+        </div>
+
       </div>
     </div>
 
@@ -242,7 +317,7 @@
   </div>
 </div>
 
-<!-- Edit Tag Modal -->
+<!-- Edit Tag Modal (from hierarchy pencil buttons) -->
 <div class="modal fade" id="editTagModal" tabindex="-1" aria-labelledby="editTagModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
@@ -297,6 +372,41 @@
     </div>
   </div>
 </div>
+
+<!-- Reset Tags Confirmation Modal -->
+<div class="modal fade" id="resetTagsModal" tabindex="-1" aria-labelledby="resetTagsModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title" id="resetTagsModalLabel"><i class="bi bi-exclamation-triangle me-2"></i>Reset All Tags</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p>This will <strong>delete all tags not currently in use</strong> and replace them with the default tag set:</p>
+        <ul class="small mb-3">
+          <li><span class="badge text-bg-primary">Hardware</span> — Laptop, Desktop, Monitor, Printer, Phone / Mobile, Peripheral</li>
+          <li><span class="badge text-bg-info">Software</span> — Office / M365, Operating System, Email, Browser, Application</li>
+          <li><span class="badge text-bg-success">Network</span> — WiFi, VPN, Internet, Shared Drive</li>
+          <li><span class="badge text-bg-warning">Account</span> — Password Reset, Access Request, New User Setup, Offboarding</li>
+          <li><span class="badge text-bg-secondary">Other</span></li>
+        </ul>
+        <div class="alert alert-warning mb-0 small">
+          <i class="bi bi-shield-exclamation me-1"></i>
+          Tags currently attached to tickets or assets <strong>will not be deleted</strong>, but all others will be permanently removed. This cannot be undone.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <form method="post" action="{{ url_for('admin.tags_reset') }}" class="m-0">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-danger">
+            <i class="bi bi-arrow-counterclockwise me-1"></i>Yes, Reset to Defaults
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -307,6 +417,77 @@
 
   const CSRF = '{{ csrf_token() }}';
   let statusTimer = null;
+
+  // ── Tag data for Edit Existing tab ───────────────────────────────────────────
+  const ALL_TAGS = {{ all_tags | map(attribute='id') | list | tojson }};
+  const TAG_DATA = {};
+  {% for t in all_tags %}
+  TAG_DATA[{{ t.id }}] = {
+    id: {{ t.id }},
+    name: {{ t.name | tojson }},
+    color: {{ (t.color or 'secondary') | tojson }},
+    parent_id: {{ t.parent_id | tojson }},
+    keywords: {{ (t.keywords or '') | tojson }}
+  };
+  {% endfor %}
+
+  // ── Tab switcher ──────────────────────────────────────────────────────────────
+  window.switchTagTab = function(tab) {
+    const isCreate = tab === 'create';
+    document.getElementById('tab-create-pane').style.display = isCreate ? '' : 'none';
+    document.getElementById('tab-edit-pane').style.display   = isCreate ? 'none' : '';
+    document.getElementById('tab-create-btn').classList.toggle('active', isCreate);
+    document.getElementById('tab-edit-btn').classList.toggle('active', !isCreate);
+    const title = document.getElementById('tag-form-title');
+    if (title) {
+      title.innerHTML = isCreate
+        ? '<i class="bi bi-plus-circle me-1"></i>New Tag'
+        : '<i class="bi bi-pencil me-1"></i>Edit Tag';
+    }
+  };
+
+  // ── Edit Existing: populate form on select ────────────────────────────────────
+  const editExistingSelect = document.getElementById('edit-existing-select');
+  if (editExistingSelect) {
+    editExistingSelect.addEventListener('change', function() {
+      const tagId = parseInt(this.value);
+      const fields = document.getElementById('edit-existing-fields');
+      const placeholder = document.getElementById('edit-existing-placeholder');
+      if (!tagId || !TAG_DATA[tagId]) {
+        fields.style.display = 'none';
+        placeholder.style.display = '';
+        return;
+      }
+      const t = TAG_DATA[tagId];
+      fields.style.display = '';
+      placeholder.style.display = 'none';
+
+      document.getElementById('edit-existing-form').action = '/admin/tags/' + tagId + '/edit';
+      document.getElementById('edit-existing-name').value = t.name;
+      document.getElementById('edit-existing-keywords').value = t.keywords;
+
+      // Disable the tag itself in the parent dropdown to prevent self-parent
+      const parentSel = document.getElementById('edit-existing-parent-id');
+      Array.from(parentSel.options).forEach(opt => {
+        opt.disabled = (parseInt(opt.value) === tagId);
+        if (opt.disabled && parentSel.value === opt.value) parentSel.value = '';
+      });
+      parentSel.value = t.parent_id || '';
+
+      selectColor('edit-existing', t.color || 'secondary');
+      const preview = document.getElementById('edit-existing-preview');
+      if (preview) { preview.textContent = t.name; }
+    });
+  }
+
+  // Live preview on edit-existing name input
+  const editExistingName = document.getElementById('edit-existing-name');
+  if (editExistingName) {
+    editExistingName.addEventListener('input', function() {
+      const p = document.getElementById('edit-existing-preview');
+      if (p) p.textContent = this.value || 'Tag Name';
+    });
+  }
 
   // ── Color picker ──────────────────────────────────────────────────────────────
   window.selectColor = function(prefix, color) {
@@ -320,7 +501,7 @@
     }
   };
 
-  // Live preview on name input
+  // Live preview on create name input
   const createName = document.getElementById('create-name');
   if (createName) {
     createName.addEventListener('input', function() {
@@ -329,24 +510,20 @@
     });
   }
 
-  // Auto-set color when parent is selected
+  // Auto-set color when parent is selected (create form)
   const createParent = document.getElementById('create-parent-id');
   if (createParent) {
     createParent.addEventListener('change', function() {
       const selected = this.options[this.selectedIndex];
       const parentColor = selected.dataset.color;
-      if (parentColor) {
-        selectColor('create', parentColor);
-      } else {
-        selectColor('create', 'secondary');
-      }
+      selectColor('create', parentColor || 'secondary');
     });
   }
 
-  // ── Edit modal population ─────────────────────────────────────────────────────
+  // ── Edit modal population (hierarchy pencil buttons) ─────────────────────────
   document.getElementById('editTagModal')?.addEventListener('show.bs.modal', function(event) {
     const btn       = event.relatedTarget;
-    const tagId     = btn.dataset.id;
+    const tagId     = parseInt(btn.dataset.id);
     const tagName   = btn.dataset.name;
     const tagColor  = btn.dataset.color || 'secondary';
     const parentId  = btn.dataset.parentId;
@@ -358,15 +535,17 @@
     document.getElementById('edit-color-input').value = tagColor;
     document.getElementById('edit-keywords').value = tagKeywords;
 
-    // Select correct color button
-    document.querySelectorAll('#edit-color-picker .color-btn').forEach(b => {
-      b.classList.toggle('selected', b.dataset.color === tagColor);
-    });
+    selectColor('edit', tagColor);
     document.getElementById('edit-preview').className = 'badge text-bg-' + tagColor + ' rounded-pill px-2';
 
-    // Set parent
+    // Disable this tag's own option in parent dropdown to prevent self-parent
     const parentSel = document.getElementById('edit-parent-id');
-    if (parentSel) parentSel.value = parentId || '';
+    if (parentSel) {
+      Array.from(parentSel.options).forEach(opt => {
+        opt.disabled = (parseInt(opt.value) === tagId);
+      });
+      parentSel.value = parentId || '';
+    }
   });
 
   // ── Status indicator ──────────────────────────────────────────────────────────

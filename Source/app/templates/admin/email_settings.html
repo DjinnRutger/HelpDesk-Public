@@ -119,5 +119,29 @@
       </div>
     </div>
   </div>
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header bg-body-tertiary d-flex align-items-start gap-2">
+        <i class="bi bi-dash-circle text-primary"></i>
+        <div>
+          <h2 class="h6 mb-0">Log "No New Messages"</h2>
+          <small class="text-muted">Record a row each poll when the inbox is empty</small>
+        </div>
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('admin.email_log_no_new_messages_settings') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" id="emailLogNoNewMessages" name="email_log_no_new_messages" {{ 'checked' if email_log_no_new_messages else '' }}>
+            <label class="form-check-label" for="emailLogNoNewMessages">Log "No New Messages" entries</label>
+          </div>
+          <div class="form-text mb-3">
+            When enabled, every poll that finds no new mail writes a row to the email log. Useful for troubleshooting that polling is running. Disable to keep logs lean once email is working reliably.
+          </div>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-save me-1"></i>Save</button>
+        </form>
+      </div>
+    </div>
+  </div>
 </div>
 {% endblock %}
