@@ -376,6 +376,28 @@ def ensure_documents_tables(engine):
         conn.commit()
 
 
+def ensure_document_favorites_table(engine):
+    """Create document_favorite table if missing (per-user document favorites)."""
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        exists = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='document_favorite'")).fetchone() is not None
+        if not exists:
+            conn.execute(text(
+                """
+                CREATE TABLE document_favorite (
+                    id INTEGER PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    document_id INTEGER NOT NULL,
+                    created_at DATETIME,
+                    UNIQUE(user_id, document_id)
+                )
+                """
+            ))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_document_favorite_user_id ON document_favorite(user_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_document_favorite_document_id ON document_favorite(document_id)"))
+        conn.commit()
+
+
 def ensure_scheduled_tickets_table(engine):
     with engine.connect() as conn:
         exists = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='scheduled_ticket'")).fetchone() is not None

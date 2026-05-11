@@ -1,10 +1,15 @@
 from flask import Blueprint, render_template, redirect, url_for, request, flash, jsonify
-from flask_login import login_required
+from flask_login import login_required, current_user
 from .. import db
-from ..models import DocumentCategory, Document
+from ..models import DocumentCategory, Document, DocumentFavorite
 
 
 documents_bp = Blueprint('documents', __name__, url_prefix='/documents')
+
+
+def _favorite_ids_for_user(user_id):
+    rows = DocumentFavorite.query.filter_by(user_id=user_id).all()
+    return {r.document_id for r in rows}
 
 
 @documents_bp.route('/')
@@ -12,7 +17,14 @@ documents_bp = Blueprint('documents', __name__, url_prefix='/documents')
 def index():
     # Only return root categories; subcategories are accessed via the relationship
     cats = DocumentCategory.query.filter_by(parent_id=None).order_by(DocumentCategory.position.asc(), DocumentCategory.name.asc()).all()
-    return render_template('documents/index.html', categories=cats)
+    fav_rows = DocumentFavorite.query.filter_by(user_id=current_user.id).all()
+    fav_ids = [r.document_id for r in fav_rows]
+    favorites = []
+    if fav_ids:
+        docs = Document.query.filter(Document.id.in_(fav_ids)).order_by(Document.name.asc()).all()
+        cat_map = {c.id: c for c in DocumentCategory.query.filter(DocumentCategory.id.in_({d.category_id for d in docs})).all()}
+        favorites = [{'doc': d, 'category': cat_map.get(d.category_id)} for d in docs]
+    return render_template('documents/index.html', categories=cats, favorites=favorites)
 
 
 @documents_bp.route('/category/<int:category_id>')
@@ -20,7 +32,27 @@ def index():
 def category(category_id):
     cat = DocumentCategory.query.get_or_404(category_id)
     docs = Document.query.filter_by(category_id=cat.id).order_by(Document.name.asc()).all()
-    return render_template('documents/category.html', category=cat, documents=docs)
+    fav_ids = _favorite_ids_for_user(current_user.id)
+    return render_template('documents/category.html', category=cat, documents=docs, favorite_ids=fav_ids)
+
+
+@documents_bp.route('/favorite/<int:doc_id>', methods=['POST'])
+@login_required
+def toggle_favorite(doc_id):
+    doc = Document.query.get_or_404(doc_id)
+    existing = DocumentFavorite.query.filter_by(user_id=current_user.id, document_id=doc.id).first()
+    if existing:
+        db.session.delete(existing)
+        db.session.commit()
+        favorited = False
+    else:
+        db.session.add(DocumentFavorite(user_id=current_user.id, document_id=doc.id))
+        db.session.commit()
+        favorited = True
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.is_json:
+        return jsonify({'ok': True, 'favorited': favorited, 'doc_id': doc.id})
+    next_url = request.form.get('next') or request.referrer or url_for('documents.category', category_id=doc.category_id)
+    return redirect(next_url)
 
 
 @documents_bp.route('/category/<int:category_id>/new', methods=['POST'])
@@ -85,6 +117,7 @@ def edit(doc_id):
 def delete(doc_id):
     doc = Document.query.get_or_404(doc_id)
     cat_id = doc.category_id
+    DocumentFavorite.query.filter_by(document_id=doc.id).delete()
     db.session.delete(doc)
     db.session.commit()
     flash('Document deleted', 'success')

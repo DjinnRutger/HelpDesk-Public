@@ -318,7 +318,7 @@ def create_app():
     User, Ticket, Setting, ProcessTemplate, ProcessTemplateItem, TicketProcess,
     TicketProcessItem, AllowedDomain, TicketAttachment, Contact, DenyFilter,
     TicketTask, OrderItem, PurchaseOrder, Vendor, Company, ShippingLocation,
-    DocumentCategory, Document, Asset, AssetCategory, AssetManufacturer, AssetCondition, AssetLocation,
+    DocumentCategory, Document, DocumentFavorite, Asset, AssetCategory, AssetManufacturer, AssetCondition, AssetLocation,
     EmailCheck, EmailCheckEntry, ApprovalRequest, Tag, ticket_tags, asset_tags
     )
 
@@ -337,6 +337,7 @@ def create_app():
                 ensure_vendor_table,
                 ensure_company_shipping_tables,
                 ensure_documents_tables,
+                ensure_document_favorites_table,
                 ensure_assets_table,
                 ensure_asset_picklists,
                 ensure_scheduled_tickets_table,
@@ -354,6 +355,7 @@ def create_app():
             ensure_vendor_table(db.engine)
             ensure_company_shipping_tables(db.engine)
             ensure_documents_tables(db.engine)
+            ensure_document_favorites_table(db.engine)
             ensure_assets_table(db.engine)
             ensure_asset_picklists(db.engine)
             ensure_scheduled_tickets_table(db.engine)

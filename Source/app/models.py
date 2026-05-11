@@ -560,6 +560,15 @@ class Document(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class DocumentFavorite(db.Model):
+    __tablename__ = 'document_favorite'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'), nullable=False, index=True)
+    document_id = db.Column(db.Integer, db.ForeignKey('document.id', ondelete='CASCADE'), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    __table_args__ = (db.UniqueConstraint('user_id', 'document_id', name='uq_user_document_favorite'),)
+
+
 # --- Assets ---
 class AssetCategory(db.Model):
     id = db.Column(db.Integer, primary_key=True)

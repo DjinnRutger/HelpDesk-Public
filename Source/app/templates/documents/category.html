@@ -96,16 +96,27 @@
     {% if documents %}
       <div class="list-group list-group-flush">
         {% for d in documents %}
-        <a href="{{ url_for('documents.view', doc_id=d.id) }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
-          <div class="d-flex align-items-center">
+        {% set is_fav = d.id in favorite_ids %}
+        <div class="list-group-item d-flex justify-content-between align-items-center">
+          <a href="{{ url_for('documents.view', doc_id=d.id) }}" class="d-flex align-items-center text-decoration-none flex-grow-1 text-body">
             <i class="bi bi-file-earmark-text me-2 text-primary"></i>
             <span class="fw-semibold">{{ d.name }}</span>
+          </a>
+          <div class="d-flex align-items-center gap-3">
+            <div class="text-muted small d-flex align-items-center">
+              <i class="bi bi-clock me-1"></i>
+              Updated {{ d.updated_at|cst_datetime }}
+            </div>
+            <form method="post" action="{{ url_for('documents.toggle_favorite', doc_id=d.id) }}" class="m-0">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="next" value="{{ url_for('documents.category', category_id=category.id) }}">
+              <button type="submit" class="btn btn-link btn-sm p-0 {% if is_fav %}text-warning{% else %}text-muted{% endif %}"
+                      title="{% if is_fav %}Remove from favorites{% else %}Add to favorites{% endif %}">
+                <i class="bi {% if is_fav %}bi-star-fill{% else %}bi-star{% endif %} fs-5"></i>
+              </button>
+            </form>
           </div>
-          <div class="text-muted small d-flex align-items-center">
-            <i class="bi bi-clock me-1"></i>
-            Updated {{ d.updated_at|cst_datetime }}
-          </div>
-        </a>
+        </div>
         {% endfor %}
       </div>
     {% else %}
