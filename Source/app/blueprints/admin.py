@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required, current_user
 from ..forms import MSGraphForm, TechForm, ProcessTemplateForm, ProcessTemplateItemForm, AllowedDomainForm, DenyFilterForm
 from ..models import Setting, User, ProcessTemplate, ProcessTemplateItem, AllowedDomain, DenyFilter, Vendor, PurchaseOrder, Company, ShippingLocation, DocumentCategory, AssetAudit, Asset, AssetCategory, AssetManufacturer, AssetCondition, AssetLocation, ScheduledTicket, Ticket, TicketTask, TicketStatus, Tag
-from .. import db, scheduler, run_auto_backup
+from .. import db
 from ..utils.security import hash_password
 from ..services.email_poll import poll_ms_graph
 from ..services.ms_graph import get_msal_app, get_access_token
@@ -18,6 +18,19 @@ import ftplib
 
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
+
+
+def _bump_schedule_version():
+    """Signal the scheduler process to re-read settings and rebuild dynamic jobs.
+
+    Web workers don't run the scheduler (it's a separate systemd service), so
+    they can't add/remove jobs in-process. Instead they bump SCHEDULE_VERSION;
+    the scheduler polls it every 30s and reapplies dynamic jobs on change.
+    """
+    try:
+        Setting.set('SCHEDULE_VERSION', str(int(datetime.utcnow().timestamp())))
+    except Exception as e:
+        current_app.logger.error(f'Failed to bump SCHEDULE_VERSION: {e}')
 
 
 def admin_required():
@@ -1448,12 +1461,7 @@ def msgraph():
         Setting.set('MS_TENANT_ID', form.tenant_id.data)
         Setting.set('MS_USER_EMAIL', form.user_email.data)
         Setting.set('POLL_INTERVAL_SECONDS', str(form.poll_interval.data))
-        # Update scheduler job interval
-        try:
-            if scheduler.get_job('email_poll'):
-                scheduler.reschedule_job('email_poll', trigger='interval', seconds=form.poll_interval.data)
-        except Exception:
-            pass
+        _bump_schedule_version()
         flash('Saved Microsoft Graph settings', 'success')
         return redirect(url_for('admin.index'))
     # Force a poll now
@@ -1734,42 +1742,8 @@ def ad_password_settings():
     Setting.set('AD_PWD_CHECK_ENABLED', '1' if ad_pwd_check_enabled else '0')
     Setting.set('AD_PWD_CHECK_TIME', ad_pwd_check_time)
     Setting.set('AD_PWD_WARNING_DAYS', ad_pwd_warning_days)
-    
-    # Update scheduler job for daily AD password check
-    try:
-        from .. import scheduler
-        from ..services.ad_password_check import run_ad_password_check
-        
-        if ad_pwd_check_enabled:
-            hh, mm = 7, 0
-            try:
-                parts = ad_pwd_check_time.split(':')
-                hh = int(parts[0] or 7)
-                mm = int(parts[1] or 0)
-            except Exception:
-                hh, mm = 7, 0
-            
-            app_obj = current_app._get_current_object()
-            # Use default argument to capture app_obj by value, not by reference (late-binding fix)
-            scheduler.add_job(
-                func=lambda _app=app_obj: run_ad_password_check(_app),
-                trigger='cron',
-                hour=hh,
-                minute=mm,
-                id='ad_password_check',
-                replace_existing=True,
-                timezone='America/Chicago'
-            )
-            current_app.logger.info(f'AD Password Check job scheduled for {hh:02d}:{mm:02d} America/Chicago')
-        else:
-            try:
-                scheduler.remove_job('ad_password_check')
-                current_app.logger.info('AD Password Check job removed from scheduler')
-            except Exception:
-                pass
-    except Exception as e:
-        current_app.logger.error(f'Failed to update AD password check scheduler: {e}')
-    
+    _bump_schedule_version()
+
     flash('AD password check settings saved.', 'success')
     return redirect(url_for('admin.index'))
 
@@ -2623,26 +2597,7 @@ def email_log_retention_settings():
         days = 90
     Setting.set('EMAIL_LOG_RETENTION_ENABLED', '1' if enabled else '0')
     Setting.set('EMAIL_LOG_RETENTION_DAYS', str(days))
-    # Update the scheduler
-    from .. import scheduler
-    if enabled:
-        try:
-            scheduler.add_job(
-                func=lambda: cleanup_old_email_logs(current_app._get_current_object()),
-                trigger='cron',
-                hour=3,
-                minute=0,
-                id='email_log_cleanup',
-                replace_existing=True,
-                timezone='America/Chicago'
-            )
-        except Exception:
-            pass
-    else:
-        try:
-            scheduler.remove_job('email_log_cleanup')
-        except Exception:
-            pass
+    _bump_schedule_version()
     flash(f'Email log retention settings saved. Auto-delete is {"enabled" if enabled else "disabled"}.', 'success')
     return redirect(url_for('admin.email_settings'))
 
@@ -2916,20 +2871,8 @@ def backup_settings():
     if backup_dir:
         Setting.set('AUTO_BACKUP_DIR', backup_dir)
     Setting.set('AUTO_BACKUP_RETENTION', str(keep))
-    # Reschedule job immediately
-    try:
-        # Capture real app object for later job execution
-        app_obj = current_app._get_current_object()
-        if enabled:
-            scheduler.add_job(func=lambda: run_auto_backup(app_obj), trigger='cron', hour=hh, minute=mm, id='auto_backup', replace_existing=True, timezone='America/Chicago')
-        else:
-            try:
-                scheduler.remove_job('auto_backup')
-            except Exception:
-                pass
-        flash('Auto-backup settings updated.', 'success')
-    except Exception:
-        flash('Failed to update auto-backup scheduler.', 'danger')
+    _bump_schedule_version()
+    flash('Auto-backup settings updated.', 'success')
     return redirect(url_for('admin.index'))
 
 
@@ -2999,40 +2942,8 @@ def asset_spot_check_settings():
     Setting.set('ASSET_SPOT_CHECK_COUNT', count_val)
     Setting.set('ASSET_SPOT_CHECK_PERCENT', percent_val)
     Setting.set('ASSET_SPOT_CHECK_ASSIGNEE_ID', assignee_id if assignee_id.isdigit() else '')
-    # Reschedule job
-    try:
-        app_obj = current_app._get_current_object()
-        if enabled:
-            if frequency == 'weekly':
-                scheduler.add_job(
-                    func=lambda: run_asset_spot_check(app_obj),
-                    trigger='cron',
-                    day_of_week=int(day_of_week),
-                    hour=hh,
-                    minute=mm,
-                    id='asset_spot_check',
-                    replace_existing=True,
-                    timezone='America/Chicago'
-                )
-            else:  # monthly
-                scheduler.add_job(
-                    func=lambda: run_asset_spot_check(app_obj),
-                    trigger='cron',
-                    day=int(day_of_month),
-                    hour=hh,
-                    minute=mm,
-                    id='asset_spot_check',
-                    replace_existing=True,
-                    timezone='America/Chicago'
-                )
-        else:
-            try:
-                scheduler.remove_job('asset_spot_check')
-            except Exception:
-                pass
-        flash('Asset Spot Check settings updated.', 'success')
-    except Exception as e:
-        flash(f'Failed to update Asset Spot Check scheduler: {str(e)}', 'danger')
+    _bump_schedule_version()
+    flash('Asset Spot Check settings updated.', 'success')
     return redirect(url_for('admin.index'))
 
 

@@ -17,6 +17,151 @@ login_manager = LoginManager()
 scheduler = BackgroundScheduler(timezone='America/Chicago')
 
 
+def _apply_dynamic_jobs(app: Flask) -> None:
+    """Add/remove/reschedule jobs driven by DB settings. Safe to call repeatedly.
+
+    Runs only in the scheduler process. Web workers never call this; they
+    persist setting changes and bump SCHEDULE_VERSION instead.
+    """
+    from .models import Setting as _Setting
+    with app.app_context():
+        # email_poll interval
+        try:
+            interval = int(_Setting.get("POLL_INTERVAL_SECONDS", os.getenv("POLL_INTERVAL_SECONDS", "60")))
+            if scheduler.get_job('email_poll'):
+                scheduler.reschedule_job('email_poll', trigger='interval', seconds=interval)
+        except Exception as e:
+            app.logger.error(f'Failed to apply email_poll interval: {e}')
+
+        # AD password check
+        try:
+            from .services.ad_password_check import run_ad_password_check
+            enabled = (_Setting.get('AD_PWD_CHECK_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes')
+            time_str = _Setting.get('AD_PWD_CHECK_TIME', '07:00') or '07:00'
+            hh, mm = 7, 0
+            try:
+                parts = time_str.split(':')
+                hh = int(parts[0] or 7)
+                mm = int(parts[1] or 0)
+            except Exception:
+                hh, mm = 7, 0
+            if enabled:
+                scheduler.add_job(
+                    func=lambda _app=app: run_ad_password_check(_app),
+                    trigger='cron', hour=hh, minute=mm,
+                    id='ad_password_check', replace_existing=True,
+                    timezone='America/Chicago'
+                )
+            else:
+                try:
+                    scheduler.remove_job('ad_password_check')
+                except Exception:
+                    pass
+        except Exception as e:
+            app.logger.error(f'Failed to apply ad_password_check: {e}')
+
+        # Auto-backup
+        try:
+            enabled = (_Setting.get('AUTO_BACKUP_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes')
+            time_str = (_Setting.get('AUTO_BACKUP_TIME', '23:00') or '23:00')
+            hh, mm = 23, 0
+            try:
+                parts = time_str.split(':')
+                hh = int(parts[0] or 23)
+                mm = int(parts[1] or 0)
+            except Exception:
+                hh, mm = 23, 0
+            if enabled:
+                scheduler.add_job(
+                    func=lambda _app=app: run_auto_backup(_app),
+                    trigger='cron', hour=hh, minute=mm,
+                    id='auto_backup', replace_existing=True,
+                    timezone='America/Chicago'
+                )
+            else:
+                try:
+                    scheduler.remove_job('auto_backup')
+                except Exception:
+                    pass
+        except Exception as e:
+            app.logger.error(f'Failed to apply auto_backup: {e}')
+
+        # Email log cleanup
+        try:
+            from .blueprints.admin import cleanup_old_email_logs
+            enabled = (_Setting.get('EMAIL_LOG_RETENTION_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes')
+            if enabled:
+                scheduler.add_job(
+                    func=lambda _app=app: cleanup_old_email_logs(_app),
+                    trigger='cron', hour=3, minute=0,
+                    id='email_log_cleanup', replace_existing=True,
+                    timezone='America/Chicago'
+                )
+            else:
+                try:
+                    scheduler.remove_job('email_log_cleanup')
+                except Exception:
+                    pass
+        except Exception as e:
+            app.logger.error(f'Failed to apply email_log_cleanup: {e}')
+
+        # Asset spot check
+        try:
+            from .blueprints.admin import run_asset_spot_check
+            enabled = (_Setting.get('ASSET_SPOT_CHECK_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes')
+            if enabled:
+                frequency = _Setting.get('ASSET_SPOT_CHECK_FREQUENCY', 'weekly') or 'weekly'
+                time_str = _Setting.get('ASSET_SPOT_CHECK_TIME', '09:00') or '09:00'
+                hh, mm = 9, 0
+                try:
+                    parts = time_str.split(':')
+                    hh = int(parts[0] or 9)
+                    mm = int(parts[1] or 0)
+                except Exception:
+                    hh, mm = 9, 0
+                if frequency == 'weekly':
+                    day_of_week = int(_Setting.get('ASSET_SPOT_CHECK_DAY_OF_WEEK', '1') or '1')
+                    scheduler.add_job(
+                        func=lambda _app=app: run_asset_spot_check(_app),
+                        trigger='cron', day_of_week=day_of_week, hour=hh, minute=mm,
+                        id='asset_spot_check', replace_existing=True,
+                        timezone='America/Chicago'
+                    )
+                else:
+                    day_of_month = int(_Setting.get('ASSET_SPOT_CHECK_DAY_OF_MONTH', '1') or '1')
+                    scheduler.add_job(
+                        func=lambda _app=app: run_asset_spot_check(_app),
+                        trigger='cron', day=day_of_month, hour=hh, minute=mm,
+                        id='asset_spot_check', replace_existing=True,
+                        timezone='America/Chicago'
+                    )
+            else:
+                try:
+                    scheduler.remove_job('asset_spot_check')
+                except Exception:
+                    pass
+        except Exception as e:
+            app.logger.error(f'Failed to apply asset_spot_check: {e}')
+
+
+def _watch_schedule_version(app: Flask) -> None:
+    """Poll SCHEDULE_VERSION; reapply dynamic jobs when it changes."""
+    from .models import Setting as _Setting
+    with app.app_context():
+        try:
+            current = _Setting.get('SCHEDULE_VERSION', '0') or '0'
+        except Exception:
+            return
+    last = getattr(_watch_schedule_version, '_last', None)
+    if last is None:
+        _watch_schedule_version._last = current
+        return
+    if current != last:
+        _watch_schedule_version._last = current
+        app.logger.info(f'SCHEDULE_VERSION changed ({last} -> {current}); re-applying dynamic jobs')
+        _apply_dynamic_jobs(app)
+
+
 def run_auto_backup(app: Flask) -> None:
     """Create a local SQLite backup into configured directory and enforce retention.
 
@@ -318,7 +463,7 @@ def create_app():
     User, Ticket, Setting, ProcessTemplate, ProcessTemplateItem, TicketProcess,
     TicketProcessItem, AllowedDomain, TicketAttachment, Contact, DenyFilter,
     TicketTask, OrderItem, PurchaseOrder, Vendor, Company, ShippingLocation,
-    DocumentCategory, Document, DocumentFavorite, Asset, AssetCategory, AssetManufacturer, AssetCondition, AssetLocation,
+    DocumentCategory, Document, Asset, AssetCategory, AssetManufacturer, AssetCondition, AssetLocation,
     EmailCheck, EmailCheckEntry, ApprovalRequest, Tag, ticket_tags, asset_tags
     )
 
@@ -337,7 +482,6 @@ def create_app():
                 ensure_vendor_table,
                 ensure_company_shipping_tables,
                 ensure_documents_tables,
-                ensure_document_favorites_table,
                 ensure_assets_table,
                 ensure_asset_picklists,
                 ensure_scheduled_tickets_table,
@@ -355,7 +499,6 @@ def create_app():
             ensure_vendor_table(db.engine)
             ensure_company_shipping_tables(db.engine)
             ensure_documents_tables(db.engine)
-            ensure_document_favorites_table(db.engine)
             ensure_assets_table(db.engine)
             ensure_asset_picklists(db.engine)
             ensure_scheduled_tickets_table(db.engine)
@@ -575,8 +718,11 @@ def create_app():
     app.add_template_filter(get_status_color, name='status_color')
     app.add_template_filter(get_status_label, name='status_label')
 
-    # Schedule email polling job (can be disabled for tests by setting DISABLE_SCHEDULER=1)
-    if os.getenv("DISABLE_SCHEDULER") != "1":
+    # Scheduler runs in a dedicated process (helpfuldjinn-scheduler.service).
+    # Web workers set HELPFULDJINN_ROLE=web and skip the entire block to avoid
+    # firing every job N times (one per gunicorn worker). DISABLE_SCHEDULER=1
+    # still works as a test override.
+    if os.getenv("HELPFULDJINN_ROLE") == "scheduler" and os.getenv("DISABLE_SCHEDULER") != "1":
         from .services.email_poll import poll_ms_graph, email_poll_watchdog
         from .services.snooze_wakeup import process_wakeups
         from .models import ScheduledTicket, Ticket, TicketTask
@@ -672,134 +818,18 @@ def create_app():
         except Exception:
             pass
 
-        # Schedule AD Password Check job if enabled
+        # Apply settings-driven jobs, then watch SCHEDULE_VERSION for live updates
         try:
-            from .models import Setting as _Setting
-            from .services.ad_password_check import run_ad_password_check
-            # Ensure app context for database access
-            with app.app_context():
-                ad_pwd_check_enabled = (_Setting.get('AD_PWD_CHECK_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes')
-                ad_pwd_check_time = _Setting.get('AD_PWD_CHECK_TIME', '07:00') or '07:00'
-            hh, mm = 7, 0
-            try:
-                parts = ad_pwd_check_time.split(':')
-                hh = int(parts[0] or 7)
-                mm = int(parts[1] or 0)
-            except Exception:
-                hh, mm = 7, 0
-            if ad_pwd_check_enabled:
-                # Use default argument to capture app by value, not by reference (late-binding fix)
-                scheduler.add_job(
-                    func=lambda _app=app: run_ad_password_check(_app),
-                    trigger='cron',
-                    hour=hh,
-                    minute=mm,
-                    id='ad_password_check',
-                    replace_existing=True,
-                    timezone='America/Chicago'
-                )
-                app.logger.info(f'AD Password Check scheduled daily at {hh:02d}:{mm:02d} America/Chicago')
-            else:
-                try:
-                    scheduler.remove_job('ad_password_check')
-                except Exception:
-                    pass
+            _apply_dynamic_jobs(app)
         except Exception as e:
-            app.logger.error(f'Failed to schedule AD Password Check job: {e}')
-
-        # Schedule or remove the auto-backup job based on settings
+            app.logger.error(f'Initial _apply_dynamic_jobs failed: {e}')
         try:
-            from .models import Setting as _Setting  # type: ignore
-            enabled = (_Setting.get('AUTO_BACKUP_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes')
-            time_str = (_Setting.get('AUTO_BACKUP_TIME', '23:00') or '23:00')
-            hh, mm = 23, 0
-            try:
-                parts = time_str.split(':')
-                hh = int(parts[0] or 23)
-                mm = int(parts[1] or 0)
-            except Exception:
-                hh, mm = 23, 0
-            if enabled:
-                scheduler.add_job(func=lambda: run_auto_backup(app), trigger='cron', hour=hh, minute=mm, id='auto_backup', replace_existing=True, timezone='America/Chicago')
-            else:
-                try:
-                    scheduler.remove_job('auto_backup')
-                except Exception:
-                    pass
+            scheduler.add_job(
+                func=lambda: _watch_schedule_version(app),
+                trigger='interval', seconds=30,
+                id='schedule_version_watch', replace_existing=True,
+            )
         except Exception:
-            # If settings model not ready, skip; admin can enable later
-            pass
-
-        # Schedule or remove the email log cleanup job based on settings
-        try:
-            from .models import Setting as _Setting  # type: ignore
-            from .blueprints.admin import cleanup_old_email_logs
-            log_cleanup_enabled = (_Setting.get('EMAIL_LOG_RETENTION_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes')
-            if log_cleanup_enabled:
-                scheduler.add_job(
-                    func=lambda: cleanup_old_email_logs(app),
-                    trigger='cron',
-                    hour=3,
-                    minute=0,
-                    id='email_log_cleanup',
-                    replace_existing=True,
-                    timezone='America/Chicago'
-                )
-            else:
-                try:
-                    scheduler.remove_job('email_log_cleanup')
-                except Exception:
-                    pass
-        except Exception:
-            # If settings model not ready, skip; admin can enable later
-            pass
-
-        # Schedule or remove the asset spot check job based on settings
-        try:
-            from .models import Setting as _Setting  # type: ignore
-            from .blueprints.admin import run_asset_spot_check
-            spot_check_enabled = (_Setting.get('ASSET_SPOT_CHECK_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes')
-            if spot_check_enabled:
-                spot_check_frequency = _Setting.get('ASSET_SPOT_CHECK_FREQUENCY', 'weekly') or 'weekly'
-                spot_check_time = _Setting.get('ASSET_SPOT_CHECK_TIME', '09:00') or '09:00'
-                hh, mm = 9, 0
-                try:
-                    parts = spot_check_time.split(':')
-                    hh = int(parts[0] or 9)
-                    mm = int(parts[1] or 0)
-                except Exception:
-                    hh, mm = 9, 0
-                if spot_check_frequency == 'weekly':
-                    day_of_week = int(_Setting.get('ASSET_SPOT_CHECK_DAY_OF_WEEK', '1') or '1')
-                    scheduler.add_job(
-                        func=lambda: run_asset_spot_check(app),
-                        trigger='cron',
-                        day_of_week=day_of_week,
-                        hour=hh,
-                        minute=mm,
-                        id='asset_spot_check',
-                        replace_existing=True,
-                        timezone='America/Chicago'
-                    )
-                else:  # monthly
-                    day_of_month = int(_Setting.get('ASSET_SPOT_CHECK_DAY_OF_MONTH', '1') or '1')
-                    scheduler.add_job(
-                        func=lambda: run_asset_spot_check(app),
-                        trigger='cron',
-                        day=day_of_month,
-                        hour=hh,
-                        minute=mm,
-                        id='asset_spot_check',
-                        replace_existing=True,
-                        timezone='America/Chicago'
-                    )
-            else:
-                try:
-                    scheduler.remove_job('asset_spot_check')
-                except Exception:
-                    pass
-        except Exception:
-            # If settings model not ready, skip; admin can enable later
             pass
 
     return app
