@@ -3,7 +3,15 @@
     "allow": [
       "Bash(grep -E \"\\\\.\\(py|txt|cfg\\)$\")",
       "Bash(wc:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(ssh *)",
+      "Bash(scp -i /c/users/jquincy/.ssh/LightsailDefaultKey-us-east-2.pem ubuntu@100.67.201.30:/home/ubuntu/HelpfulDjinn/app/__init__.py Source/app/__init__.py)",
+      "Bash(scp -i /c/users/jquincy/.ssh/LightsailDefaultKey-us-east-2.pem ubuntu@100.67.201.30:/home/ubuntu/HelpfulDjinn/app/blueprints/admin.py Source/app/blueprints/admin.py)",
+      "Bash(scp -i /c/users/jquincy/.ssh/LightsailDefaultKey-us-east-2.pem ubuntu@100.67.201.30:/home/ubuntu/HelpfulDjinn/scheduler_run.py Source/scheduler_run.py)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(scp -i /c/users/jquincy/.ssh/LightsailDefaultKey-us-east-2.pem Source/app/__init__.py ubuntu@100.67.201.30:/home/ubuntu/HelpfulDjinn/app/__init__.py)"
     ]
   }
 }
