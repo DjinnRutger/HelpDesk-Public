@@ -472,14 +472,20 @@ def poll_ms_graph(app=None):
                         except Exception:
                             db.session.rollback()
                         to_mark_read.append(msg_id)
-                        # Notify assigned tech, if any
+                        # Notify assigned tech and co-assignee, if any
                         try:
+                            recipient_ids = []
                             if existing.assignee_id:
-                                tech = User.query.get(existing.assignee_id)
-                                if tech and tech.email:
-                                    subj = f"Ticket#{existing.id} - New reply"
-                                    html_body = f"<p>{_html.escape(note_content).replace('\n','<br>')}</p>"
-                                send_mail(tech.email, subj, html_body, to_name=getattr(tech, 'name', None), category='ticket_reply', ticket_id=existing.id)
+                                recipient_ids.append(existing.assignee_id)
+                            if existing.co_assignee_id and existing.co_assignee_id != existing.assignee_id:
+                                recipient_ids.append(existing.co_assignee_id)
+                            if recipient_ids:
+                                subj = f"Ticket#{existing.id} - New reply"
+                                html_body = f"<p>{_html.escape(note_content).replace('\n','<br>')}</p>"
+                                for uid in recipient_ids:
+                                    tech = User.query.get(uid)
+                                    if tech and tech.email:
+                                        send_mail(tech.email, subj, html_body, to_name=getattr(tech, 'name', None), category='ticket_reply', ticket_id=existing.id)
                         except Exception:
                             pass
                         # Continue to next message (do not create a new ticket)
