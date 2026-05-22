@@ -65,6 +65,14 @@ We recommend users verify downloads themselves via VT for peace of mind.
 
 ## Quick start (Windows PowerShell from Source)
 
+# Windows
+python -m venv .venv
+.venv\Scripts\activate
+
+# macOS / Linux
+python3 -m venv .venv
+source .venv/bin/activate
+
 pip install -r requirements.txt	
 
 python run.py
