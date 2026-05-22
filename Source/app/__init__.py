@@ -489,6 +489,7 @@ def create_app():
                 ensure_contact_columns,
                 ensure_approval_request_table,
                 ensure_email_templates_tables,
+                ensure_report_tables,
             )
             ensure_ticket_columns(db.engine)
             ensure_user_columns(db.engine)
@@ -507,6 +508,7 @@ def create_app():
             ensure_contact_columns(db.engine)
             ensure_approval_request_table(db.engine)
             ensure_email_templates_tables(db.engine)
+            ensure_report_tables(db.engine)
             # Ensure AssetAudit table (runtime lightweight migration with pre-backup for SQLite)
             from sqlalchemy import inspect
             insp = inspect(db.engine)
@@ -720,6 +722,15 @@ def create_app():
     app.add_template_filter(get_status_color, name='status_color')
     app.add_template_filter(get_status_label, name='status_label')
 
+    def from_json(value):
+        """Parse a JSON string in templates; return empty container on failure."""
+        try:
+            import json as _json
+            return _json.loads(value) if value else None
+        except Exception:
+            return None
+    app.add_template_filter(from_json, name='from_json')
+
     # Scheduler runs in a dedicated process (helpfuldjinn-scheduler.service).
     # Web workers set HELPFULDJINN_ROLE=web and skip the entire block to avoid
     # firing every job N times (one per gunicorn worker). DISABLE_SCHEDULER=1
@@ -798,6 +809,12 @@ def create_app():
             scheduler.add_job(func=run_scheduled_tickets, trigger="interval", minutes=1, id="scheduled_tickets", replace_existing=True)
         except Exception:
             pass
+        # Automated reports — polled every minute, fires reports whose schedule matches.
+        try:
+            from .services.report_generator import run_due_reports
+            scheduler.add_job(func=lambda: run_due_reports(app), trigger="interval", minutes=1, id="scheduled_reports", replace_existing=True)
+        except Exception as e:
+            app.logger.error(f"Failed to register scheduled_reports job: {e}")
         # Prefer DB setting if present, fallback to env, then default
         try:
             from .models import Setting as _Setting

@@ -263,6 +263,42 @@ class ScheduledTicket(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+# --- Automated Reports (Admin-defined scheduled reports) ---
+class Report(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    report_type = db.Column(db.String(50), nullable=False, default='executive')
+    is_active = db.Column(db.Boolean, default=True)
+    # Scheduling
+    schedule_frequency = db.Column(db.String(20), nullable=False, default='weekly')  # daily, weekly, monthly
+    schedule_time = db.Column(db.String(5), nullable=False, default='07:00')  # HH:MM (24h) local time
+    schedule_day_of_week = db.Column(db.Integer, nullable=True)  # 0=Mon .. 6=Sun (for weekly)
+    schedule_day_of_month = db.Column(db.Integer, nullable=True)  # 1..28 (for monthly)
+    # Recipients
+    recipient_user_ids = db.Column(db.Text, nullable=True)  # JSON array of User.id
+    recipient_emails = db.Column(db.Text, nullable=True)  # comma-separated free-text emails
+    # Content toggles (JSON dict of section keys -> bool)
+    sections = db.Column(db.Text, nullable=True)
+    # Run tracking
+    last_run_at = db.Column(db.DateTime, nullable=True)
+    last_run_status = db.Column(db.String(20), nullable=True)  # 'success' | 'partial' | 'error'
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    runs = db.relationship('ReportRun', backref='report', cascade='all, delete-orphan', order_by='ReportRun.run_at.desc()')
+
+
+class ReportRun(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    report_id = db.Column(db.Integer, db.ForeignKey('report.id', ondelete='CASCADE'), nullable=False)
+    run_at = db.Column(db.DateTime, default=datetime.utcnow)
+    triggered_by = db.Column(db.String(20), nullable=False, default='schedule')  # 'schedule' | 'manual'
+    recipients_count = db.Column(db.Integer, default=0)
+    success = db.Column(db.Boolean, default=False)
+    error = db.Column(db.Text, nullable=True)
+
+
 # --- Process Templates ---
 class ProcessTemplate(db.Model):
     id = db.Column(db.Integer, primary_key=True)

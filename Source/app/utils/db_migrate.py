@@ -777,3 +777,69 @@ def ensure_email_templates_tables(engine):
                 )
             """))
         conn.commit()
+
+
+def ensure_report_tables(engine):
+    """Create report and report_run tables for the automated reports feature."""
+    with engine.connect() as conn:
+        rows = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='report'"))
+        if not rows.fetchone():
+            conn.execute(text("""
+                CREATE TABLE report (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    report_type TEXT NOT NULL DEFAULT 'executive',
+                    is_active BOOLEAN DEFAULT 1,
+                    schedule_frequency TEXT NOT NULL DEFAULT 'weekly',
+                    schedule_time TEXT NOT NULL DEFAULT '07:00',
+                    schedule_day_of_week INTEGER,
+                    schedule_day_of_month INTEGER,
+                    recipient_user_ids TEXT,
+                    recipient_emails TEXT,
+                    sections TEXT,
+                    last_run_at DATETIME,
+                    last_run_status TEXT,
+                    created_at DATETIME,
+                    updated_at DATETIME
+                )
+            """))
+        else:
+            info = conn.execute(text("PRAGMA table_info('report')")).fetchall()
+            existing = {row[1] for row in info}
+            required = {
+                'name': 'TEXT',
+                'description': 'TEXT',
+                'report_type': "TEXT DEFAULT 'executive'",
+                'is_active': 'BOOLEAN DEFAULT 1',
+                'schedule_frequency': "TEXT DEFAULT 'weekly'",
+                'schedule_time': "TEXT DEFAULT '07:00'",
+                'schedule_day_of_week': 'INTEGER',
+                'schedule_day_of_month': 'INTEGER',
+                'recipient_user_ids': 'TEXT',
+                'recipient_emails': 'TEXT',
+                'sections': 'TEXT',
+                'last_run_at': 'DATETIME',
+                'last_run_status': 'TEXT',
+                'created_at': 'DATETIME',
+                'updated_at': 'DATETIME',
+            }
+            for col, coltype in required.items():
+                if col not in existing:
+                    conn.execute(text(f"ALTER TABLE report ADD COLUMN {col} {coltype}"))
+
+        rows = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='report_run'"))
+        if not rows.fetchone():
+            conn.execute(text("""
+                CREATE TABLE report_run (
+                    id INTEGER PRIMARY KEY,
+                    report_id INTEGER NOT NULL,
+                    run_at DATETIME,
+                    triggered_by TEXT NOT NULL DEFAULT 'schedule',
+                    recipients_count INTEGER DEFAULT 0,
+                    success BOOLEAN DEFAULT 0,
+                    error TEXT,
+                    FOREIGN KEY (report_id) REFERENCES report(id) ON DELETE CASCADE
+                )
+            """))
+        conn.commit()

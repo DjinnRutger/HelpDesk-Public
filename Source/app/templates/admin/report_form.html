@@ -1,0 +1,192 @@
+{% extends 'base.html' %}
+{% block title %}{{ action }} Report · Admin{% endblock %}
+{% block content %}
+{% set sections_raw = report.sections if report and report.sections else '{}' %}
+{% if form %}
+  {% set sel_user_ids = form.getlist('recipient_user_ids')|map('int')|list %}
+{% else %}
+  {% set sel_user_ids_raw = report.recipient_user_ids if report and report.recipient_user_ids else '[]' %}
+  {% set sel_user_ids = (sel_user_ids_raw|from_json) or [] %}
+{% endif %}
+{% set sections_obj = (sections_raw|from_json) or {} %}
+{% set src_on = (form.get('section_source_breakdown') == 'on') if form else sections_obj.get('source_breakdown', True) %}
+{% set uvt_on = (form.get('section_user_vs_tech') == 'on') if form else sections_obj.get('user_vs_tech', True) %}
+{% set inv_on = (form.get('section_inventory_status') == 'on') if form else sections_obj.get('inventory_status', True) %}
+{% set is_active_on = (form.get('is_active') == 'on') if form else (True if report is none else report.is_active) %}
+{% set cur_freq = form.get('schedule_frequency') if form else (report.schedule_frequency if report else 'weekly') %}
+{% set cur_time = form.get('schedule_time') if form else (report.schedule_time if report else '07:00') %}
+{% set cur_dow = form.get('schedule_day_of_week') if form else (report.schedule_day_of_week if report else 0) %}
+{% set cur_dom = form.get('schedule_day_of_month') if form else (report.schedule_day_of_month if report else 1) %}
+{% set cur_type = form.get('report_type') if form else (report.report_type if report else 'executive') %}
+<div class="row justify-content-center">
+  <div class="col-lg-9 col-xl-8">
+    <div class="card shadow-sm">
+      <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+        <div class="d-flex align-items-center gap-2">
+          <i class="bi bi-graph-up text-primary"></i>
+          <div>
+            <h1 class="h5 mb-0">{{ action }} Report</h1>
+            <small class="text-muted">Configure schedule, recipients, and which sections to include</small>
+          </div>
+        </div>
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('admin.reports') }}"><i class="bi bi-arrow-left"></i></a>
+      </div>
+      <div class="card-body">
+        <form method="post" class="row g-4">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+          {# ── Basics ───────────────────────────────────────────────── #}
+          <div class="col-12">
+            <h2 class="h6 text-uppercase text-muted small fw-semibold mb-2">Basics</h2>
+            <div class="row g-3">
+              <div class="col-md-8">
+                <label class="form-label small fw-semibold">Name</label>
+                <input class="form-control" name="name" required
+                       value="{{ form.get('name') if form else (report.name if report else '') }}"
+                       placeholder="Weekly Executive Summary">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small fw-semibold">Type</label>
+                <select class="form-select" name="report_type">
+                  {% for k, label in type_choices %}
+                  <option value="{{ k }}" {% if cur_type == k %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-12">
+                <label class="form-label small fw-semibold">Description <span class="text-muted">(optional)</span></label>
+                <textarea class="form-control" name="description" rows="2"
+                          placeholder="What this report covers and who it's for">{{ form.get('description') if form else (report.description if report else '') }}</textarea>
+              </div>
+              <div class="col-12">
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" name="is_active" id="is_active" {% if is_active_on %}checked{% endif %}>
+                  <label class="form-check-label" for="is_active">Active — run on the configured schedule</label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {# ── Schedule ─────────────────────────────────────────────── #}
+          <div class="col-12">
+            <h2 class="h6 text-uppercase text-muted small fw-semibold mb-2">Schedule</h2>
+            <div class="row g-3">
+              <div class="col-md-4">
+                <label class="form-label small fw-semibold">Frequency</label>
+                <select class="form-select" name="schedule_frequency" id="schedule_frequency">
+                  {% for k, label in freq_choices %}
+                  <option value="{{ k }}" {% if cur_freq == k %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small fw-semibold">Time of day</label>
+                <input class="form-control" type="time" name="schedule_time" value="{{ cur_time }}" required>
+              </div>
+              <div class="col-md-4" id="dow_wrap">
+                <label class="form-label small fw-semibold">Day of week</label>
+                <select class="form-select" name="schedule_day_of_week">
+                  {% for n, label in dow_choices %}
+                  <option value="{{ n }}" {% if cur_dow|string == n|string %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-md-4" id="dom_wrap">
+                <label class="form-label small fw-semibold">Day of month <small class="text-muted">(1–28)</small></label>
+                <input class="form-control" type="number" name="schedule_day_of_month" min="1" max="28"
+                       value="{{ cur_dom }}">
+              </div>
+            </div>
+            <div class="form-text mt-2">
+              The report covers the <strong>previous full period</strong> at run time. Weekly reports summarize the prior Monday–Sunday; monthly reports summarize the prior calendar month.
+            </div>
+          </div>
+
+          {# ── Recipients ───────────────────────────────────────────── #}
+          <div class="col-12">
+            <h2 class="h6 text-uppercase text-muted small fw-semibold mb-2">Recipients</h2>
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label small fw-semibold">Internal users</label>
+                <select class="form-select" name="recipient_user_ids" multiple size="6">
+                  {% for u in users %}
+                  <option value="{{ u.id }}" {% if u.id in sel_user_ids %}selected{% endif %}>{{ u.name or u.email }}{% if u.email %} &lt;{{ u.email }}&gt;{% endif %}</option>
+                  {% endfor %}
+                </select>
+                <div class="form-text">Hold Ctrl/Cmd to select multiple.</div>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label small fw-semibold">External emails</label>
+                <textarea class="form-control" name="recipient_emails" rows="6"
+                          placeholder="cfo@example.com, cio@example.com">{{ form.get('recipient_emails') if form else (report.recipient_emails if report else '') }}</textarea>
+                <div class="form-text">Comma- or newline-separated. For CFO/CIO recipients without an internal account.</div>
+              </div>
+            </div>
+          </div>
+
+          {# ── Sections (executive only for now) ────────────────────── #}
+          <div class="col-12" id="executive_sections">
+            <h2 class="h6 text-uppercase text-muted small fw-semibold mb-2">Include in Report</h2>
+            <div class="alert alert-light border small mb-3">
+              <i class="bi bi-info-circle me-1"></i>
+              <strong>Ticket volume + week-over-week change</strong> and the <strong>4-period trend</strong> are always included — they're the core of the executive view. The blocks below are optional.
+            </div>
+            <div class="row g-2">
+              <div class="col-md-4">
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" name="section_source_breakdown" id="section_source_breakdown" {% if src_on %}checked{% endif %}>
+                  <label class="form-check-label" for="section_source_breakdown">
+                    Source breakdown
+                    <div class="form-text">Email / Phone / Zoom / Walk-in</div>
+                  </label>
+                </div>
+              </div>
+              <div class="col-md-4">
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" name="section_user_vs_tech" id="section_user_vs_tech" {% if uvt_on %}checked{% endif %}>
+                  <label class="form-check-label" for="section_user_vs_tech">
+                    User vs. tech-created
+                    <div class="form-text">Who opened the tickets</div>
+                  </label>
+                </div>
+              </div>
+              <div class="col-md-4">
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" name="section_inventory_status" id="section_inventory_status" {% if inv_on %}checked{% endif %}>
+                  <label class="form-check-label" for="section_inventory_status">
+                    Inventory status
+                    <div class="form-text">Asset counts + warranty/EOL alerts</div>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-12 d-flex flex-wrap gap-2 justify-content-end">
+            <a class="btn btn-outline-secondary" href="{{ url_for('admin.reports') }}">Cancel</a>
+            {% if report %}
+            <a class="btn btn-outline-info" href="{{ url_for('admin.report_preview', report_id=report.id) }}" target="_blank"><i class="bi bi-eye me-1"></i>Preview HTML</a>
+            {% endif %}
+            <button class="btn btn-primary" type="submit"><i class="bi bi-check-lg me-1"></i>Save Report</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const freq = document.getElementById('schedule_frequency');
+  const dowWrap = document.getElementById('dow_wrap');
+  const domWrap = document.getElementById('dom_wrap');
+  function sync() {
+    const v = freq.value;
+    dowWrap.style.display = (v === 'weekly') ? '' : 'none';
+    domWrap.style.display = (v === 'monthly') ? '' : 'none';
+  }
+  freq.addEventListener('change', sync);
+  sync();
+})();
+</script>
+{% endblock %}

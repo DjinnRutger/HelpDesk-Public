@@ -1,0 +1,124 @@
+{% extends 'base.html' %}
+{% block title %}Reports · Admin{% endblock %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="card shadow-sm">
+      <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-2">
+          <i class="bi bi-graph-up text-primary fs-4"></i>
+          <div>
+            <h1 class="h5 mb-0">Reports</h1>
+            <small class="text-muted">Scheduled automated reports — emailed on a daily, weekly, or monthly cadence</small>
+          </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+          <a class="btn btn-primary" href="{{ url_for('admin.report_new') }}"><i class="bi bi-plus-lg me-1"></i>New Report</a>
+        </div>
+      </div>
+      <div class="card-body">
+        {% if reports %}
+        <div class="table-responsive">
+          <table class="table table-hover align-middle">
+            <thead class="table-light">
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Schedule</th>
+                <th>Last Run</th>
+                <th>Active</th>
+                <th class="text-end">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in reports %}
+              <tr>
+                <td>
+                  <div class="fw-semibold">{{ r.name }}</div>
+                  {% if r.description %}
+                  <small class="text-muted">{{ r.description }}</small>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if r.report_type == 'executive' %}
+                    <span class="badge bg-primary-subtle text-primary-emphasis">Executive</span>
+                  {% else %}
+                    <span class="badge bg-secondary-subtle text-secondary-emphasis">{{ r.report_type }}</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <div>{{ freq_labels.get(r.schedule_frequency, r.schedule_frequency) }} @ {{ r.schedule_time }}</div>
+                  <small class="text-muted">
+                    {% if r.schedule_frequency == 'weekly' and r.schedule_day_of_week is not none %}
+                      {{ dow_labels.get(r.schedule_day_of_week, '') }}
+                    {% elif r.schedule_frequency == 'monthly' and r.schedule_day_of_month %}
+                      Day {{ r.schedule_day_of_month }} of month
+                    {% endif %}
+                  </small>
+                </td>
+                <td>
+                  {% if r.last_run_at %}
+                    <div>{{ r.last_run_at.strftime('%b %d, %Y %H:%M') }}</div>
+                    {% if r.last_run_status == 'success' %}
+                      <small class="text-success"><i class="bi bi-check-circle"></i> Success</small>
+                    {% elif r.last_run_status == 'partial' %}
+                      <small class="text-warning"><i class="bi bi-exclamation-triangle"></i> Partial</small>
+                    {% elif r.last_run_status == 'error' %}
+                      <small class="text-danger"><i class="bi bi-x-circle"></i> Error</small>
+                    {% endif %}
+                  {% else %}
+                    <small class="text-muted">Never</small>
+                  {% endif %}
+                </td>
+                <td>
+                  <form method="post" action="{{ url_for('admin.report_toggle', report_id=r.id) }}" class="d-inline">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-sm {% if r.is_active %}btn-success{% else %}btn-outline-secondary{% endif %}" title="Click to toggle">
+                      {% if r.is_active %}<i class="bi bi-toggle-on"></i> On{% else %}<i class="bi bi-toggle-off"></i> Off{% endif %}
+                    </button>
+                  </form>
+                </td>
+                <td class="text-end">
+                  <div class="d-inline-flex gap-2">
+                    <form method="post" action="{{ url_for('admin.report_run_now', report_id=r.id) }}" class="d-inline" onsubmit="return confirm('Send this report to all recipients now?');">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <button class="btn btn-outline-primary btn-sm" type="submit" title="Send now"><i class="bi bi-send"></i> Run Now</button>
+                    </form>
+                    <a href="{{ url_for('admin.report_preview', report_id=r.id) }}" target="_blank" class="btn btn-outline-info btn-sm" title="Preview in browser"><i class="bi bi-eye"></i></a>
+                    <a href="{{ url_for('admin.report_edit', report_id=r.id) }}" class="btn btn-outline-secondary btn-sm">Edit</a>
+                    <form method="post" action="{{ url_for('admin.report_delete', report_id=r.id) }}" onsubmit="return confirm('Delete this report? Its run history will also be deleted.');" class="d-inline">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <button class="btn btn-outline-danger btn-sm" type="submit">Delete</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+          <i class="bi bi-graph-up empty-icon"></i>
+          <div class="empty-title">No reports yet</div>
+          <div class="empty-body">Create your first report — for example, a weekly Executive Summary emailed every Monday morning.</div>
+          <a class="btn btn-primary" href="{{ url_for('admin.report_new') }}"><i class="bi bi-plus-lg me-1"></i>New Report</a>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-header bg-body-tertiary">
+        <h2 class="h6 mb-0">About Reports</h2>
+      </div>
+      <div class="card-body small text-muted">
+        <p class="mb-2">Reports run on the schedule you set and are emailed to the chosen recipients as nicely-formatted HTML.</p>
+        <p class="mb-2"><strong>Executive Report</strong> — a CFO/CIO-ready summary covering ticket volume with week-over-week change, where tickets came from (email, phone, Zoom, walk-in), how many came from users vs. techs creating on behalf of users, and a current inventory status snapshot.</p>
+        <p class="mb-0">Use <strong>Run Now</strong> to send a report immediately without waiting for its next scheduled time, or <strong>Preview</strong> to see the HTML in your browser.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
