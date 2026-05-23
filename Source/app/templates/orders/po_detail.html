@@ -825,7 +825,7 @@ document.addEventListener('click', function(e){
     const badge = document.getElementById(`status-${index}`);
     const assetTagInput = document.querySelector(`.asset-tag-input[data-index="${index}"]`);
     const serialInput = document.querySelector(`.serial-input[data-index="${index}"]`);
-    
+
     if (status === 'created') {
       badge.className = 'badge bg-success status-badge';
       badge.innerHTML = '<i class="bi bi-check"></i> Created';
@@ -833,12 +833,64 @@ document.addEventListener('click', function(e){
       if (serialInput) serialInput.disabled = true;
     } else if (status === 'failed') {
       badge.className = 'badge bg-danger status-badge';
+      badge.title = message || 'Failed';
       badge.innerHTML = `<i class="bi bi-x"></i> ${message || 'Failed'}`;
+      if (assetTagInput) assetTagInput.classList.add('is-invalid');
+      if (serialInput) serialInput.classList.add('is-invalid');
     } else {
       badge.className = 'badge bg-light text-dark status-badge';
+      badge.removeAttribute('title');
       badge.textContent = 'Pending';
+      if (assetTagInput) assetTagInput.classList.remove('is-invalid');
+      if (serialInput) serialInput.classList.remove('is-invalid');
     }
     updateProgress();
+  }
+
+  // When the user edits a failed row, reset it to pending so they can retry.
+  tableBody.addEventListener('input', (e) => {
+    const t = e.target;
+    if (!t.matches('.asset-tag-input, .serial-input')) return;
+    const idx = parseInt(t.getAttribute('data-index'));
+    if (Number.isFinite(idx) && assetStatuses[idx] === 'failed') {
+      setRowStatus(idx, 'pending');
+    }
+  });
+
+  // Find in-form duplicates (asset tags, serials, or same value in both fields of one row).
+  function findInFormDuplicates() {
+    const issues = [];
+    const assetTagMap = {};
+    const serialMap = {};
+    const rows = document.querySelectorAll('.asset-tag-input');
+    rows.forEach((tagInput) => {
+      const idx = parseInt(tagInput.getAttribute('data-index'));
+      if (tagInput.disabled || assetStatuses[idx] === 'created') return;
+      const serialInput = document.querySelector(`.serial-input[data-index="${idx}"]`);
+      const rowLabel = `Row ${alreadyCreated + idx + 1}`;
+      const tag = (tagInput.value || '').trim();
+      const sn = serialInput ? (serialInput.value || '').trim() : '';
+      if (tag && sn && tag.toLowerCase() === sn.toLowerCase()) {
+        issues.push(`${rowLabel}: Asset Tag and Serial Number are identical ("${tag}").`);
+      }
+      if (tag) {
+        const key = tag.toLowerCase();
+        if (assetTagMap[key] !== undefined) {
+          issues.push(`${rowLabel}: Asset Tag "${tag}" duplicates Row ${alreadyCreated + assetTagMap[key] + 1}.`);
+        } else {
+          assetTagMap[key] = idx;
+        }
+      }
+      if (sn) {
+        const key = sn.toLowerCase();
+        if (serialMap[key] !== undefined) {
+          issues.push(`${rowLabel}: Serial "${sn}" duplicates Row ${alreadyCreated + serialMap[key] + 1}.`);
+        } else {
+          serialMap[key] = idx;
+        }
+      }
+    });
+    return issues;
   }
   
   // Open modal when clicking create assets button
@@ -897,13 +949,29 @@ document.addEventListener('click', function(e){
   // Create assets button
   createBtn?.addEventListener('click', async () => {
     if (!currentItemId) return;
-    
+
+    // Check for items that still need to be (re)tried.
+    const tryableCount = assetStatuses.filter(s => s === 'pending' || s === 'failed').length;
+    if (tryableCount === 0) {
+      return;
+    }
+
+    // Warn about in-form duplicates before submitting; let user fix or proceed anyway.
+    const issues = findInFormDuplicates();
+    if (issues.length) {
+      const msg = 'Possible issues detected:\n\n' + issues.join('\n') +
+        '\n\nThese entries are likely to fail. Click Cancel to edit them, or OK to send anyway.';
+      if (!window.confirm(msg)) {
+        return;
+      }
+    }
+
     // Collect asset tags and serial numbers
     const assetTagInputs = document.querySelectorAll('.asset-tag-input');
     const serialInputs = document.querySelectorAll('.serial-input');
     const assetTags = [];
     const serialNumbers = [];
-    
+
     assetTagInputs.forEach((input, i) => {
       if (assetStatuses[i] !== 'created') {
         assetTags.push(input.value.trim());
@@ -914,12 +982,6 @@ document.addEventListener('click', function(e){
         serialNumbers.push(input.value.trim());
       }
     });
-    
-    // Check for pending items
-    const pendingCount = assetStatuses.filter(s => s === 'pending').length;
-    if (pendingCount === 0) {
-      return;
-    }
     
     createBtn.disabled = true;
     createBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creating...';
@@ -973,12 +1035,16 @@ document.addEventListener('click', function(e){
       alert('Error creating assets. Please try again.');
     }
     
-    // Re-enable button if there are still pending items
-    const stillPending = assetStatuses.filter(s => s === 'pending').length;
-    if (stillPending > 0) {
+    // Re-enable button if any rows are still pending OR failed so the user can edit and retry.
+    const retryable = assetStatuses.filter(s => s === 'pending' || s === 'failed').length;
+    const failedCount = assetStatuses.filter(s => s === 'failed').length;
+    if (retryable > 0) {
       createBtn.disabled = false;
-      createBtn.innerHTML = '<i class="bi bi-plus-circle me-1"></i>Retry Failed';
+      createBtn.innerHTML = failedCount > 0
+        ? '<i class="bi bi-arrow-clockwise me-1"></i>Retry Failed'
+        : '<i class="bi bi-plus-circle me-1"></i>Create Assets';
     } else {
+      createBtn.disabled = true;
       createBtn.innerHTML = '<i class="bi bi-check-circle me-1"></i>All Done';
     }
   });

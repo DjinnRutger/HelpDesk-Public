@@ -1277,14 +1277,57 @@
   const notePrivateCb = document.getElementById('notePrivate');
     const fwdModalEl = document.getElementById('forwardNoteModal');
     const fwdEmail = document.getElementById('forwardEmail');
+    const fwdChipsWrap = document.getElementById('forwardChipsWrap');
+    const fwdChips = document.getElementById('forwardChips');
     const fwdResults = document.getElementById('forwardResults');
     const fwdEmailHidden = document.getElementById('forwardEmailHidden');
     const fwdBodyHtml = document.getElementById('forwardBodyHtml');
     const fwdSendBtn = document.getElementById('forwardSendBtn');
     let fwdModal;
-    function setForwardEmail(val){
-      fwdEmailHidden.value = val || '';
-      fwdSendBtn.disabled = !(val && /.+@.+\..+/.test(val));
+    const fwdRecipients = [];
+    const emailRe = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+    function syncForwardHidden(){
+      fwdEmailHidden.value = fwdRecipients.join(', ');
+      fwdSendBtn.disabled = fwdRecipients.length === 0;
+    }
+    function renderChips(){
+      if (!fwdChips) return;
+      fwdChips.innerHTML = '';
+      fwdRecipients.forEach((addr, idx) => {
+        const chip = document.createElement('span');
+        chip.className = 'badge text-bg-secondary d-inline-flex align-items-center gap-1';
+        chip.textContent = addr;
+        const x = document.createElement('button');
+        x.type = 'button';
+        x.className = 'btn-close btn-close-white';
+        x.style.cssText = 'font-size:0.55rem; margin-left:4px;';
+        x.setAttribute('aria-label', 'Remove');
+        x.addEventListener('click', (e) => {
+          e.stopPropagation();
+          fwdRecipients.splice(idx, 1);
+          renderChips();
+          syncForwardHidden();
+        });
+        chip.appendChild(x);
+        fwdChips.appendChild(chip);
+      });
+    }
+    function addRecipient(val){
+      const v = (val || '').trim().replace(/[,;]+$/, '');
+      if (!v) return false;
+      if (!emailRe.test(v)) return false;
+      if (fwdRecipients.some(e => e.toLowerCase() === v.toLowerCase())) return true;
+      fwdRecipients.push(v);
+      renderChips();
+      syncForwardHidden();
+      return true;
+    }
+    function resetForward(){
+      fwdRecipients.length = 0;
+      renderChips();
+      syncForwardHidden();
+      if (fwdEmail) fwdEmail.value = '';
+      if (fwdResults) fwdResults.innerHTML = '';
     }
     function renderFwdResults(items){
       if (!fwdResults) return;
@@ -1295,8 +1338,8 @@
         a.className = 'list-group-item list-group-item-action';
         a.textContent = `${it.name} <${it.email}>`;
         a.addEventListener('click', () => {
-          if (fwdEmail) fwdEmail.value = it.email;
-          setForwardEmail(it.email);
+          addRecipient(it.email);
+          if (fwdEmail) { fwdEmail.value = ''; fwdEmail.focus(); }
           fwdResults.innerHTML = '';
         });
         fwdResults.appendChild(a);
@@ -1318,18 +1361,60 @@
           return;
         }
         if (!fwdModal) fwdModal = new bootstrap.Modal(fwdModalEl);
-        if (fwdEmail) { fwdEmail.value = ''; }
-        setForwardEmail('');
-        if (fwdResults) fwdResults.innerHTML = '';
+        resetForward();
         fwdModal.show();
         setTimeout(() => fwdEmail && fwdEmail.focus(), 150);
       });
     }
+    if (fwdChipsWrap && fwdEmail) {
+      fwdChipsWrap.addEventListener('click', (e) => {
+        if (e.target === fwdChipsWrap || e.target === fwdChips) fwdEmail.focus();
+      });
+    }
     if (fwdEmail) {
       fwdEmail.addEventListener('input', (e) => {
-        const v = e.target.value.trim();
-        setForwardEmail(v);
-        if (v.length >= 2) searchRecipients(v); else if (fwdResults) fwdResults.innerHTML='';
+        const v = e.target.value;
+        // Auto-commit on comma/semicolon
+        if (/[,;]/.test(v)) {
+          const parts = v.split(/[,;]+/);
+          const tail = parts.pop();
+          parts.forEach(p => addRecipient(p));
+          e.target.value = tail.trim();
+        }
+        const q = e.target.value.trim();
+        if (q.length >= 2) searchRecipients(q); else if (fwdResults) fwdResults.innerHTML='';
+      });
+      fwdEmail.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === 'Tab' || e.key === ' ') {
+          const v = fwdEmail.value.trim();
+          if (v) {
+            if (addRecipient(v)) {
+              e.preventDefault();
+              fwdEmail.value = '';
+              if (fwdResults) fwdResults.innerHTML = '';
+            } else if (e.key === 'Enter') {
+              e.preventDefault();
+            }
+          } else if (e.key === 'Enter') {
+            e.preventDefault();
+          }
+        } else if (e.key === 'Backspace' && !fwdEmail.value && fwdRecipients.length) {
+          fwdRecipients.pop();
+          renderChips();
+          syncForwardHidden();
+        }
+      });
+      fwdEmail.addEventListener('blur', () => {
+        const v = fwdEmail.value.trim();
+        if (v && addRecipient(v)) fwdEmail.value = '';
+      });
+      fwdEmail.addEventListener('paste', (e) => {
+        const text = (e.clipboardData || window.clipboardData).getData('text');
+        if (text && /[,;\s]/.test(text)) {
+          e.preventDefault();
+          text.split(/[,;\s]+/).forEach(p => addRecipient(p));
+          fwdEmail.value = '';
+        }
       });
     }
     const fwdForm = document.getElementById('forwardForm');
@@ -1467,8 +1552,12 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <label class="form-label">Recipient</label>
-        <input type="email" class="form-control" id="forwardEmail" placeholder="Type to search users or enter email...">
+        <label class="form-label">Recipients</label>
+        <div class="form-control d-flex flex-wrap align-items-center gap-1" id="forwardChipsWrap" style="min-height: 38px; cursor: text;">
+          <div id="forwardChips" class="d-flex flex-wrap gap-1"></div>
+          <input type="text" id="forwardEmail" class="border-0 flex-grow-1 p-0" style="outline: none; background: transparent; min-width: 160px;" placeholder="Type to search users or enter email...">
+        </div>
+        <div class="form-text">Press Enter, comma, or space to add. Add multiple recipients.</div>
         <div class="list-group mt-2" id="forwardResults"></div>
       </div>
       <div class="modal-footer">

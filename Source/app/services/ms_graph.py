@@ -77,13 +77,15 @@ def mark_message_read(access_token: str, user_email: str, message_id: str):
     requests.patch(url, headers=headers, json={"isRead": True}, timeout=20)
 
 
-def send_mail(to_address: str, subject: str, html_body: str, to_name: Optional[str] = None, save_to_sent: bool = True, attachments: Optional[List[Dict]] = None, category: str = 'other', ticket_id: Optional[int] = None) -> bool:
+def send_mail(to_address, subject: str, html_body: str, to_name: Optional[str] = None, save_to_sent: bool = True, attachments: Optional[List[Dict]] = None, category: str = 'other', ticket_id: Optional[int] = None) -> bool:
     """Send an email via Microsoft Graph using the configured mailbox user.
 
     Returns True on success, False otherwise.
-    
+
     Args:
-        category: Type of email for logging. Options: 'ticket_note', 'ticket_assigned', 
+        to_address: A single email address (str) or an iterable of addresses (list/tuple)
+                    for sending to multiple recipients on the To: line.
+        category: Type of email for logging. Options: 'ticket_note', 'ticket_assigned',
                   'ticket_watch', 'password_expiry', 'approval_request', 'po_sent', 'other'
         ticket_id: Related ticket ID if applicable
     """
@@ -96,12 +98,20 @@ def send_mail(to_address: str, subject: str, html_body: str, to_name: Optional[s
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     }
+    if isinstance(to_address, (list, tuple, set)):
+        recipient_addrs = [str(a).strip() for a in to_address if a and str(a).strip()]
+    else:
+        recipient_addrs = [str(to_address).strip()] if to_address else []
+    if not recipient_addrs:
+        return False
+    to_recipients = [
+        {"emailAddress": {"address": addr, "name": (to_name if len(recipient_addrs) == 1 and to_name else addr)}}
+        for addr in recipient_addrs
+    ]
     message: Dict = {
         "subject": subject,
         "body": {"contentType": "HTML", "content": html_body},
-        "toRecipients": [
-            {"emailAddress": {"address": to_address, "name": to_name or to_address}}
-        ],
+        "toRecipients": to_recipients,
     }
     # Attachments: each item should be a dict with keys: name, contentType,
     # contentBytes (base64). Optional: contentId + isInline for embedded
@@ -131,9 +141,10 @@ def send_mail(to_address: str, subject: str, html_body: str, to_name: Optional[s
             message["attachments"] = atts
     payload = {"message": message, "saveToSentItems": save_to_sent}
     url = f"https://graph.microsoft.com/v1.0/users/{user_email}/sendMail"
+    log_to = ', '.join(recipient_addrs)
     try:
         if current_app:
-            current_app.logger.info("Graph send_mail: to=%s subj=%s attachments=%d", to_address, subject, len(message.get("attachments", [])))
+            current_app.logger.info("Graph send_mail: to=%s subj=%s attachments=%d", log_to, subject, len(message.get("attachments", [])))
         resp = requests.post(url, headers=headers, json=payload, timeout=25)
         if current_app:
             current_app.logger.info("Graph send_mail: status=%s", resp.status_code)
@@ -141,13 +152,13 @@ def send_mail(to_address: str, subject: str, html_body: str, to_name: Optional[s
                 current_app.logger.warning("Graph send_mail error body: %s", resp.text[:1000])
         success = resp.status_code in (202, 200)
         # Log outgoing email
-        _log_outgoing_email(to_address, to_name, subject, category, ticket_id, success, None if success else resp.text[:500] if resp.text else 'Unknown error')
+        _log_outgoing_email(log_to, to_name, subject, category, ticket_id, success, None if success else resp.text[:500] if resp.text else 'Unknown error')
         return success
     except requests.RequestException as e:
         if current_app:
             current_app.logger.exception("Graph send_mail exception: %s", e)
         # Log failed outgoing email
-        _log_outgoing_email(to_address, to_name, subject, category, ticket_id, False, str(e)[:500])
+        _log_outgoing_email(log_to, to_name, subject, category, ticket_id, False, str(e)[:500])
         return False
 
 
@@ -158,8 +169,8 @@ def _log_outgoing_email(to_address: str, to_name: Optional[str], subject: str, c
         from app import db
         
         log_entry = OutgoingEmail(
-            to_address=to_address,
-            to_name=to_name,
+            to_address=(to_address or '')[:255],
+            to_name=(to_name or None) and to_name[:255],
             subject=subject[:500] if subject else '',
             category=category,
             ticket_id=ticket_id,

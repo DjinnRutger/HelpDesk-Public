@@ -980,11 +980,29 @@ def get_approval_data(ticket_id):
 @login_required
 def forward_note(ticket_id):
     t = Ticket.query.get_or_404(ticket_id)
-    to_email = (request.form.get('email') or '').strip()
+    raw_email = (request.form.get('email') or '').strip()
     body_html = request.form.get('body_html') or ''
-    if not to_email:
-        flash('Email is required to forward.', 'danger')
+    # Accept multiple recipients separated by comma, semicolon, or whitespace
+    candidates = [e.strip() for e in re.split(r'[,;\s]+', raw_email) if e and e.strip()]
+    email_re = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+    # Deduplicate while preserving order (case-insensitive)
+    seen = set()
+    to_emails = []
+    invalid = []
+    for e in candidates:
+        if not email_re.match(e):
+            invalid.append(e)
+            continue
+        key = e.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        to_emails.append(e)
+    if not to_emails:
+        flash('At least one valid email is required to forward.', 'danger')
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
+    if invalid:
+        flash(f"Skipped invalid address(es): {', '.join(invalid)}", 'warning')
     # Sanitize the provided HTML similar to notes
     allowed_tags = [
         'p', 'br', 'div', 'span', 'b', 'strong', 'i', 'em', 'u', 'ul', 'ol', 'li',
@@ -1039,10 +1057,11 @@ def forward_note(ticket_id):
             desc_section = f'<div><div><strong>Description</strong></div><div>{desc_clean}</div></div>'
         html = header + (sanitized or '<p>(no note body)</p>') + '<hr>' + desc_section
         subject = f"FW: Ticket #{t.id} - {t.subject or ''}"
-        send_mail(to_email, subject, html, category='ticket_forward', ticket_id=t.id)
+        send_mail(to_emails, subject, html, category='ticket_forward', ticket_id=t.id)
         # Save forwarded note to history with recipient log (always public)
         try:
-            log_html = f"<div class=\"small text-muted\">Forwarded to: {bleach.clean(to_email)}</div>" + (sanitized or '')
+            recipients_display = ', '.join(to_emails)
+            log_html = f"<div class=\"small text-muted\">Forwarded to: {bleach.clean(recipients_display)}</div>" + (sanitized or '')
             note = TicketNote(
                 ticket_id=t.id,
                 author_id=getattr(current_user, 'id', None),
