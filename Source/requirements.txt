@@ -25,6 +25,9 @@ email-validator==2.2.0
 # PDF generation
 reportlab==4.2.5
 
+# Image generation (pie charts in automated reports)
+Pillow>=10.0.0
+
 # HTML sanitization
 bleach==6.1.0
 

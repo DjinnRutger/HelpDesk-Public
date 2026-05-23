@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request, send_file, current_app, jsonify
+from flask import Blueprint, render_template, redirect, url_for, flash, request, send_file, current_app, jsonify, make_response
 from flask_login import login_required, current_user
 from ..forms import MSGraphForm, TechForm, ProcessTemplateForm, ProcessTemplateItemForm, AllowedDomainForm, DenyFilterForm
 from ..models import Setting, User, ProcessTemplate, ProcessTemplateItem, AllowedDomain, DenyFilter, Vendor, PurchaseOrder, Company, ShippingLocation, DocumentCategory, AssetAudit, Asset, AssetCategory, AssetManufacturer, AssetCondition, AssetLocation, ScheduledTicket, Ticket, TicketTask, TicketStatus, Tag, Report, ReportRun
@@ -3604,11 +3604,52 @@ def _parse_report_form():
         return None, 'At least one recipient (user or email) is required'
 
     # Sections (executive-specific)
-    sections = {
-        'source_breakdown': request.form.get('section_source_breakdown') == 'on',
-        'user_vs_tech': request.form.get('section_user_vs_tech') == 'on',
-        'inventory_status': request.form.get('section_inventory_status') == 'on',
+    _VALID_MODES = {'off', 'data', 'chart', 'both'}
+    _VALID_TREND_MODES = {'data', 'chart', 'both'}
+    _ALLOWED_TREND_PERIODS = {4, 8, 13, 26, 52}
+    _VALID_CHART_TYPES = {'bar', 'pie'}
+    # Default chart type per section (must match generator's DEFAULT_CHART_TYPE).
+    _DEFAULT_CHART_TYPE = {
+        'source_breakdown':     'pie',
+        'user_vs_tech':         'pie',
+        'inventory_status':     'pie',
+        'password_expirations': 'pie',
+        'backlog_aging':        'bar',
+        'sla_resolution':       'bar',
+        'tech_workload':        'bar',
     }
+    def _mode(field):
+        v = (request.form.get(field) or 'both').strip().lower()
+        return v if v in _VALID_MODES else 'both'
+    def _trend_mode(field):
+        v = (request.form.get(field) or 'both').strip().lower()
+        return v if v in _VALID_TREND_MODES else 'both'
+    def _trend_periods(field):
+        try:
+            n = int(request.form.get(field) or 4)
+        except Exception:
+            n = 4
+        return n if n in _ALLOWED_TREND_PERIODS else 4
+    def _chart_type(key):
+        field = f'section_{key}_chart_type'
+        default = _DEFAULT_CHART_TYPE.get(key, 'bar')
+        v = (request.form.get(field) or default).strip().lower()
+        return v if v in _VALID_CHART_TYPES else default
+    sections = {
+        'source_breakdown':                _mode('section_source_breakdown_mode'),
+        'user_vs_tech':                    _mode('section_user_vs_tech_mode'),
+        'inventory_status':                _mode('section_inventory_status_mode'),
+        'password_expirations':            _mode('section_password_expirations_mode'),
+        'password_expirations_show_users': request.form.get('section_password_expirations_show_users') == 'on',
+        'sla_resolution':                  _mode('section_sla_resolution_mode'),
+        'backlog_aging':                   _mode('section_backlog_aging_mode'),
+        'tech_workload':                   _mode('section_tech_workload_mode'),
+        'trend_mode':                      _trend_mode('trend_mode'),
+        'trend_periods':                   _trend_periods('trend_periods'),
+    }
+    # Chart type per section (only meaningful when the section's mode includes a chart).
+    for _k in _DEFAULT_CHART_TYPE.keys():
+        sections[_k + '_chart_type'] = _chart_type(_k)
 
     return {
         'name': name,
@@ -3689,19 +3730,29 @@ def report_edit(report_id):
             for k, v in data.items():
                 setattr(r, k, v)
             db.session.commit()
-            flash('Report updated', 'success')
-            return redirect(url_for('admin.reports'))
+            # Refresh so the redirected GET sees the values we just wrote.
+            db.session.refresh(r)
+            flash('Report saved', 'success')
+            # Stay on edit and pass ?saved=1 so the template can render an
+            # inline confirmation that does not depend on Flask's flash
+            # cookies (which can be silently dropped behind some proxies).
+            return redirect(url_for('admin.report_edit', report_id=r.id, saved=1))
         except Exception as e:
             db.session.rollback()
             flash(f'Error: {e}', 'danger')
             return redirect(url_for('admin.report_edit', report_id=r.id))
 
-    return render_template('admin/report_form.html', action='Edit', report=r,
-                           users=_all_techs(),
-                           type_choices=_REPORT_TYPE_CHOICES,
-                           freq_choices=_REPORT_FREQ_CHOICES,
-                           dow_choices=_DAY_OF_WEEK_CHOICES,
-                           form=None)
+    resp = make_response(render_template('admin/report_form.html', action='Edit', report=r,
+                                         users=_all_techs(),
+                                         type_choices=_REPORT_TYPE_CHOICES,
+                                         freq_choices=_REPORT_FREQ_CHOICES,
+                                         dow_choices=_DAY_OF_WEEK_CHOICES,
+                                         form=None))
+    # Edit form must always reflect the latest saved state, never a cached copy.
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    return resp
 
 
 @admin_bp.route('/reports/<int:report_id>/delete', methods=['POST'])
@@ -3751,8 +3802,18 @@ def report_run_now(report_id):
 @admin_bp.route('/reports/<int:report_id>/preview')
 @login_required
 def report_preview(report_id):
-    """Render the report HTML in the browser without sending."""
+    """Render the report HTML in the browser without sending.
+
+    The email pipeline embeds pie charts as inline (cid:) attachments. The
+    browser preview swaps each cid: reference for a data: URI so the PNGs
+    render directly without any attachment plumbing.
+    """
     r = Report.query.get_or_404(report_id)
     from ..services.report_generator import _build_executive_html
-    html, _subject = _build_executive_html(r, datetime.now())
+    import base64 as _b64
+    html, _subject, pies = _build_executive_html(r, datetime.now())
+    for cid, png in (pies or {}).items():
+        b64 = _b64.b64encode(png).decode('ascii')
+        data_uri = f'data:image/png;base64,{b64}'
+        html = html.replace(f'src="cid:{cid}"', f'src="{data_uri}"')
     return html

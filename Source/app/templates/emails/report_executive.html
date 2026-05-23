@@ -1,3 +1,89 @@
+{# ─────────────────────────── Chart macros ──────────────────────────────
+   All visuals are <table>-based with bgcolor + width attributes so they
+   render identically in Outlook (Word engine), Gmail, and Apple Mail.
+   No <div> sizing, no SVG, no external/base64 images.
+#}
+{# Circular pie chart. Primary visual is a server-rendered PNG attached
+   inline via CID (universal: renders in Outlook, Gmail, Apple Mail, browser
+   preview). Falls back to inline SVG when Pillow isn't available. The
+   stacked bar below acts as a secondary cue. #}
+{% macro pie_chart(segments, width_attr='width_pct', cid_key='') -%}
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;margin-bottom:8px;">
+  <tr>
+    <td valign="middle" align="center" style="width:140px;padding:6px;">
+      {% if cid_key and pies and pies.get(cid_key) %}
+      <img src="cid:{{ cid_key }}" width="120" height="120" alt="pie chart"
+           style="display:block;border:0;width:120px;height:120px;">
+      {% else %}
+      {{ svg_pie(segments, 120, width_attr) | safe }}
+      {% endif %}
+    </td>
+    <td valign="middle" style="padding:6px 4px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">
+        {%- for s in segments -%}
+        <tr>
+          <td style="padding:3px 0;font-size:12px;color:#212529;">
+            <span style="display:inline-block;width:10px;height:10px;background-color:{{ s.color }};margin-right:6px;vertical-align:middle;border-radius:2px;">&nbsp;</span>
+            <span style="vertical-align:middle;">{{ s.label }} — <strong>{{ s.count }}</strong> ({{ s.percent }}%)</span>
+          </td>
+        </tr>
+        {%- endfor -%}
+      </table>
+    </td>
+  </tr>
+</table>
+{# Stacked-bar fallback for clients that block both inline images and SVG. #}
+{{ stacked_bar(segments, width_attr) }}
+{%- endmacro %}
+
+{% macro stacked_bar(segments, width_attr='width_pct') -%}
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" height="20" style="border-collapse:collapse;border-radius:4px;overflow:hidden;margin-bottom:8px;height:20px;">
+  <tr style="height:20px;">
+    {%- for s in segments if s.count > 0 -%}
+    <td bgcolor="{{ s.color }}" width="{{ s[width_attr] }}%" height="20" style="background-color:{{ s.color }};height:20px;line-height:20px;font-size:1px;">&nbsp;</td>
+    {%- endfor -%}
+    {%- set total_seg = segments|sum(attribute='count') -%}
+    {%- if total_seg == 0 -%}
+    <td bgcolor="#e9ecef" width="100%" height="20" style="background-color:#e9ecef;height:20px;line-height:20px;font-size:1px;">&nbsp;</td>
+    {%- endif -%}
+  </tr>
+</table>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;margin-bottom:4px;">
+  <tr>
+    {%- for s in segments -%}
+    <td style="padding:2px 8px 2px 0;font-size:11px;color:#6c757d;white-space:nowrap;">
+      <span style="display:inline-block;width:10px;height:10px;background-color:{{ s.color }};margin-right:4px;vertical-align:middle;">&nbsp;</span>
+      <span style="vertical-align:middle;">{{ s.label }} · {{ s.count }} ({{ s.percent }}%)</span>
+    </td>
+    {%- if loop.index % 3 == 0 and not loop.last %}</tr><tr>{% endif -%}
+    {%- endfor -%}
+  </tr>
+</table>
+{%- endmacro %}
+
+{% macro h_bar_row(label, count, width_pct, color, label_width=140) -%}
+<tr>
+  <td style="padding:4px 8px 4px 0;font-size:12px;color:#212529;width:{{ label_width }}px;white-space:nowrap;vertical-align:middle;">{{ label }}</td>
+  <td style="padding:4px 0;vertical-align:middle;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" height="18" style="border-collapse:collapse;height:18px;">
+      <tr style="height:18px;">
+        {% if width_pct >= 100 %}
+        {# Full bar — count rides inside the colored cell, right-aligned in white. #}
+        <td bgcolor="{{ color }}" width="100%" height="18" align="right" style="background-color:{{ color }};height:18px;line-height:18px;padding:0 8px;color:#ffffff;font-size:11px;font-weight:600;white-space:nowrap;border-radius:3px;">{{ count }}</td>
+        {% elif width_pct > 0 %}
+        {# Partial bar — count sits at the START of the gray track, right after the bar end. #}
+        <td bgcolor="{{ color }}" width="{{ width_pct }}%" height="18" style="background-color:{{ color }};height:18px;line-height:18px;font-size:1px;border-radius:3px 0 0 3px;">&nbsp;</td>
+        <td bgcolor="#dee2e6" width="{{ 100 - width_pct }}%" height="18" style="background-color:#dee2e6;height:18px;line-height:18px;font-size:11px;color:#212529;font-weight:600;padding-left:6px;white-space:nowrap;text-align:left;border-radius:0 3px 3px 0;">{{ count }}</td>
+        {% else %}
+        {# Zero-value row — full track with the count at the left in muted text. #}
+        <td bgcolor="#dee2e6" width="100%" height="18" style="background-color:#dee2e6;height:18px;line-height:18px;font-size:11px;color:#6c757d;padding-left:6px;white-space:nowrap;text-align:left;border-radius:3px;">{{ count }}</td>
+        {% endif %}
+      </tr>
+    </table>
+  </td>
+</tr>
+{%- endmacro %}
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -62,11 +148,50 @@
             </td>
           </tr>
 
-          <!-- 4-period trend table -->
+          <!-- Multi-period trend -->
           {% if trend %}
           <tr>
             <td style="padding:16px 28px 8px 28px;">
-              <div style="font-size:13px;font-weight:600;color:#212529;margin-bottom:8px;">Last 4 {{ frequency_label }}s — Trend</div>
+              <div style="font-size:13px;font-weight:600;color:#212529;margin-bottom:8px;">Last {{ trend_periods }} {{ frequency_label }}s — Trend</div>
+
+              {% if sections.trend_mode in ('chart','both') %}
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;margin-bottom:8px;border:1px solid #e9ecef;border-radius:6px;padding:8px 0;">
+                <tr>
+                  {% set col_width = (100 / (trend|length))|round(1) %}
+                  {% for row in trend %}
+                  <td align="center" valign="bottom" style="padding:8px 2px;width:{{ col_width }}%;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="border-collapse:collapse;">
+                      <tr valign="bottom">
+                        <td valign="bottom" align="center" style="padding:0 2px;font-size:9px;color:#6c757d;">{{ row.created }}</td>
+                        <td valign="bottom" align="center" style="padding:0 2px;font-size:9px;color:#6c757d;">{{ row.closed }}</td>
+                      </tr>
+                      <tr valign="bottom">
+                        <td valign="bottom" style="padding:0 2px;">
+                          <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+                            <td bgcolor="#0d6efd" width="14" height="{{ row.created_pct|int }}" style="background-color:#0d6efd;font-size:0;line-height:0;height:{{ row.created_pct|int }}px;min-height:1px;">&nbsp;</td>
+                          </tr></table>
+                        </td>
+                        <td valign="bottom" style="padding:0 2px;">
+                          <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+                            <td bgcolor="#198754" width="14" height="{{ row.closed_pct|int }}" style="background-color:#198754;font-size:0;line-height:0;height:{{ row.closed_pct|int }}px;min-height:1px;">&nbsp;</td>
+                          </tr></table>
+                        </td>
+                      </tr>
+                    </table>
+                    <div style="font-size:10px;color:#6c757d;margin-top:6px;">{{ row.label }}</div>
+                  </td>
+                  {% endfor %}
+                </tr>
+                <tr>
+                  <td colspan="{{ trend|length }}" align="center" style="padding:4px 0 0 0;font-size:11px;color:#6c757d;">
+                    <span style="display:inline-block;width:10px;height:10px;background-color:#0d6efd;vertical-align:middle;margin-right:4px;">&nbsp;</span>Created
+                    <span style="display:inline-block;width:10px;height:10px;background-color:#198754;vertical-align:middle;margin:0 4px 0 12px;">&nbsp;</span>Closed
+                  </td>
+                </tr>
+              </table>
+              {% endif %}
+
+              {% if sections.trend_mode in ('data','both') %}
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #e9ecef;border-radius:6px;">
                 <thead>
                   <tr style="background-color:#f8f9fa;">
@@ -85,15 +210,24 @@
                   {% endfor %}
                 </tbody>
               </table>
+              {% endif %}
             </td>
           </tr>
           {% endif %}
 
           <!-- Source breakdown -->
-          {% if sections.source_breakdown and source_breakdown %}
+          {% if sections.source_breakdown != 'off' and source_breakdown %}
           <tr>
             <td style="padding:24px 28px 8px 28px;">
               <div style="font-size:13px;font-weight:600;color:#212529;margin-bottom:8px;">Where Tickets Came From</div>
+              {% if sections.source_breakdown in ('chart','both') %}
+                {% if sections.source_breakdown_chart_type == 'bar' %}
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #e9ecef;border-radius:6px;padding:8px 12px;margin-bottom:8px;">
+                  {% for s in source_breakdown %}{{ h_bar_row(s.label, s.count, s.width_pct, s.color, 100) }}{% endfor %}
+                </table>
+                {% else %}{{ pie_chart(source_breakdown, 'width_pct', 'pie_source_breakdown') }}{% endif %}
+              {% endif %}
+              {% if sections.source_breakdown in ('data','both') %}
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #e9ecef;border-radius:6px;">
                 <thead>
                   <tr style="background-color:#f8f9fa;">
@@ -112,15 +246,24 @@
                   {% endfor %}
                 </tbody>
               </table>
+              {% endif %}
             </td>
           </tr>
           {% endif %}
 
           <!-- User vs Tech split -->
-          {% if sections.user_vs_tech and user_vs_tech %}
+          {% if sections.user_vs_tech != 'off' and user_vs_tech %}
           <tr>
             <td style="padding:24px 28px 8px 28px;">
               <div style="font-size:13px;font-weight:600;color:#212529;margin-bottom:8px;">Who Created the Tickets</div>
+              {% if sections.user_vs_tech in ('chart','both') %}
+                {% if sections.user_vs_tech_chart_type == 'bar' %}
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #e9ecef;border-radius:6px;padding:8px 12px;margin-bottom:8px;">
+                  {% for s in user_vs_tech.segments %}{{ h_bar_row(s.label, s.count, s.width_pct, s.color, 160) }}{% endfor %}
+                </table>
+                {% else %}{{ pie_chart(user_vs_tech.segments, 'width_pct', 'pie_user_vs_tech') }}{% endif %}
+              {% endif %}
+              {% if sections.user_vs_tech in ('data','both') %}
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #e9ecef;border-radius:6px;">
                 <tbody>
                   <tr>
@@ -135,15 +278,24 @@
                   </tr>
                 </tbody>
               </table>
+              {% endif %}
             </td>
           </tr>
           {% endif %}
 
           <!-- Inventory snapshot -->
-          {% if sections.inventory_status and inventory %}
+          {% if sections.inventory_status != 'off' and inventory %}
           <tr>
             <td style="padding:24px 28px 8px 28px;">
               <div style="font-size:13px;font-weight:600;color:#212529;margin-bottom:8px;">Inventory Status — Current Snapshot</div>
+              {% if sections.inventory_status in ('chart','both') %}
+                {% if sections.inventory_status_chart_type == 'bar' %}
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #e9ecef;border-radius:6px;padding:8px 12px;margin-bottom:8px;">
+                  {% for s in inventory.statuses %}{{ h_bar_row(s.label, s.count, s.width_pct, s.color, 120) }}{% endfor %}
+                </table>
+                {% else %}{{ pie_chart(inventory.statuses, 'width_pct', 'pie_inventory_status') }}{% endif %}
+              {% endif %}
+              {% if sections.inventory_status in ('data','both') %}
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #e9ecef;border-radius:6px;">
                 <thead>
                   <tr style="background-color:#f8f9fa;">
@@ -167,6 +319,7 @@
                   </tr>
                 </tbody>
               </table>
+              {% endif %}
 
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:separate;border-spacing:12px 0;margin-top:12px;">
                 <tr>
@@ -180,6 +333,278 @@
                   </td>
                 </tr>
               </table>
+            </td>
+          </tr>
+          {% endif %}
+
+          <!-- Backlog aging + priority distribution -->
+          {% if sections.backlog_aging != 'off' and backlog %}
+          <tr>
+            <td style="padding:24px 28px 8px 28px;">
+              <div style="font-size:13px;font-weight:600;color:#212529;margin-bottom:8px;">Open Ticket Backlog</div>
+              <div style="font-size:11px;color:#6c757d;margin-bottom:8px;">Currently open · excludes snoozed and project tickets · {{ backlog.total_open }} total</div>
+
+              <div style="font-size:12px;font-weight:600;color:#6c757d;margin:8px 0 4px 0;">Aging</div>
+              {% if sections.backlog_aging in ('chart','both') %}
+                {% if sections.backlog_aging_chart_type == 'pie' %}
+                {{ pie_chart(backlog.buckets, 'percent', 'pie_backlog_buckets') }}
+                {% else %}
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #e9ecef;border-radius:6px;padding:8px 12px;margin-bottom:6px;">
+                  {% for b in backlog.buckets %}
+                  {{ h_bar_row(b.label, b.count, b.width_pct, b.color, 100) }}
+                  {% endfor %}
+                </table>
+                {% endif %}
+              {% endif %}
+              {% if sections.backlog_aging in ('data','both') %}
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #e9ecef;border-radius:6px;">
+                <tbody>
+                {% for b in backlog.buckets %}
+                <tr>
+                  <td style="padding:8px 12px;font-size:13px;color:#212529;border-bottom:1px solid #f1f3f5;">{{ b.label }}</td>
+                  <td align="right" style="padding:8px 12px;font-size:13px;color:#212529;border-bottom:1px solid #f1f3f5;">{{ b.count }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+              </table>
+              {% endif %}
+
+              <div style="font-size:12px;font-weight:600;color:#6c757d;margin:16px 0 4px 0;">Priority distribution (open)</div>
+              {% if sections.backlog_aging in ('chart','both') %}
+                {% if sections.backlog_aging_chart_type == 'pie' %}
+                {{ pie_chart(backlog.priorities, 'percent', 'pie_backlog_priorities') }}
+                {% else %}
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #e9ecef;border-radius:6px;padding:8px 12px;margin-bottom:6px;">
+                  {% for p in backlog.priorities %}
+                  {{ h_bar_row(p.label, p.count, p.width_pct, p.color, 100) }}
+                  {% endfor %}
+                </table>
+                {% endif %}
+              {% endif %}
+              {% if sections.backlog_aging in ('data','both') %}
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #e9ecef;border-radius:6px;">
+                <tbody>
+                {% for p in backlog.priorities %}
+                <tr>
+                  <td style="padding:8px 12px;font-size:13px;color:#212529;border-bottom:1px solid #f1f3f5;">{{ p.label }}</td>
+                  <td align="right" style="padding:8px 12px;font-size:13px;color:#212529;border-bottom:1px solid #f1f3f5;">{{ p.count }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+              </table>
+              {% endif %}
+
+              {% if backlog.oldest %}
+              <div style="margin-top:12px;padding:10px 12px;background-color:#fdecea;border:1px solid #f5c2c0;border-radius:6px;">
+                <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#8b1a1a;font-weight:600;">Oldest open ticket</div>
+                <div style="font-size:13px;color:#212529;margin-top:4px;">#{{ backlog.oldest.id }} — {{ backlog.oldest.subject }}</div>
+                <div style="font-size:12px;color:#6c757d;margin-top:2px;">{{ backlog.oldest.age_days }} days old (created {{ backlog.oldest.created_at.strftime('%b %d, %Y') }})</div>
+              </div>
+              {% endif %}
+            </td>
+          </tr>
+          {% endif %}
+
+          <!-- SLA / Avg resolution time by priority -->
+          {% if sections.sla_resolution != 'off' and sla_resolution %}
+          <tr>
+            <td style="padding:24px 28px 8px 28px;">
+              <div style="font-size:13px;font-weight:600;color:#212529;margin-bottom:8px;">Avg. Resolution Time by Priority</div>
+              <div style="font-size:11px;color:#6c757d;margin-bottom:8px;">Closed in this {{ frequency_label|lower }}</div>
+              {% if sections.sla_resolution in ('chart','both') %}
+                {% if sections.sla_resolution_chart_type == 'pie' %}
+                {{ pie_chart(sla_resolution, 'percent', 'pie_sla_resolution') }}
+                {% else %}
+                {% set sla_max = (sla_resolution|map(attribute='avg_seconds')|max) or 1 %}
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #e9ecef;border-radius:6px;padding:8px 12px;margin-bottom:6px;">
+                  {% for r in sla_resolution %}
+                  {% set width_pct = (100.0 * r.avg_seconds / sla_max)|round(1) if r.avg_seconds and sla_max else 0 %}
+                  {{ h_bar_row(r.label ~ ' (' ~ r.avg_display ~ ')', r.count, width_pct, r.color, 160) }}
+                  {% endfor %}
+                </table>
+                {% endif %}
+              {% endif %}
+              {% if sections.sla_resolution in ('data','both') %}
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #e9ecef;border-radius:6px;">
+                <thead>
+                  <tr style="background-color:#f8f9fa;">
+                    <th align="left"  style="padding:8px 12px;font-size:12px;color:#6c757d;font-weight:600;border-bottom:1px solid #e9ecef;">Priority</th>
+                    <th align="right" style="padding:8px 12px;font-size:12px;color:#6c757d;font-weight:600;border-bottom:1px solid #e9ecef;">Tickets closed</th>
+                    <th align="right" style="padding:8px 12px;font-size:12px;color:#6c757d;font-weight:600;border-bottom:1px solid #e9ecef;">Avg time-to-close</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for r in sla_resolution %}
+                  <tr>
+                    <td style="padding:8px 12px;font-size:13px;border-bottom:1px solid #f1f3f5;">
+                      <span style="display:inline-block;width:10px;height:10px;background-color:{{ r.color }};vertical-align:middle;margin-right:6px;">&nbsp;</span>
+                      <span style="color:#212529;vertical-align:middle;">{{ r.label }}</span>
+                    </td>
+                    <td align="right" style="padding:8px 12px;font-size:13px;color:#212529;border-bottom:1px solid #f1f3f5;">{{ r.count }}</td>
+                    <td align="right" style="padding:8px 12px;font-size:13px;color:#212529;border-bottom:1px solid #f1f3f5;">{{ r.avg_display }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+              {% endif %}
+            </td>
+          </tr>
+          {% endif %}
+
+          <!-- Tech workload -->
+          {% if sections.tech_workload != 'off' and tech_workload %}
+          <tr>
+            <td style="padding:24px 28px 8px 28px;">
+              <div style="font-size:13px;font-weight:600;color:#212529;margin-bottom:8px;">Tech Workload</div>
+              <div style="font-size:11px;color:#6c757d;margin-bottom:8px;">Currently open assignments and tickets closed this {{ frequency_label|lower }}</div>
+
+              {% if sections.tech_workload in ('chart','both') %}
+                {% if sections.tech_workload_chart_type == 'pie' %}
+                {# Pie: share of open tickets across listed techs. #}
+                {% set tw_segs = [] %}
+                {% for t in tech_workload %}{% set _ = tw_segs.append({'label': t.name, 'count': t.open_count, 'percent': t.percent, 'color': t.color}) %}{% endfor %}
+                {{ pie_chart(tw_segs, 'percent', 'pie_tech_workload') }}
+                <div style="font-size:11px;color:#6c757d;margin-bottom:6px;">Share of currently-open tickets across the top {{ tech_workload|length }} tech(s).</div>
+                {% else %}
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #e9ecef;border-radius:6px;padding:8px 12px;margin-bottom:6px;">
+                {% for t in tech_workload %}
+                <tr>
+                  <td style="padding:6px 8px 6px 0;font-size:12px;color:#212529;width:140px;white-space:nowrap;vertical-align:middle;">{{ t.name }}</td>
+                  <td style="padding:6px 0;vertical-align:middle;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" height="10" style="border-collapse:collapse;margin-bottom:3px;height:10px;">
+                      <tr style="height:10px;">
+                        {% if t.open_pct > 0 %}<td bgcolor="#0d6efd" width="{{ t.open_pct }}%" height="10" style="background-color:#0d6efd;height:10px;line-height:10px;font-size:1px;border-radius:2px;">&nbsp;</td>{% endif %}
+                        {% if t.open_pct < 100 %}<td bgcolor="#f1f3f5" width="{{ 100 - t.open_pct }}%" height="10" style="background-color:#f1f3f5;height:10px;line-height:10px;font-size:1px;">&nbsp;</td>{% endif %}
+                      </tr>
+                    </table>
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" height="10" style="border-collapse:collapse;height:10px;">
+                      <tr style="height:10px;">
+                        {% if t.closed_pct > 0 %}<td bgcolor="#198754" width="{{ t.closed_pct }}%" height="10" style="background-color:#198754;height:10px;line-height:10px;font-size:1px;border-radius:2px;">&nbsp;</td>{% endif %}
+                        {% if t.closed_pct < 100 %}<td bgcolor="#f1f3f5" width="{{ 100 - t.closed_pct }}%" height="10" style="background-color:#f1f3f5;height:10px;line-height:10px;font-size:1px;">&nbsp;</td>{% endif %}
+                      </tr>
+                    </table>
+                  </td>
+                  <td style="padding:6px 6px;font-size:11px;color:#212529;text-align:right;white-space:nowrap;vertical-align:middle;">
+                    <span style="color:#0d6efd;font-weight:600;">{{ t.open_count }}</span>
+                    <span style="color:#6c757d;">/</span>
+                    <span style="color:#198754;font-weight:600;">{{ t.closed_count }}</span>
+                  </td>
+                </tr>
+                {% endfor %}
+              </table>
+              <div style="margin-top:2px;margin-bottom:8px;font-size:11px;color:#6c757d;">
+                <span style="display:inline-block;width:10px;height:10px;background-color:#0d6efd;vertical-align:middle;margin-right:4px;">&nbsp;</span>Open
+                <span style="display:inline-block;width:10px;height:10px;background-color:#198754;vertical-align:middle;margin:0 4px 0 12px;">&nbsp;</span>Closed
+              </div>
+                {% endif %}
+              {% endif %}
+
+              {% if sections.tech_workload in ('data','both') %}
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #e9ecef;border-radius:6px;">
+                <thead>
+                  <tr style="background-color:#f8f9fa;">
+                    <th align="left"  style="padding:8px 12px;font-size:12px;color:#6c757d;font-weight:600;border-bottom:1px solid #e9ecef;">Tech</th>
+                    <th align="right" style="padding:8px 12px;font-size:12px;color:#6c757d;font-weight:600;border-bottom:1px solid #e9ecef;">Open</th>
+                    <th align="right" style="padding:8px 12px;font-size:12px;color:#6c757d;font-weight:600;border-bottom:1px solid #e9ecef;">Closed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for t in tech_workload %}
+                  <tr>
+                    <td style="padding:8px 12px;font-size:13px;color:#212529;border-bottom:1px solid #f1f3f5;white-space:nowrap;">{{ t.name }}</td>
+                    <td align="right" style="padding:8px 12px;font-size:13px;color:#212529;border-bottom:1px solid #f1f3f5;">{{ t.open_count }}</td>
+                    <td align="right" style="padding:8px 12px;font-size:13px;color:#212529;border-bottom:1px solid #f1f3f5;">{{ t.closed_count }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+              {% endif %}
+            </td>
+          </tr>
+          {% endif %}
+
+          <!-- Password expirations -->
+          {% if sections.password_expirations != 'off' and password_expirations %}
+          <tr>
+            <td style="padding:24px 28px 8px 28px;">
+              <div style="font-size:13px;font-weight:600;color:#212529;margin-bottom:8px;">AD Password Expirations</div>
+              {% if not password_expirations.configured %}
+              <div style="padding:12px;background-color:#f8f9fa;border:1px solid #e9ecef;border-radius:6px;font-size:12px;color:#6c757d;">
+                AD password check is not enabled, or no users have been checked yet. Configure it under Admin → AD Passwords.
+              </div>
+              {% else %}
+
+              {# Chart variant: KPI tiles + bucket stacked bar #}
+              {% if sections.password_expirations in ('chart','both') %}
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:separate;border-spacing:8px 0;margin-bottom:8px;">
+                <tr>
+                  <td valign="top" style="width:25%;background-color:#fdecea;border:1px solid #f5c2c0;border-radius:6px;padding:10px;">
+                    <div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#8b1a1a;font-weight:600;">Expired</div>
+                    <div style="font-size:22px;font-weight:700;color:#8b1a1a;margin-top:4px;line-height:1;">{{ password_expirations.expired }}</div>
+                  </td>
+                  <td valign="top" style="width:25%;background-color:#fff4e6;border:1px solid #ffe1b3;border-radius:6px;padding:10px;">
+                    <div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#7a4d00;font-weight:600;">0–3 days</div>
+                    <div style="font-size:22px;font-weight:700;color:#7a4d00;margin-top:4px;line-height:1;">{{ password_expirations.expiring_0_3 }}</div>
+                  </td>
+                  <td valign="top" style="width:25%;background-color:#fff9db;border:1px solid #ffe69c;border-radius:6px;padding:10px;">
+                    <div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#7a5a00;font-weight:600;">4–14 days</div>
+                    <div style="font-size:22px;font-weight:700;color:#7a5a00;margin-top:4px;line-height:1;">{{ password_expirations.expiring_4_14 }}</div>
+                  </td>
+                  <td valign="top" style="width:25%;background-color:#f8f9fa;border:1px solid #e9ecef;border-radius:6px;padding:10px;">
+                    <div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#6c757d;font-weight:600;">Never expires</div>
+                    <div style="font-size:22px;font-weight:700;color:#6c757d;margin-top:4px;line-height:1;">{{ password_expirations.never_expires }}</div>
+                  </td>
+                </tr>
+              </table>
+              {% if password_expirations.buckets_segments %}
+                {% if sections.password_expirations_chart_type == 'bar' %}
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #e9ecef;border-radius:6px;padding:8px 12px;margin-bottom:8px;">
+                  {% for s in password_expirations.buckets_segments %}{{ h_bar_row(s.label, s.count, s.width_pct, s.color, 120) }}{% endfor %}
+                </table>
+                {% else %}{{ pie_chart(password_expirations.buckets_segments, 'width_pct', 'pie_password_expirations') }}{% endif %}
+              {% endif %}
+              {% endif %}
+
+              {# Data variant: at-risk user list (when sub-option on), else compact inline counts #}
+              {% if sections.password_expirations in ('data','both') %}
+                {% if password_expirations.show_users and password_expirations.at_risk_users %}
+                <div style="font-size:12px;font-weight:600;color:#6c757d;margin:12px 0 4px 0;">At-risk users (top {{ password_expirations.at_risk_users|length }})</div>
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #e9ecef;border-radius:6px;">
+                  <thead>
+                    <tr style="background-color:#f8f9fa;">
+                      <th align="left"  style="padding:8px 12px;font-size:12px;color:#6c757d;font-weight:600;border-bottom:1px solid #e9ecef;">Name</th>
+                      <th align="left"  style="padding:8px 12px;font-size:12px;color:#6c757d;font-weight:600;border-bottom:1px solid #e9ecef;">Email</th>
+                      <th align="right" style="padding:8px 12px;font-size:12px;color:#6c757d;font-weight:600;border-bottom:1px solid #e9ecef;">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for u in password_expirations.at_risk_users %}
+                    <tr>
+                      <td style="padding:8px 12px;font-size:13px;color:#212529;border-bottom:1px solid #f1f3f5;">{{ u.name }}</td>
+                      <td style="padding:8px 12px;font-size:12px;color:#6c757d;border-bottom:1px solid #f1f3f5;">{{ u.email }}</td>
+                      <td align="right" style="padding:8px 12px;font-size:12px;border-bottom:1px solid #f1f3f5;">
+                        <span style="display:inline-block;padding:2px 8px;background-color:{{ u.color }};color:#ffffff;border-radius:10px;font-weight:600;">{{ u.badge }}</span>
+                      </td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+                {% else %}
+                {# Sub-option off: inline counts line #}
+                <div style="padding:10px 12px;background-color:#f8f9fa;border:1px solid #e9ecef;border-radius:6px;font-size:12px;color:#212529;">
+                  Expired: <strong>{{ password_expirations.expired }}</strong> ·
+                  0–3 days: <strong>{{ password_expirations.expiring_0_3 }}</strong> ·
+                  4–14 days: <strong>{{ password_expirations.expiring_4_14 }}</strong> ·
+                  Never: <strong>{{ password_expirations.never_expires }}</strong> ·
+                  Not in AD: <strong>{{ password_expirations.not_in_ad }}</strong>
+                </div>
+                {% endif %}
+              {% endif %}
+
+              <div style="margin-top:8px;font-size:11px;color:#6c757d;">
+                AD check last ran {% if password_expirations.last_checked_at %}{{ password_expirations.last_checked_at.strftime('%b %d, %Y at %H:%M UTC') }}{% else %}never{% endif %}{% if password_expirations.not_in_ad %} · {{ password_expirations.not_in_ad }} contact(s) not found in AD{% endif %}.
+              </div>
+              {% endif %}
             </td>
           </tr>
           {% endif %}

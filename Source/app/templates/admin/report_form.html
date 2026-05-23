@@ -9,14 +9,62 @@
   {% set sel_user_ids = (sel_user_ids_raw|from_json) or [] %}
 {% endif %}
 {% set sections_obj = (sections_raw|from_json) or {} %}
-{% set src_on = (form.get('section_source_breakdown') == 'on') if form else sections_obj.get('source_breakdown', True) %}
-{% set uvt_on = (form.get('section_user_vs_tech') == 'on') if form else sections_obj.get('user_vs_tech', True) %}
-{% set inv_on = (form.get('section_inventory_status') == 'on') if form else sections_obj.get('inventory_status', True) %}
+{# Coerce a section value (form string OR legacy bool from sections_obj) into one of off/data/chart/both. #}
+{% macro mode_of(key, form_field) -%}
+  {%- set valid = ['off', 'data', 'chart', 'both'] -%}
+  {%- if form -%}
+    {%- set v = form.get(form_field) -%}
+    {%- if v in valid -%}{{ v }}{%- else -%}both{%- endif -%}
+  {%- else -%}
+    {%- set raw = sections_obj.get(key, 'both') -%}
+    {%- if raw is sameas true -%}both
+    {%- elif raw is sameas false -%}off
+    {%- elif raw in valid -%}{{ raw }}
+    {%- else -%}both
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro %}
+{% set src_mode = mode_of('source_breakdown',     'section_source_breakdown_mode')|trim %}
+{% set uvt_mode = mode_of('user_vs_tech',         'section_user_vs_tech_mode')|trim %}
+{% set inv_mode = mode_of('inventory_status',     'section_inventory_status_mode')|trim %}
+{% set pwd_mode = mode_of('password_expirations', 'section_password_expirations_mode')|trim %}
+{% set sla_mode = mode_of('sla_resolution',       'section_sla_resolution_mode')|trim %}
+{% set bkl_mode = mode_of('backlog_aging',        'section_backlog_aging_mode')|trim %}
+{% set tw_mode  = mode_of('tech_workload',        'section_tech_workload_mode')|trim %}
+{% set pwd_users_on = (form.get('section_password_expirations_show_users') == 'on') if form else sections_obj.get('password_expirations_show_users', True) %}
+
+{# Per-section chart type (bar/pie). Defaults defined to match the generator. #}
+{% macro chart_type_of(key, form_field, default) -%}
+  {%- set valid = ['bar', 'pie'] -%}
+  {%- if form -%}
+    {%- set v = form.get(form_field) -%}
+    {%- if v in valid -%}{{ v }}{%- else -%}{{ default }}{%- endif -%}
+  {%- else -%}
+    {%- set raw = sections_obj.get(key + '_chart_type', default) -%}
+    {%- if raw in valid -%}{{ raw }}{%- else -%}{{ default }}{%- endif -%}
+  {%- endif -%}
+{%- endmacro %}
+{% set src_chart_type = chart_type_of('source_breakdown',     'section_source_breakdown_chart_type', 'pie')|trim %}
+{% set uvt_chart_type = chart_type_of('user_vs_tech',         'section_user_vs_tech_chart_type', 'pie')|trim %}
+{% set inv_chart_type = chart_type_of('inventory_status',     'section_inventory_status_chart_type', 'pie')|trim %}
+{% set pwd_chart_type = chart_type_of('password_expirations', 'section_password_expirations_chart_type', 'pie')|trim %}
+{% set sla_chart_type = chart_type_of('sla_resolution',       'section_sla_resolution_chart_type', 'bar')|trim %}
+{% set bkl_chart_type = chart_type_of('backlog_aging',        'section_backlog_aging_chart_type', 'bar')|trim %}
+{% set tw_chart_type  = chart_type_of('tech_workload',        'section_tech_workload_chart_type', 'bar')|trim %}
+
+{# Trend (always-on core block) — mode is Data/Chart/Both (no Off). Periods selectable from a fixed set. #}
+{% set trend_mode_raw = (form.get('trend_mode') if form else sections_obj.get('trend_mode', 'both')) %}
+{% set trend_mode = trend_mode_raw if trend_mode_raw in ['data','chart','both'] else 'both' %}
+{% set trend_periods_raw = (form.get('trend_periods') if form else sections_obj.get('trend_periods', 4)) %}
+{% set trend_periods = trend_periods_raw|int if trend_periods_raw else 4 %}
+{% if trend_periods not in [4, 8, 13, 26, 52] %}{% set trend_periods = 4 %}{% endif %}
 {% set is_active_on = (form.get('is_active') == 'on') if form else (True if report is none else report.is_active) %}
 {% set cur_freq = form.get('schedule_frequency') if form else (report.schedule_frequency if report else 'weekly') %}
 {% set cur_time = form.get('schedule_time') if form else (report.schedule_time if report else '07:00') %}
-{% set cur_dow = form.get('schedule_day_of_week') if form else (report.schedule_day_of_week if report else 0) %}
-{% set cur_dom = form.get('schedule_day_of_month') if form else (report.schedule_day_of_month if report else 1) %}
+{% set cur_dow = (form.get('schedule_day_of_week') if form else (report.schedule_day_of_week if report else 0)) %}
+{% if cur_dow is none or cur_dow == '' %}{% set cur_dow = 0 %}{% endif %}
+{% set cur_dom = (form.get('schedule_day_of_month') if form else (report.schedule_day_of_month if report else 1)) %}
+{% if cur_dom is none or cur_dom == '' %}{% set cur_dom = 1 %}{% endif %}
 {% set cur_type = form.get('report_type') if form else (report.report_type if report else 'executive') %}
 <div class="row justify-content-center">
   <div class="col-lg-9 col-xl-8">
@@ -31,7 +79,20 @@
         </div>
         <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('admin.reports') }}"><i class="bi bi-arrow-left"></i></a>
       </div>
+      {% if request.args.get('saved') %}
+      <div class="alert alert-success border-0 rounded-0 mb-0 d-flex align-items-center" role="alert" id="report_saved_banner">
+        <i class="bi bi-check-circle-fill me-2"></i>
+        <div>
+          <strong>Saved.</strong>
+          {% if report and report.updated_at %}Last updated {{ report.updated_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}.{% endif %}
+          The form below reflects the values now in the database.
+        </div>
+      </div>
+      {% endif %}
       <div class="card-body">
+        {% if report and report.updated_at and not request.args.get('saved') %}
+        <div class="text-muted small mb-3"><i class="bi bi-clock-history me-1"></i>Last saved {{ report.updated_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}</div>
+        {% endif %}
         <form method="post" class="row g-4">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
@@ -56,7 +117,7 @@
               <div class="col-12">
                 <label class="form-label small fw-semibold">Description <span class="text-muted">(optional)</span></label>
                 <textarea class="form-control" name="description" rows="2"
-                          placeholder="What this report covers and who it's for">{{ form.get('description') if form else (report.description if report else '') }}</textarea>
+                          placeholder="What this report covers and who it's for">{{ (form.get('description') if form else (report.description if report else '')) or '' }}</textarea>
               </div>
               <div class="col-12">
                 <div class="form-check form-switch">
@@ -118,45 +179,116 @@
               <div class="col-md-6">
                 <label class="form-label small fw-semibold">External emails</label>
                 <textarea class="form-control" name="recipient_emails" rows="6"
-                          placeholder="cfo@example.com, cio@example.com">{{ form.get('recipient_emails') if form else (report.recipient_emails if report else '') }}</textarea>
+                          placeholder="cfo@example.com, cio@example.com">{{ (form.get('recipient_emails') if form else (report.recipient_emails if report else '')) or '' }}</textarea>
                 <div class="form-text">Comma- or newline-separated. For CFO/CIO recipients without an internal account.</div>
               </div>
             </div>
           </div>
 
           {# ── Sections (executive only for now) ────────────────────── #}
+          {# Bootstrap btn-check pattern + explicit `active` class on the
+             checked label. We rely on .btn.active styling rather than the
+             sibling-selector (.btn-check:checked + .btn) alone, so the
+             highlight survives any CSS quirk or theme override. #}
+          {% macro mode_btn(name, idprefix, current, options=[('off','Off'),('data','Data'),('chart','Chart'),('both','Both')]) -%}
+            {% set valid = options|map(attribute=0)|list %}
+            {% set cur = current if current in valid else 'both' %}
+            <div class="btn-group btn-group-sm report-mode-group" role="group" aria-label="Mode">
+              {% for value, label in options %}
+              <input type="radio" class="btn-check" name="{{ name }}" id="{{ idprefix }}_{{ value }}" value="{{ value }}" {% if cur == value %}checked{% endif %} autocomplete="off">
+              <label class="btn btn-outline-primary{% if cur == value %} active{% endif %}" for="{{ idprefix }}_{{ value }}">{{ label }}</label>
+              {% endfor %}
+            </div>
+          {%- endmacro %}
+
+          {# ── Trend (always-on core block) ──────────────────────────── #}
+          <div class="col-12">
+            <h2 class="h6 text-uppercase text-muted small fw-semibold mb-2">Trend chart</h2>
+            <div class="row g-3 align-items-end">
+              <div class="col-md-6">
+                <div class="form-text mb-1">How the multi-period trend is displayed in the email.</div>
+                {{ mode_btn('trend_mode', 'trend', trend_mode, [('data','Data'),('chart','Chart'),('both','Both')]) }}
+              </div>
+              <div class="col-md-6">
+                <label class="form-label small fw-semibold">Periods to show</label>
+                <select class="form-select form-select-sm" name="trend_periods">
+                  {% for n in [4, 8, 13, 26, 52] %}
+                  <option value="{{ n }}" {% if trend_periods == n %}selected{% endif %}>Last {{ n }} {{ {'daily':'days','weekly':'weeks','monthly':'months'}.get(cur_freq, 'periods') }}</option>
+                  {% endfor %}
+                </select>
+                <div class="form-text">Each bucket matches the report frequency (daily/weekly/monthly).</div>
+              </div>
+            </div>
+          </div>
+
           <div class="col-12" id="executive_sections">
             <h2 class="h6 text-uppercase text-muted small fw-semibold mb-2">Include in Report</h2>
             <div class="alert alert-light border small mb-3">
               <i class="bi bi-info-circle me-1"></i>
-              <strong>Ticket volume + week-over-week change</strong> and the <strong>4-period trend</strong> are always included — they're the core of the executive view. The blocks below are optional.
+              <strong>Ticket volume + week-over-week change</strong> and the <strong>4-period trend</strong> are always included — they're the core of the executive view. For each block below, pick <em>Off</em> (hide), <em>Data</em> (table only), <em>Chart</em> (visual only), or <em>Both</em>.
             </div>
-            <div class="row g-2">
-              <div class="col-md-4">
-                <div class="form-check">
-                  <input class="form-check-input" type="checkbox" name="section_source_breakdown" id="section_source_breakdown" {% if src_on %}checked{% endif %}>
-                  <label class="form-check-label" for="section_source_breakdown">
-                    Source breakdown
-                    <div class="form-text">Email / Phone / Zoom / Walk-in</div>
-                  </label>
+
+            <div class="row g-3">
+              {% macro chart_type_btn(name, idprefix, current) -%}
+                <div class="mt-2 chart-type-wrap" data-mode-name="{{ name|replace('_chart_type','_mode') }}">
+                  <div class="form-text mb-1">Chart type:</div>
+                  {{ mode_btn(name, idprefix, current, [('bar','Bar'),('pie','Pie')]) }}
                 </div>
+              {%- endmacro %}
+
+              <div class="col-md-6">
+                <div class="fw-semibold small">Source breakdown</div>
+                <div class="form-text mb-2">Email / Phone / Zoom / Walk-in</div>
+                {{ mode_btn('section_source_breakdown_mode', 'src', src_mode) }}
+                {{ chart_type_btn('section_source_breakdown_chart_type', 'ct_src', src_chart_type) }}
               </div>
-              <div class="col-md-4">
-                <div class="form-check">
-                  <input class="form-check-input" type="checkbox" name="section_user_vs_tech" id="section_user_vs_tech" {% if uvt_on %}checked{% endif %}>
-                  <label class="form-check-label" for="section_user_vs_tech">
-                    User vs. tech-created
-                    <div class="form-text">Who opened the tickets</div>
-                  </label>
-                </div>
+              <div class="col-md-6">
+                <div class="fw-semibold small">User vs. tech-created</div>
+                <div class="form-text mb-2">Who opened the tickets</div>
+                {{ mode_btn('section_user_vs_tech_mode', 'uvt', uvt_mode) }}
+                {{ chart_type_btn('section_user_vs_tech_chart_type', 'ct_uvt', uvt_chart_type) }}
               </div>
-              <div class="col-md-4">
-                <div class="form-check">
-                  <input class="form-check-input" type="checkbox" name="section_inventory_status" id="section_inventory_status" {% if inv_on %}checked{% endif %}>
-                  <label class="form-check-label" for="section_inventory_status">
-                    Inventory status
-                    <div class="form-text">Asset counts + warranty/EOL alerts</div>
-                  </label>
+
+              <div class="col-md-6">
+                <div class="fw-semibold small">Backlog + priority</div>
+                <div class="form-text mb-2">Open tickets aged + open by priority + oldest open</div>
+                {{ mode_btn('section_backlog_aging_mode', 'bkl', bkl_mode) }}
+                {{ chart_type_btn('section_backlog_aging_chart_type', 'ct_bkl', bkl_chart_type) }}
+              </div>
+              <div class="col-md-6">
+                <div class="fw-semibold small">Tech workload</div>
+                <div class="form-text mb-2">Per-tech open + closed this period</div>
+                {{ mode_btn('section_tech_workload_mode', 'tw', tw_mode) }}
+                {{ chart_type_btn('section_tech_workload_chart_type', 'ct_tw', tw_chart_type) }}
+              </div>
+
+              <div class="col-md-6">
+                <div class="fw-semibold small">SLA / resolution time</div>
+                <div class="form-text mb-2">Avg time-to-close by priority</div>
+                {{ mode_btn('section_sla_resolution_mode', 'sla', sla_mode) }}
+                {{ chart_type_btn('section_sla_resolution_chart_type', 'ct_sla', sla_chart_type) }}
+              </div>
+              <div class="col-md-6">
+                <div class="fw-semibold small">Inventory status</div>
+                <div class="form-text mb-2">Asset counts + warranty/EOL alerts</div>
+                {{ mode_btn('section_inventory_status_mode', 'inv', inv_mode) }}
+                {{ chart_type_btn('section_inventory_status_chart_type', 'ct_inv', inv_chart_type) }}
+              </div>
+
+              <div class="col-12">
+                <div class="fw-semibold small">AD password expirations</div>
+                <div class="form-text mb-2"><em>Chart</em> = KPI tiles + bucket bar/pie. <em>Data</em> = at-risk list (or compact counts when sub-option off). <em>Both</em> shows everything. The "AD check last ran" footer is always shown.</div>
+                {{ mode_btn('section_password_expirations_mode', 'pwd', pwd_mode) }}
+                {{ chart_type_btn('section_password_expirations_chart_type', 'ct_pwd', pwd_chart_type) }}
+
+                <div class="ms-4 mt-3" id="pwd_users_wrap">
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="section_password_expirations_show_users" id="section_password_expirations_show_users" {% if pwd_users_on %}checked{% endif %}>
+                    <label class="form-check-label" for="section_password_expirations_show_users">
+                      Include at-risk user list (names + days)
+                      <div class="form-text">Off = compact counts line only. On = list up to 15 users whose passwords expire within 14 days or are already expired. Applies when the section's Data variant is rendered.</div>
+                    </label>
+                  </div>
                 </div>
               </div>
             </div>
@@ -176,6 +308,49 @@
 </div>
 
 <script>
+(function() {
+  // Keep the `active` class on the checked label in each mode button group,
+  // so the highlight survives any CSS issue with Bootstrap's sibling selector.
+  document.querySelectorAll('.report-mode-group input.btn-check').forEach(function(r) {
+    r.addEventListener('change', function() {
+      const group = document.querySelectorAll('input[name="' + r.name + '"]');
+      group.forEach(function(other) {
+        const lbl = document.querySelector('label[for="' + other.id + '"]');
+        if (!lbl) return;
+        if (other.checked) lbl.classList.add('active');
+        else lbl.classList.remove('active');
+      });
+    });
+  });
+
+  // Show the password-user-list sub-option only when the password section
+  // is set to a mode that renders the Data variant (data or both).
+  const radios = document.querySelectorAll('input[name="section_password_expirations_mode"]');
+  const pwdWrap = document.getElementById('pwd_users_wrap');
+  function syncPwd() {
+    if (!radios.length || !pwdWrap) return;
+    let mode = 'both';
+    radios.forEach(function(r) { if (r.checked) mode = r.value; });
+    pwdWrap.style.display = (mode === 'data' || mode === 'both') ? '' : 'none';
+  }
+  radios.forEach(function(r) { r.addEventListener('change', syncPwd); });
+  syncPwd();
+
+  // Show the chart-type (Bar/Pie) selector only when the section's mode
+  // includes a chart (chart or both).
+  document.querySelectorAll('.chart-type-wrap').forEach(function(wrap) {
+    const modeName = wrap.dataset.modeName;
+    if (!modeName) return;
+    const modeRadios = document.querySelectorAll('input[name="' + modeName + '"]');
+    function syncCT() {
+      let m = 'both';
+      modeRadios.forEach(function(r) { if (r.checked) m = r.value; });
+      wrap.style.display = (m === 'chart' || m === 'both') ? '' : 'none';
+    }
+    modeRadios.forEach(function(r) { r.addEventListener('change', syncCT); });
+    syncCT();
+  });
+})();
 (function() {
   const freq = document.getElementById('schedule_frequency');
   const dowWrap = document.getElementById('dow_wrap');

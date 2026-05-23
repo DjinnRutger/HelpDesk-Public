@@ -103,7 +103,9 @@ def send_mail(to_address: str, subject: str, html_body: str, to_name: Optional[s
             {"emailAddress": {"address": to_address, "name": to_name or to_address}}
         ],
     }
-    # Attachments: each item should be a dict with keys: name, contentType, contentBytes (base64 string)
+    # Attachments: each item should be a dict with keys: name, contentType,
+    # contentBytes (base64). Optional: contentId + isInline for embedded
+    # images referenced via <img src="cid:..."> in the HTML body.
     if attachments:
         atts = []
         for a in attachments:
@@ -114,12 +116,17 @@ def send_mail(to_address: str, subject: str, html_body: str, to_name: Optional[s
             content_b64 = a.get("contentBytes")
             if not name or not content_b64:
                 continue
-            atts.append({
+            att = {
                 "@odata.type": "#microsoft.graph.fileAttachment",
                 "name": name,
                 "contentType": ctype,
                 "contentBytes": content_b64,
-            })
+            }
+            if a.get("contentId"):
+                att["contentId"] = a["contentId"]
+            if a.get("isInline"):
+                att["isInline"] = True
+            atts.append(att)
         if atts:
             message["attachments"] = atts
     payload = {"message": message, "saveToSentItems": save_to_sent}

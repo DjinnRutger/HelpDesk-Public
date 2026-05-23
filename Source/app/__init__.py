@@ -731,6 +731,14 @@ def create_app():
             return None
     app.add_template_filter(from_json, name='from_json')
 
+    # Inline-SVG pie chart generator, used by the executive-report email
+    # template. Kept as a Jinja global so the template can call it directly.
+    try:
+        from .services.report_generator import svg_pie as _svg_pie
+        app.jinja_env.globals['svg_pie'] = _svg_pie
+    except Exception:
+        pass
+
     # Scheduler runs in a dedicated process (helpfuldjinn-scheduler.service).
     # Web workers set HELPFULDJINN_ROLE=web and skip the entire block to avoid
     # firing every job N times (one per gunicorn worker). DISABLE_SCHEDULER=1
