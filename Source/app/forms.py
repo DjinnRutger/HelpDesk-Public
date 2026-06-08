@@ -16,6 +16,30 @@ class MSGraphForm(FlaskForm):
     poll_interval = IntegerField('Poll Interval (seconds)', validators=[DataRequired(), NumberRange(min=10, max=86400)])
     submit = SubmitField('Save Settings')
 
+class ClientApiForm(FlaskForm):
+    enabled = BooleanField('Enable client intake')
+    auth_scheme = SelectField('Auth scheme', choices=[
+        ('Bearer', 'Bearer token (recommended)'),
+        ('ApiKeyHeader', 'API key header'),
+        ('None', 'None (lab/testing only)'),
+    ], validators=[DataRequired()])
+    header_name = StringField('Header name', validators=[Optional(), Length(max=100)])
+    max_upload_mb = IntegerField('Max upload (MB)', validators=[DataRequired(), NumberRange(min=1, max=100)])
+    require_https = BooleanField('Require HTTPS')
+    default_priority = SelectField('Default priority', choices=[
+        ('low', 'Low'), ('medium', 'Medium'), ('high', 'High'),
+    ], default='medium')
+    default_assignee_id = SelectField('Default assignee', coerce=int, validators=[Optional()])
+    base_url = StringField('API base URL override', validators=[Optional(), Length(max=500)])
+    submit = SubmitField('Save Settings')
+
+    def __init__(self, *args, **kwargs):
+        super(ClientApiForm, self).__init__(*args, **kwargs)
+        from .models import User
+        techs = User.query.filter_by(is_active=True).order_by(User.name.asc()).all()
+        self.default_assignee_id.choices = [(0, '— Unassigned —')] + [(u.id, u.name) for u in techs]
+
+
 class TechForm(FlaskForm):
     name = StringField('Name', validators=[DataRequired(), Length(max=120)])
     email = StringField('Email', validators=[DataRequired(), Email(), Length(max=255)])

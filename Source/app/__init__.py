@@ -464,7 +464,7 @@ def create_app():
     TicketProcessItem, AllowedDomain, TicketAttachment, Contact, DenyFilter,
     TicketTask, OrderItem, PurchaseOrder, Vendor, Company, ShippingLocation,
     DocumentCategory, Document, DocumentFavorite, Asset, AssetCategory, AssetManufacturer, AssetCondition, AssetLocation,
-    EmailCheck, EmailCheckEntry, ApprovalRequest, Tag, ticket_tags, asset_tags
+    EmailCheck, EmailCheckEntry, ApprovalRequest, Tag, ticket_tags, asset_tags, ApiToken
     )
 
     with app.app_context():
@@ -490,6 +490,7 @@ def create_app():
                 ensure_approval_request_table,
                 ensure_email_templates_tables,
                 ensure_report_tables,
+                ensure_api_token_table,
             )
             ensure_ticket_columns(db.engine)
             ensure_user_columns(db.engine)
@@ -509,6 +510,7 @@ def create_app():
             ensure_approval_request_table(db.engine)
             ensure_email_templates_tables(db.engine)
             ensure_report_tables(db.engine)
+            ensure_api_token_table(db.engine)
             # Ensure AssetAudit table (runtime lightweight migration with pre-backup for SQLite)
             from sqlalchemy import inspect
             insp = inspect(db.engine)
@@ -613,6 +615,7 @@ def create_app():
     from .blueprints.orders import orders_bp
     from .blueprints.documents import documents_bp
     from .blueprints.assets import assets_bp
+    from .blueprints.client_api import client_api_bp
 
     app.register_blueprint(setup_bp)
     app.register_blueprint(auth_bp)
@@ -624,6 +627,7 @@ def create_app():
     app.register_blueprint(orders_bp)
     app.register_blueprint(documents_bp)
     app.register_blueprint(assets_bp)
+    app.register_blueprint(client_api_bp)
 
     # Middleware to redirect to setup if no users exist
     @app.before_request
@@ -631,8 +635,9 @@ def create_app():
         from flask import request as req, redirect, url_for
         from .blueprints.setup import needs_setup
         
-        # Skip setup check for setup routes, static files, and images
-        if req.endpoint and (req.endpoint.startswith('setup.') or req.endpoint.startswith('static') or req.endpoint == 'serve_image'):
+        # Skip setup check for setup routes, static files, images, and the
+        # machine-client intake API (clients treat a 302 as failure).
+        if req.endpoint and (req.endpoint.startswith('setup.') or req.endpoint.startswith('static') or req.endpoint.startswith('client_api.') or req.endpoint == 'serve_image'):
             return None
         
         # Redirect to setup if needed

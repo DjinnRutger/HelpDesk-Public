@@ -21,6 +21,7 @@ def ensure_ticket_columns(engine):
     'asset_id': "INTEGER",
     'snoozed_until': "DATETIME",
     'created_by_user_id': "INTEGER",
+    'system_info_json': "TEXT",
     }
 
     with engine.connect() as conn:
@@ -45,6 +46,26 @@ def ensure_user_columns(engine):
         for col, coltype in required.items():
             if col not in existing:
                 conn.execute(text(f"ALTER TABLE user ADD COLUMN {col} {coltype}"))
+        conn.commit()
+
+
+def ensure_api_token_table(engine):
+    with engine.connect() as conn:
+        rows = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='api_token'"))
+        exists = rows.fetchone() is not None
+        if not exists:
+            conn.execute(text(
+                """
+                CREATE TABLE api_token (
+                    id INTEGER PRIMARY KEY,
+                    label TEXT,
+                    token_hash TEXT NOT NULL UNIQUE,
+                    created_at DATETIME,
+                    last_used_at DATETIME,
+                    revoked BOOLEAN DEFAULT 0 NOT NULL
+                )
+                """
+            ))
         conn.commit()
 
 
@@ -526,6 +547,10 @@ def ensure_contact_columns(engine):
         'password_notification_sent_at': 'DATETIME',
         'last_notification_days_before': 'INTEGER',
         'ad_disabled': 'BOOLEAN',
+        'last_checkin_at': 'DATETIME',
+        'last_checkin_computer': 'TEXT',
+        'last_checkin_ip': 'TEXT',
+        'last_checkin_client_version': 'TEXT',
     }
     with engine.connect() as conn:
         rows = conn.execute(text("PRAGMA table_info('contact')")).fetchall()

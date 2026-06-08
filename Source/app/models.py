@@ -1,3 +1,5 @@
+import hashlib
+import secrets
 from datetime import datetime
 from flask_login import UserMixin
 from . import db, login_manager
@@ -66,6 +68,42 @@ class User(UserMixin, db.Model):
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
+
+
+class ApiToken(db.Model):
+    """Opaque bearer/API-key tokens for machine clients (e.g. the DjinnWish desktop client).
+
+    Only a SHA-256 hash of the token is stored. The token is high-entropy
+    (>=32 random bytes) so a plain hash is not brute-forceable; the plaintext is
+    shown once at generation and never persisted.
+    """
+    __tablename__ = 'api_token'
+    id = db.Column(db.Integer, primary_key=True)
+    label = db.Column(db.String(200), nullable=True)
+    token_hash = db.Column(db.String(128), nullable=False, unique=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_used_at = db.Column(db.DateTime, nullable=True)
+    revoked = db.Column(db.Boolean, default=False, nullable=False)
+
+    @staticmethod
+    def _hash(plaintext: str) -> str:
+        return hashlib.sha256((plaintext or '').encode('utf-8')).hexdigest()
+
+    @classmethod
+    def generate(cls, label: str = None):
+        """Create a new token. Returns (ApiToken, plaintext). Show plaintext ONCE."""
+        plaintext = secrets.token_urlsafe(32)
+        tok = cls(label=label, token_hash=cls._hash(plaintext))
+        db.session.add(tok)
+        db.session.commit()
+        return tok, plaintext
+
+    @classmethod
+    def verify(cls, plaintext: str):
+        """Return the matching active token row, or None. Updates nothing."""
+        if not plaintext:
+            return None
+        return cls.query.filter_by(token_hash=cls._hash(plaintext), revoked=False).first()
 
 
 # --- Tag System ---
@@ -156,6 +194,8 @@ class Ticket(db.Model):
     snoozed_until = db.Column(db.DateTime, nullable=True)
     # Creator (tech) when manually added via UI; null for email-imported tickets
     created_by_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    # Raw systemInfo JSON archived from machine-client (DjinnWish) submissions; null otherwise
+    system_info_json = db.Column(db.Text, nullable=True)
 
     @property
     def age_hours(self) -> float:
@@ -380,6 +420,11 @@ class Contact(db.Model):
     password_notification_sent_at = db.Column(db.DateTime, nullable=True)  # Last time a password expiry notification was sent
     last_notification_days_before = db.Column(db.Integer, nullable=True)  # The days_before tier of the last notification sent
     ad_disabled = db.Column(db.Boolean, nullable=True)  # True if AD account is disabled, None if not checked
+    # Desktop-client check-in tracking (HelpfulDjinn Client posts a status on an interval)
+    last_checkin_at = db.Column(db.DateTime, nullable=True)  # UTC of the most recent check-in
+    last_checkin_computer = db.Column(db.String(255), nullable=True)  # reported computer name
+    last_checkin_ip = db.Column(db.String(255), nullable=True)  # reported IP address(es)
+    last_checkin_client_version = db.Column(db.String(50), nullable=True)  # reported client version
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

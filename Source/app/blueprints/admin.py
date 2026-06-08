@@ -1,7 +1,7 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request, send_file, current_app, jsonify, make_response
+from flask import Blueprint, render_template, redirect, url_for, flash, request, send_file, current_app, jsonify, make_response, session
 from flask_login import login_required, current_user
-from ..forms import MSGraphForm, TechForm, ProcessTemplateForm, ProcessTemplateItemForm, AllowedDomainForm, DenyFilterForm
-from ..models import Setting, User, ProcessTemplate, ProcessTemplateItem, AllowedDomain, DenyFilter, Vendor, PurchaseOrder, Company, ShippingLocation, DocumentCategory, AssetAudit, Asset, AssetCategory, AssetManufacturer, AssetCondition, AssetLocation, ScheduledTicket, Ticket, TicketTask, TicketStatus, Tag, Report, ReportRun
+from ..forms import MSGraphForm, TechForm, ProcessTemplateForm, ProcessTemplateItemForm, AllowedDomainForm, DenyFilterForm, ClientApiForm
+from ..models import Setting, User, ProcessTemplate, ProcessTemplateItem, AllowedDomain, DenyFilter, Vendor, PurchaseOrder, Company, ShippingLocation, DocumentCategory, AssetAudit, Asset, AssetCategory, AssetManufacturer, AssetCondition, AssetLocation, ScheduledTicket, Ticket, TicketTask, TicketStatus, Tag, Report, ReportRun, ApiToken
 from .. import db
 from ..utils.security import hash_password
 from ..services.email_poll import poll_ms_graph
@@ -1482,6 +1482,79 @@ def msgraph():
             flash('Connection test failed: could not acquire token.', 'danger')
         return redirect(url_for('admin.msgraph'))
     return render_template('admin/msgraph.html', form=form)
+
+
+def _client_api_base_url():
+    """Resolve the base URL shown to IT for the client config (override or detected)."""
+    override = (Setting.get('CLIENTAPI_BASE_URL', '') or '').strip()
+    return override or request.url_root.rstrip('/')
+
+
+@admin_bp.route('/client_api', methods=['GET', 'POST'])
+@login_required
+def client_api():
+    form = ClientApiForm()
+    if request.method == 'GET':
+        form.enabled.data = (Setting.get('CLIENTAPI_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes')
+        form.auth_scheme.data = Setting.get('CLIENTAPI_AUTH_SCHEME', 'Bearer') or 'Bearer'
+        form.header_name.data = Setting.get('CLIENTAPI_HEADER_NAME', 'X-Api-Key') or 'X-Api-Key'
+        try:
+            form.max_upload_mb.data = int(Setting.get('CLIENTAPI_MAX_UPLOAD_MB', '25') or '25')
+        except Exception:
+            form.max_upload_mb.data = 25
+        form.require_https.data = (Setting.get('CLIENTAPI_REQUIRE_HTTPS', '0') or '0') in ('1', 'true', 'on', 'yes')
+        form.default_priority.data = Setting.get('CLIENTAPI_DEFAULT_PRIORITY', 'medium') or 'medium'
+        try:
+            form.default_assignee_id.data = int(Setting.get('CLIENTAPI_DEFAULT_ASSIGNEE_ID', '0') or '0')
+        except Exception:
+            form.default_assignee_id.data = 0
+        form.base_url.data = Setting.get('CLIENTAPI_BASE_URL', '') or ''
+
+    if form.validate_on_submit() and 'submit' in request.form:
+        Setting.set('CLIENTAPI_ENABLED', '1' if form.enabled.data else '0')
+        Setting.set('CLIENTAPI_AUTH_SCHEME', form.auth_scheme.data)
+        Setting.set('CLIENTAPI_HEADER_NAME', (form.header_name.data or 'X-Api-Key').strip())
+        Setting.set('CLIENTAPI_MAX_UPLOAD_MB', str(form.max_upload_mb.data))
+        Setting.set('CLIENTAPI_REQUIRE_HTTPS', '1' if form.require_https.data else '0')
+        Setting.set('CLIENTAPI_DEFAULT_PRIORITY', form.default_priority.data)
+        Setting.set('CLIENTAPI_DEFAULT_ASSIGNEE_ID', str(form.default_assignee_id.data or 0))
+        Setting.set('CLIENTAPI_BASE_URL', (form.base_url.data or '').strip())
+        flash('Saved Client API settings', 'success')
+        return redirect(url_for('admin.client_api'))
+
+    tokens = ApiToken.query.order_by(ApiToken.created_at.desc()).all()
+    endpoint_url = _client_api_base_url() + '/api/tickets'
+    # Plaintext token shown once immediately after generation.
+    new_token = session.pop('new_api_token', None)
+    return render_template(
+        'admin/client_api.html',
+        form=form,
+        tokens=tokens,
+        endpoint_url=endpoint_url,
+        base_url=_client_api_base_url(),
+        new_token=new_token,
+    )
+
+
+@admin_bp.route('/client_api/tokens/generate', methods=['POST'])
+@login_required
+def client_api_token_generate():
+    label = (request.form.get('label') or '').strip() or None
+    _, plaintext = ApiToken.generate(label=label)
+    # Stash for one-time display on the next page render.
+    session['new_api_token'] = plaintext
+    flash('Token generated. Copy it now — it will not be shown again.', 'success')
+    return redirect(url_for('admin.client_api'))
+
+
+@admin_bp.route('/client_api/tokens/<int:token_id>/revoke', methods=['POST'])
+@login_required
+def client_api_token_revoke(token_id):
+    tok = ApiToken.query.get_or_404(token_id)
+    tok.revoked = True
+    db.session.commit()
+    flash('Token revoked.', 'success')
+    return redirect(url_for('admin.client_api'))
 
 
 @admin_bp.route('/ftp_settings', methods=['POST'])

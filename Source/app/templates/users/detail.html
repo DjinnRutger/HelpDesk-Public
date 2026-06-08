@@ -420,6 +420,45 @@
       </div>
     </div>
 
+    <!-- Computer Check-in Card -->
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-body-tertiary">
+        <h6 class="mb-0"><i class="bi bi-pc-display me-1"></i>Computer Check-in</h6>
+      </div>
+      <div class="card-body">
+        {% if contact.last_checkin_at %}
+          {% set checkin_age_min = ((now - contact.last_checkin_at).total_seconds() / 60) | int %}
+          <div class="d-flex align-items-center mb-2">
+            {% if checkin_age_min <= 15 %}
+              <span class="badge bg-success me-2"><i class="bi bi-broadcast me-1"></i>Online</span>
+            {% else %}
+              <span class="badge bg-secondary me-2"><i class="bi bi-dash-circle me-1"></i>Offline</span>
+            {% endif %}
+            <span class="small text-muted">{{ contact.last_checkin_at|cst_datetime }}</span>
+          </div>
+          <dl class="row small mb-0">
+            {% if contact.last_checkin_computer %}
+              <dt class="col-5 text-muted fw-normal">Computer</dt>
+              <dd class="col-7 mb-1">{{ contact.last_checkin_computer }}</dd>
+            {% endif %}
+            {% if contact.last_checkin_ip %}
+              <dt class="col-5 text-muted fw-normal">IP</dt>
+              <dd class="col-7 mb-1">{{ contact.last_checkin_ip }}</dd>
+            {% endif %}
+            {% if contact.last_checkin_client_version %}
+              <dt class="col-5 text-muted fw-normal">Client</dt>
+              <dd class="col-7 mb-0">v{{ contact.last_checkin_client_version }}</dd>
+            {% endif %}
+          </dl>
+        {% else %}
+          <div class="text-muted small text-center py-3">
+            <i class="bi bi-pc-display-horizontal d-block display-6 mb-1 opacity-50"></i>
+            No check-in recorded yet
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
     <!-- Assets Card -->
     <div class="card shadow-sm" id="assets-card">
       <div class="card-header bg-body-tertiary">
