@@ -5,6 +5,7 @@ from .. import db
 from ..forms import TicketForm, NoteForm, TicketUpdateForm, ProcessAssignForm, TaskAssignForm
 from ..models import User, Contact, TicketNote
 from ..permissions import CREATE, EDIT, DELETE, require_permission, protect_blueprint
+from ..utils.html_sanitize import sanitize_rich_text, sanitize_ticket_body
 from ..models import Asset
 from flask_login import current_user
 from datetime import datetime, timedelta
@@ -298,7 +299,7 @@ def notify_ticket_watchers(ticket, changed_by_user_id, changes):
             continue
         
         try:
-            from ..services.ms_graph import send_mail
+            from ..services.mailer import enqueue_mail
             subject = f"Ticket #{ticket.id} Updated: {ticket.subject}"
             link = url_for('tickets.show_ticket', ticket_id=ticket.id, _external=True)
             html = f"""
@@ -309,7 +310,7 @@ def notify_ticket_watchers(ticket, changed_by_user_id, changes):
                 {changes_html}
                 <p><a href="{link}">View ticket</a></p>
             """
-            send_mail(user.email, subject, html, to_name=user.name, category='ticket_watch', ticket_id=ticket.id)
+            enqueue_mail(user.email, subject, html, to_name=user.name, category='ticket_watch', ticket_id=ticket.id)
         except Exception:
             pass
 
@@ -379,7 +380,7 @@ def new_ticket():
             requester=form.requester.data,
             requester_email=form.requester.data,
             requester_name=(c.name if c and c.name else None),
-            body=form.body.data,
+            body=sanitize_ticket_body(form.body.data),
             status='new',
             priority=form.priority.data or 'medium',
             source=form.source.data or 'manual',
@@ -401,7 +402,7 @@ def new_ticket():
         # Email the assignee if they are someone other than the person creating the ticket
         if assignee_id and assignee_id != getattr(current_user, 'id', None):
             try:
-                from ..services.ms_graph import send_mail
+                from ..services.mailer import enqueue_mail
                 new_assignee = User.query.get(assignee_id)
                 if new_assignee and new_assignee.email:
                     link = url_for('tickets.show_ticket', ticket_id=t.id, _external=True)
@@ -413,13 +414,13 @@ def new_ticket():
                         <p><strong>From:</strong> {requester}</p>
                         <p><a href="{link}">View ticket</a></p>
                     """
-                    send_mail(new_assignee.email, f"New Ticket Assigned: #{t.id}", html, to_name=new_assignee.name, category='ticket_assigned', ticket_id=t.id)
+                    enqueue_mail(new_assignee.email, f"New Ticket Assigned: #{t.id}", html, to_name=new_assignee.name, category='ticket_assigned', ticket_id=t.id)
             except Exception:
                 pass
         # Email the co-tech if set and not the creator
         if co_assignee_id and co_assignee_id != getattr(current_user, 'id', None):
             try:
-                from ..services.ms_graph import send_mail
+                from ..services.mailer import enqueue_mail
                 new_co = User.query.get(co_assignee_id)
                 if new_co and new_co.email:
                     link = url_for('tickets.show_ticket', ticket_id=t.id, _external=True)
@@ -431,7 +432,7 @@ def new_ticket():
                         <p><strong>From:</strong> {requester}</p>
                         <p><a href="{link}">View ticket</a></p>
                     """
-                    send_mail(new_co.email, f"New Ticket Co-Assigned: #{t.id}", html, to_name=new_co.name, category='ticket_assigned', ticket_id=t.id)
+                    enqueue_mail(new_co.email, f"New Ticket Co-Assigned: #{t.id}", html, to_name=new_co.name, category='ticket_assigned', ticket_id=t.id)
             except Exception:
                 pass
         flash('Ticket created', 'success')
@@ -596,7 +597,7 @@ def show_ticket(ticket_id):
             if t.assignee_id and t.assignee_id != prev_assignee_id and (not current_user or t.assignee_id != getattr(current_user, 'id', None)):
                 new_assignee = User.query.get(t.assignee_id)
                 if new_assignee and new_assignee.email:
-                    from ..services.ms_graph import send_mail
+                    from ..services.mailer import enqueue_mail
                     subject = f"New Ticket Assigned: #{t.id}"
                     link = url_for('tickets.show_ticket', ticket_id=t.id, _external=True)
                     requester = t.requester_name or t.requester_email or t.requester or 'Unknown'
@@ -607,7 +608,7 @@ def show_ticket(ticket_id):
                         <p><strong>From:</strong> {requester}</p>
                         <p><a href="{link}">View ticket</a></p>
                     """
-                    send_mail(new_assignee.email, subject, html, to_name=new_assignee.name, category='ticket_assigned', ticket_id=t.id)
+                    enqueue_mail(new_assignee.email, subject, html, to_name=new_assignee.name, category='ticket_assigned', ticket_id=t.id)
         except Exception:
             pass
         # Notify new co-tech if changed and not the actor
@@ -615,7 +616,7 @@ def show_ticket(ticket_id):
             if t.co_assignee_id and t.co_assignee_id != prev_co_assignee_id and t.co_assignee_id != getattr(current_user, 'id', None):
                 new_co = User.query.get(t.co_assignee_id)
                 if new_co and new_co.email:
-                    from ..services.ms_graph import send_mail
+                    from ..services.mailer import enqueue_mail
                     subject = f"New Ticket Co-Assigned: #{t.id}"
                     link = url_for('tickets.show_ticket', ticket_id=t.id, _external=True)
                     requester = t.requester_name or t.requester_email or t.requester or 'Unknown'
@@ -626,7 +627,7 @@ def show_ticket(ticket_id):
                         <p><strong>From:</strong> {requester}</p>
                         <p><a href="{link}">View ticket</a></p>
                     """
-                    send_mail(new_co.email, subject, html, to_name=new_co.name, category='ticket_assigned', ticket_id=t.id)
+                    enqueue_mail(new_co.email, subject, html, to_name=new_co.name, category='ticket_assigned', ticket_id=t.id)
         except Exception:
             pass
         flash('Ticket updated', 'success')
@@ -642,33 +643,7 @@ def show_ticket(ticket_id):
             is_private_flag = True
         # Sanitize note content to allow safe rich text
         raw_content = note_form.content.data or ''
-        allowed_tags = [
-            'p', 'br', 'div', 'span', 'b', 'strong', 'i', 'em', 'u', 'ul', 'ol', 'li',
-            'h3', 'h4', 'h5', 'h6', 'a', 'table', 'thead', 'tbody', 'tr', 'th', 'td'
-        ]
-        allowed_attrs = {
-            'a': ['href', 'title', 'target', 'rel'],
-            'td': ['colspan', 'rowspan'],
-            'th': ['colspan', 'rowspan']
-        }
-        sanitized_html = bleach.clean(
-            raw_content,
-            tags=allowed_tags,
-            attributes=allowed_attrs,
-            protocols=['http', 'https', 'mailto'],
-            strip=True
-        )
-        # Ensure links open in a new tab with rel safety
-        def _set_target_rel(attrs, new=False):
-            href = attrs.get('href')
-            if href:
-                attrs['target'] = '_blank'
-                rel = attrs.get('rel', '') or ''
-                rel_vals = set(rel.split()) if rel else set()
-                rel_vals.update(['noopener', 'noreferrer'])
-                attrs['rel'] = ' '.join(sorted(rel_vals))
-            return attrs
-        sanitized_html = bleach.linkify(sanitized_html, callbacks=[_set_target_rel])
+        sanitized_html = sanitize_rich_text(raw_content)
 
         note = TicketNote(
             ticket_id=t.id,
@@ -689,7 +664,7 @@ def show_ticket(ticket_id):
             try:
                 to_email = (t.requester_email or t.requester)
                 if to_email:
-                    from ..services.ms_graph import send_mail
+                    from ..services.mailer import enqueue_mail
                     subject = f"Ticket#{t.id} - {t.subject}"
                     body_html = note.content or ''
                     # Append tech's signature to public note emails
@@ -697,7 +672,7 @@ def show_ticket(ticket_id):
                         sig = current_user.effective_signature
                         if sig:
                             body_html = f"{body_html}<br><br>{sig}"
-                    send_mail(to_email, subject, body_html, category='ticket_note', ticket_id=t.id)
+                    enqueue_mail(to_email, subject, body_html, category='ticket_note', ticket_id=t.id)
             except Exception:
                 pass
         # Close ticket if requested (and allowed)
@@ -1015,35 +990,10 @@ def forward_note(ticket_id):
     if invalid:
         flash(f"Skipped invalid address(es): {', '.join(invalid)}", 'warning')
     # Sanitize the provided HTML similar to notes
-    allowed_tags = [
-        'p', 'br', 'div', 'span', 'b', 'strong', 'i', 'em', 'u', 'ul', 'ol', 'li',
-        'h3', 'h4', 'h5', 'h6', 'a', 'table', 'thead', 'tbody', 'tr', 'th', 'td'
-    ]
-    allowed_attrs = {
-        'a': ['href', 'title', 'target', 'rel'],
-        'td': ['colspan', 'rowspan'],
-        'th': ['colspan', 'rowspan']
-    }
-    sanitized = bleach.clean(
-        body_html,
-        tags=allowed_tags,
-        attributes=allowed_attrs,
-        protocols=['http', 'https', 'mailto'],
-        strip=True
-    )
-    def _set_target_rel(attrs, new=False):
-        href = attrs.get('href')
-        if href:
-            attrs['target'] = '_blank'
-            rel = attrs.get('rel', '') or ''
-            rel_vals = set(rel.split()) if rel else set()
-            rel_vals.update(['noopener', 'noreferrer'])
-            attrs['rel'] = ' '.join(sorted(rel_vals))
-        return attrs
-    sanitized = bleach.linkify(sanitized, callbacks=[_set_target_rel])
+    sanitized = sanitize_rich_text(body_html)
     # Compose email
     try:
-        from ..services.ms_graph import send_mail
+        from ..services.mailer import enqueue_mail
         requester = t.requester_name or t.requester_email or t.requester or 'Unknown'
         header = f"""
             <div>
@@ -1054,21 +1004,14 @@ def forward_note(ticket_id):
         """
         # Sanitize ticket description body and include after the note
         raw_desc = t.body or ''
-        desc_clean = bleach.clean(
-            raw_desc,
-            tags=allowed_tags,
-            attributes=allowed_attrs,
-            protocols=['http', 'https', 'mailto'],
-            strip=True
-        )
-        desc_clean = bleach.linkify(desc_clean, callbacks=[_set_target_rel])
+        desc_clean = sanitize_rich_text(raw_desc)
         if not desc_clean:
             desc_section = '<div class="text-muted">(no description)</div>'
         else:
             desc_section = f'<div><div><strong>Description</strong></div><div>{desc_clean}</div></div>'
         html = header + (sanitized or '<p>(no note body)</p>') + '<hr>' + desc_section
         subject = f"FW: Ticket #{t.id} - {t.subject or ''}"
-        send_mail(to_emails, subject, html, category='ticket_forward', ticket_id=t.id)
+        enqueue_mail(to_emails, subject, html, category='ticket_forward', ticket_id=t.id)
         # Save forwarded note to history with recipient log (always public)
         try:
             recipients_display = ', '.join(to_emails)
@@ -1104,32 +1047,7 @@ def edit_note(ticket_id, note_id):
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id, _anchor='notes'))
     # Sanitize incoming HTML similar to add note
     raw_content = (request.form.get('content') or '').strip()
-    allowed_tags = [
-        'p', 'br', 'div', 'span', 'b', 'strong', 'i', 'em', 'u', 'ul', 'ol', 'li',
-        'h3', 'h4', 'h5', 'h6', 'a', 'table', 'thead', 'tbody', 'tr', 'th', 'td'
-    ]
-    allowed_attrs = {
-        'a': ['href', 'title', 'target', 'rel'],
-        'td': ['colspan', 'rowspan'],
-        'th': ['colspan', 'rowspan']
-    }
-    sanitized_html = bleach.clean(
-        raw_content,
-        tags=allowed_tags,
-        attributes=allowed_attrs,
-        protocols=['http', 'https', 'mailto'],
-        strip=True
-    )
-    def _set_target_rel(attrs, new=False):
-        href = attrs.get('href')
-        if href:
-            attrs['target'] = '_blank'
-            rel = attrs.get('rel', '') or ''
-            rel_vals = set(rel.split()) if rel else set()
-            rel_vals.update(['noopener', 'noreferrer'])
-            attrs['rel'] = ' '.join(sorted(rel_vals))
-        return attrs
-    sanitized_html = bleach.linkify(sanitized_html, callbacks=[_set_target_rel])
+    sanitized_html = sanitize_rich_text(raw_content)
     is_private_flag = True
     try:
         is_private_flag = bool(request.form.get('private'))
@@ -1422,7 +1340,7 @@ def assign_asset(ticket_id):
 @require_permission('tickets', EDIT)
 def request_approval(ticket_id):
     """Send an approval request to the requester's manager for order items."""
-    from ..services.ms_graph import send_mail
+    from ..services.mailer import enqueue_mail
     
     t = Ticket.query.get_or_404(ticket_id)
     
@@ -1522,19 +1440,19 @@ def request_approval(ticket_id):
     <p>Thank you,<br>Help Desk</p>
     """
     
-    # Send the email
+    # Persist the approval request, then queue the email for background delivery
     try:
-        success = send_mail(manager.email, subject, email_body, to_name=manager.name, category='approval_request', ticket_id=t.id)
-        if success:
-            db.session.commit()
-            flash(f'Approval request sent to {manager.name or manager.email}.', 'success')
-        else:
-            db.session.rollback()
-            flash('Failed to send approval request email.', 'danger')
+        db.session.commit()
     except Exception as e:
         db.session.rollback()
-        flash(f'Error sending approval request: {str(e)}', 'danger')
-    
+        flash(f'Error saving approval request: {str(e)}', 'danger')
+        return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
+    try:
+        enqueue_mail(manager.email, subject, email_body, to_name=manager.name, category='approval_request', ticket_id=t.id)
+        flash(f'Approval request queued for {manager.name or manager.email}.', 'success')
+    except Exception as e:
+        flash(f'Approval request saved, but the email could not be queued: {str(e)}', 'warning')
+
     return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
 
 
@@ -1543,7 +1461,7 @@ def request_approval(ticket_id):
 @require_permission('tickets', EDIT)
 def resend_approval(ticket_id, approval_id):
     """Resend an existing approval request email to the manager."""
-    from ..services.ms_graph import send_mail
+    from ..services.mailer import enqueue_mail
     
     t = Ticket.query.get_or_404(ticket_id)
     approval = ApprovalRequest.query.get_or_404(approval_id)
@@ -1618,15 +1536,12 @@ def resend_approval(ticket_id, approval_id):
     <p>Thank you,<br>Help Desk</p>
     """
     
-    # Send the email
+    # Queue the reminder email for background delivery
     try:
-        success = send_mail(manager.email, subject, email_body, to_name=manager.name, category='approval_request', ticket_id=t.id)
-        if success:
-            flash(f'Approval reminder sent to {manager.name or manager.email}.', 'success')
-        else:
-            flash('Failed to resend approval request email.', 'danger')
+        enqueue_mail(manager.email, subject, email_body, to_name=manager.name, category='approval_request', ticket_id=t.id)
+        flash(f'Approval reminder queued for {manager.name or manager.email}.', 'success')
     except Exception as e:
-        flash(f'Error resending approval request: {str(e)}', 'danger')
+        flash(f'Error queuing approval reminder: {str(e)}', 'danger')
 
     return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
 

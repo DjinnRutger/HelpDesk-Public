@@ -256,7 +256,24 @@ def run_auto_backup(app: Flask) -> None:
                 except Exception:
                     pass
                 raise ValueError("Backup file is empty")
-            
+
+            # Keep the encryption key alongside the DB backups: encrypted
+            # settings in the .db files are unreadable without it. Retention
+            # never touches it (only prunes *autobackup*.db files).
+            try:
+                key_src = os.path.join(app.instance_path, 'secret_key')
+                if os.path.exists(key_src):
+                    key_dst = os.path.join(backup_dir, 'secret_key')
+                    needs_copy = True
+                    if os.path.exists(key_dst):
+                        with open(key_src, 'r', encoding='utf-8') as f1, open(key_dst, 'r', encoding='utf-8') as f2:
+                            needs_copy = f1.read().strip() != f2.read().strip()
+                    if needs_copy:
+                        import shutil as _sh
+                        _sh.copyfile(key_src, key_dst)
+            except Exception as e:
+                error_details.append(f"Failed to copy secret_key to backup dir: {type(e).__name__}: {e}")
+
             # Enforce retention
             try:
                 keep = int(_Setting.get('AUTO_BACKUP_RETENTION', '7') or '7')
@@ -397,7 +414,11 @@ def create_app():
     else:
         app = Flask(__name__, static_folder=static_folder, template_folder=template_folder)
 
-    app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY", "dev")
+    # Never fall back to a constant key: env var wins, else a per-install key
+    # generated once and persisted in the instance folder (shared with the
+    # scheduler process). See utils/security.load_or_create_secret_key.
+    from .utils.security import load_or_create_secret_key
+    app.config["SECRET_KEY"] = load_or_create_secret_key(app.instance_path)
 
     if exe_dir:
         # Ensure persistent subfolders exist
@@ -464,7 +485,8 @@ def create_app():
     TicketProcessItem, AllowedDomain, TicketAttachment, Contact, DenyFilter,
     TicketTask, OrderItem, PurchaseOrder, Vendor, Company, ShippingLocation,
     DocumentCategory, Document, DocumentFavorite, Asset, AssetCategory, AssetManufacturer, AssetCondition, AssetLocation,
-    EmailCheck, EmailCheckEntry, ApprovalRequest, Tag, ticket_tags, asset_tags, ApiToken
+    EmailCheck, EmailCheckEntry, ApprovalRequest, Tag, ticket_tags, asset_tags, ApiToken,
+    EmailOutbox
     )
 
     with app.app_context():
@@ -492,6 +514,7 @@ def create_app():
                 ensure_report_tables,
                 ensure_api_token_table,
                 ensure_role_tables,
+                ensure_email_outbox_table,
             )
             ensure_ticket_columns(db.engine)
             ensure_user_columns(db.engine)
@@ -513,6 +536,7 @@ def create_app():
             ensure_report_tables(db.engine)
             ensure_api_token_table(db.engine)
             ensure_role_tables(db.engine)
+            ensure_email_outbox_table(db.engine)
             # Ensure AssetAudit table (runtime lightweight migration with pre-backup for SQLite)
             from sqlalchemy import inspect
             insp = inspect(db.engine)
@@ -580,6 +604,41 @@ def create_app():
             seed_builtin_roles(db)
         except Exception as e:
             app.logger.warning(f'Failed to seed built-in roles: {e}')
+
+        # One-time sweep: sanitize pre-existing Document/Ticket HTML bodies
+        try:
+            from .utils.db_migrate import sweep_sanitize_html_v1
+            swept = sweep_sanitize_html_v1(db)
+            if swept:
+                app.logger.info(f'HTML sanitize sweep cleaned {swept} record(s)')
+        except Exception as e:
+            app.logger.warning(f'HTML sanitize sweep failed: {e}')
+
+        # Re-encrypt sensitive settings still encrypted under the legacy 'dev'
+        # SECRET_KEY fallback (pre secret-key-file installs). Without this,
+        # rotating the key would silently blank MS Graph / AD credentials.
+        try:
+            from .utils.security import SENSITIVE_SETTING_KEYS, is_encrypted, encrypt_value, decrypt_value
+            current_key = app.config['SECRET_KEY']
+            rotated = 0
+            if current_key != 'dev':
+                for key in SENSITIVE_SETTING_KEYS:
+                    raw_val = Setting.get_raw(key)
+                    if not (raw_val and is_encrypted(raw_val)):
+                        continue
+                    if decrypt_value(raw_val, current_key):
+                        continue  # already readable with the current key
+                    legacy_plain = decrypt_value(raw_val, 'dev')
+                    if legacy_plain:
+                        s = Setting.query.filter_by(key=key).first()
+                        if s:
+                            s.value = encrypt_value(legacy_plain, current_key)
+                            rotated += 1
+            if rotated:
+                db.session.commit()
+                app.logger.info(f'Re-encrypted {rotated} sensitive setting(s) under the new SECRET_KEY')
+        except Exception as e:
+            app.logger.warning(f'Failed to re-encrypt legacy sensitive settings: {e}')
 
         # Migrate unencrypted sensitive settings to encrypted format
         try:
@@ -864,6 +923,13 @@ def create_app():
             scheduler.add_job(func=lambda: process_wakeups(app), trigger="interval", minutes=1, id="snooze_wakeup", replace_existing=True)
         except Exception:
             pass
+
+        # Drain the outbound email queue (see services/mailer.py)
+        try:
+            from .services.mailer import drain_outbox
+            scheduler.add_job(func=lambda: drain_outbox(app), trigger="interval", seconds=20, id="email_outbox", replace_existing=True)
+        except Exception as e:
+            app.logger.error(f'Failed to register email_outbox job: {e}')
 
         # Apply settings-driven jobs, then watch SCHEDULE_VERSION for live updates
         try:

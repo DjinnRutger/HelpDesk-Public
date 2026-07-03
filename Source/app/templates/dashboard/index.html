@@ -251,58 +251,70 @@
           <span class="display-4 fw-bold" style="color: {{ stats.health_color }};">{{ stats.health }}</span>
           <span class="text-muted">/ 100</span>
         </div>
+        <p class="text-muted small text-center mb-3">
+          Health is the <strong>average freshness of open tickets</strong>. Each ticket starts at 100 and only
+          loses points while it sits untouched &mdash; notes, replies, and updates reset its clock, so an old
+          ticket that is actively being worked stays healthy. Snoozed tickets are excluded.
+        </p>
         <table class="table table-sm mb-0">
           <thead class="table-light">
             <tr>
               <th>Factor</th>
-              <th class="text-center">Count</th>
-              <th class="text-end">Impact</th>
+              <th class="text-center">Tickets</th>
+              <th class="text-end">Per Ticket</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td colspan="3" class="text-muted small fw-semibold pt-3">Starting Score</td>
+              <td colspan="3" class="text-muted small fw-semibold pt-3">Open Tickets ({{ stats.health_breakdown.open_count }})</td>
             </tr>
             <tr>
-              <td>Base Score</td>
-              <td class="text-center">—</td>
-              <td class="text-end text-success fw-semibold">100</td>
+              <td><i class="bi bi-clock text-info me-1"></i>Untouched 3&ndash;7 days</td>
+              <td class="text-center">{{ stats.health_breakdown.stale_3_7 }}</td>
+              <td class="text-end text-danger fw-semibold">&minus;25</td>
             </tr>
             <tr>
-              <td colspan="3" class="text-muted small fw-semibold pt-3">Penalties</td>
+              <td><i class="bi bi-clock-history text-warning me-1"></i>Untouched 7&ndash;14 days</td>
+              <td class="text-center">{{ stats.health_breakdown.stale_7_14 }}</td>
+              <td class="text-end text-danger fw-semibold">&minus;50</td>
             </tr>
             <tr>
-              <td><i class="bi bi-exclamation-triangle text-danger me-1"></i>Overdue High-Priority <span class="text-muted small">(×10)</span></td>
-              <td class="text-center">{{ stats.health_breakdown.overdue_count }}</td>
-              <td class="text-end text-danger fw-semibold">{% if stats.health_breakdown.overdue_penalty %}&minus;{{ stats.health_breakdown.overdue_penalty }}{% else %}0{% endif %}</td>
+              <td><i class="bi bi-hourglass-bottom text-danger me-1"></i>Untouched &gt; 14 days</td>
+              <td class="text-center">{{ stats.health_breakdown.stale_14 }}</td>
+              <td class="text-end text-danger fw-semibold">&minus;75</td>
             </tr>
             <tr>
-              <td><i class="bi bi-person-x text-warning me-1"></i>Unassigned &gt; 24h <span class="text-muted small">(×5)</span></td>
+              <td><i class="bi bi-person-x text-warning me-1"></i>Unassigned &gt; 24h</td>
               <td class="text-center">{{ stats.health_breakdown.unassigned_24h }}</td>
-              <td class="text-end text-danger fw-semibold">{% if stats.health_breakdown.unassigned_penalty %}&minus;{{ stats.health_breakdown.unassigned_penalty }}{% else %}0{% endif %}</td>
+              <td class="text-end text-danger fw-semibold">&minus;25</td>
             </tr>
             <tr>
-              <td><i class="bi bi-clock text-info me-1"></i>Open &gt; 7 days <span class="text-muted small">(×2)</span></td>
-              <td class="text-center">{{ stats.health_breakdown.open_7days }}</td>
-              <td class="text-end text-danger fw-semibold">{% if stats.health_breakdown.open_7days_penalty %}&minus;{{ stats.health_breakdown.open_7days_penalty }}{% else %}0{% endif %}</td>
+              <td><i class="bi bi-exclamation-triangle text-danger me-1"></i>High priority untouched &gt; 24h</td>
+              <td class="text-center">{{ stats.health_breakdown.high_stale }}</td>
+              <td class="text-end text-danger fw-semibold">&minus;25</td>
             </tr>
             <tr>
-              <td><i class="bi bi-clock-history text-danger me-1"></i>Open &gt; 14 days <span class="text-muted small">(×4)</span></td>
-              <td class="text-center">{{ stats.health_breakdown.open_14days }}</td>
-              <td class="text-end text-danger fw-semibold">{% if stats.health_breakdown.open_14days_penalty %}&minus;{{ stats.health_breakdown.open_14days_penalty }}{% else %}0{% endif %}</td>
+              <td><i class="bi bi-calendar-x text-secondary me-1"></i>Open &gt; 30 days <span class="text-muted small">(even if active)</span></td>
+              <td class="text-center">{{ stats.health_breakdown.aging_active }}</td>
+              <td class="text-end text-danger fw-semibold">&minus;10</td>
+            </tr>
+            <tr class="table-light">
+              <td class="fw-semibold">Average Ticket Freshness</td>
+              <td></td>
+              <td class="text-end fw-semibold">{{ stats.health_breakdown.freshness }}</td>
             </tr>
             <tr>
               <td colspan="3" class="text-muted small fw-semibold pt-3">Bonuses</td>
             </tr>
             <tr>
-              <td><i class="bi bi-check-circle text-success me-1"></i>Closed Today <span class="text-muted small">(×3)</span></td>
+              <td><i class="bi bi-check-circle text-success me-1"></i>Closed Today <span class="text-muted small">(+2 each, max +10)</span></td>
               <td class="text-center">{{ stats.health_breakdown.closed_today }}</td>
-              <td class="text-end text-success fw-semibold">{% if stats.health_breakdown.closed_today_bonus %}+{{ stats.health_breakdown.closed_today_bonus }}{% else %}0{% endif %}</td>
+              <td class="text-end text-success fw-semibold">+{{ stats.health_breakdown.closed_today_bonus }}</td>
             </tr>
           </tbody>
           <tfoot class="table-light">
             <tr class="fw-bold">
-              <td>Final Score <span class="text-muted small fw-normal">(clamped 0–100)</span></td>
+              <td>Final Score <span class="text-muted small fw-normal">(clamped 0&ndash;100)</span></td>
               <td></td>
               <td class="text-end" style="color: {{ stats.health_color }};">{{ stats.health }}</td>
             </tr>

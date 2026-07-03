@@ -9,7 +9,7 @@
 <!-- Tabs for Incoming vs Outgoing -->
 <ul class="nav nav-tabs mb-3" role="tablist">
   <li class="nav-item" role="presentation">
-    <button class="nav-link {{ 'active' if direction != 'outgoing' else '' }}" id="incoming-tab" data-bs-toggle="tab" data-bs-target="#incoming" type="button" role="tab">
+    <button class="nav-link {{ 'active' if direction not in ('outgoing', 'queue') else '' }}" id="incoming-tab" data-bs-toggle="tab" data-bs-target="#incoming" type="button" role="tab">
       <i class="bi bi-inbox me-1"></i>Incoming
       {% if incoming_count %}<span class="badge text-bg-secondary ms-1">{{ incoming_count }}</span>{% endif %}
     </button>
@@ -20,11 +20,17 @@
       {% if outgoing_count %}<span class="badge text-bg-secondary ms-1">{{ outgoing_count }}</span>{% endif %}
     </button>
   </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if direction == 'queue' else '' }}" id="queue-tab" data-bs-toggle="tab" data-bs-target="#queue" type="button" role="tab">
+      <i class="bi bi-hourglass-split me-1"></i>Queue
+      {% if queue_count %}<span class="badge text-bg-secondary ms-1">{{ queue_count }}</span>{% endif %}
+    </button>
+  </li>
 </ul>
 
 <div class="tab-content">
   <!-- Incoming Emails Tab -->
-  <div class="tab-pane fade {{ 'show active' if direction != 'outgoing' else '' }}" id="incoming" role="tabpanel">
+  <div class="tab-pane fade {{ 'show active' if direction not in ('outgoing', 'queue') else '' }}" id="incoming" role="tabpanel">
     <form method="get" class="card shadow-sm mb-3">
       <input type="hidden" name="direction" value="incoming">
       <div class="card-body row g-2 align-items-end">
@@ -375,6 +381,76 @@
       </div>
     {% endif %}
   </div>
+
+  <!-- Queued Emails Tab -->
+  <div class="tab-pane fade {{ 'show active' if direction == 'queue' else '' }}" id="queue" role="tabpanel">
+    {% if not queue_entries %}
+      <div class="alert alert-info"><i class="bi bi-info-circle me-2"></i>The outbound email queue is empty. Queued emails are sent by the scheduler within ~20 seconds; sent messages appear in the Outgoing tab.</div>
+    {% else %}
+      <div class="card shadow-sm">
+        <div class="card-header bg-body-tertiary">
+          <span class="small">{{ queue_count }} email(s) awaiting delivery or requiring attention</span>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th style="width: 13%">Queued At (UTC)</th>
+                <th style="width: 22%">Recipient(s)</th>
+                <th>Subject</th>
+                <th style="width: 9%">Status</th>
+                <th style="width: 7%">Attempts</th>
+                <th style="width: 13%">Next Attempt (UTC)</th>
+                <th style="width: 12%" class="text-end">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for e in queue_entries %}
+                <tr class="{{ 'table-danger' if e.status == 'dead' else ('table-warning' if e.status == 'failed' else '') }}">
+                  <td><span class="small text-muted">{{ e.created_at.strftime('%Y-%m-%d %H:%M:%S') if e.created_at else '—' }}</span></td>
+                  <td><span class="small">{{ e.recipients|join(', ') }}</span></td>
+                  <td>
+                    <span class="small">{{ e.subject or '(no subject)' }}</span>
+                    {% if e.last_error %}<div class="small text-danger" title="{{ e.last_error }}">{{ e.last_error[:120] }}{% if e.last_error|length > 120 %}…{% endif %}</div>{% endif %}
+                  </td>
+                  <td>
+                    {% if e.status == 'pending' %}
+                      <span class="badge text-bg-secondary"><i class="bi bi-hourglass me-1"></i>Pending</span>
+                    {% elif e.status == 'sending' %}
+                      <span class="badge text-bg-info"><i class="bi bi-arrow-repeat me-1"></i>Sending</span>
+                    {% elif e.status == 'failed' %}
+                      <span class="badge text-bg-warning"><i class="bi bi-exclamation-triangle me-1"></i>Retrying</span>
+                    {% elif e.status == 'dead' %}
+                      <span class="badge text-bg-danger"><i class="bi bi-x-octagon me-1"></i>Dead</span>
+                    {% else %}
+                      <span class="badge text-bg-light text-dark">{{ e.status }}</span>
+                    {% endif %}
+                  </td>
+                  <td><span class="small">{{ e.attempts or 0 }}</span></td>
+                  <td><span class="small text-muted">{{ e.next_attempt_at.strftime('%Y-%m-%d %H:%M:%S') if e.next_attempt_at and e.status in ('pending', 'failed') else '—' }}</span></td>
+                  <td class="text-end">
+                    {% if e.ticket_id %}
+                      <a class="btn btn-sm btn-outline-primary" href="{{ url_for('tickets.show_ticket', ticket_id=e.ticket_id) }}" title="View ticket">
+                        <i class="bi bi-box-arrow-up-right"></i>
+                      </a>
+                    {% endif %}
+                    {% if e.status in ('failed', 'dead') %}
+                      <form method="post" action="{{ url_for('admin.email_outbox_retry', outbox_id=e.id) }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-sm btn-outline-success" title="Retry now">
+                          <i class="bi bi-arrow-clockwise me-1"></i>Retry
+                        </button>
+                      </form>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% endif %}
+  </div>
 </div>
 
 <script>
@@ -382,10 +458,10 @@
 document.addEventListener('DOMContentLoaded', function() {
   const urlParams = new URLSearchParams(window.location.search);
   const direction = urlParams.get('direction');
-  if (direction === 'outgoing') {
-    const outgoingTab = document.getElementById('outgoing-tab');
-    if (outgoingTab) {
-      const tab = new bootstrap.Tab(outgoingTab);
+  if (direction === 'outgoing' || direction === 'queue') {
+    const tabBtn = document.getElementById(direction + '-tab');
+    if (tabBtn) {
+      const tab = new bootstrap.Tab(tabBtn);
       tab.show();
     }
   }

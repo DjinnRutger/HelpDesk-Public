@@ -28,8 +28,9 @@ reportlab==4.2.5
 # Image generation (pie charts in automated reports)
 Pillow>=10.0.0
 
-# HTML sanitization
+# HTML sanitization (tinycss2 enables bleach's CSS sanitizer for inline styles)
 bleach==6.1.0
+tinycss2>=1.2.0
 
 # Encryption for sensitive settings
 cryptography>=42.0.0

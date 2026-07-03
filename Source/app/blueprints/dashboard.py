@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, url_for, request, jsonify
 from flask_login import login_required, current_user
-from ..models import Ticket, Project, User, TicketStatus, Tag, ticket_tags, Contact
+from ..models import Ticket, TicketNote, Project, User, TicketStatus, Tag, ticket_tags, Contact
 from .. import db
 from datetime import datetime, timedelta
 from sqlalchemy import func
@@ -41,39 +41,59 @@ def index():
     ).count()
 
     # ── Health Score ──────────────────────────────────────────────────────────
+    # Average per-ticket "freshness". A ticket only loses points while it sits
+    # untouched (touch = latest of creation, any field/status update, or note —
+    # including email replies), so an old ticket that is actively being worked
+    # barely hurts the score. Scales with backlog size because it averages.
     now = datetime.utcnow()
     today_start = datetime(now.year, now.month, now.day)
 
-    overdue_count = Ticket.query.filter(
+    last_note_sq = (
+        db.session.query(func.max(TicketNote.created_at))
+        .filter(TicketNote.ticket_id == Ticket.id)
+        .correlate(Ticket)
+        .scalar_subquery()
+    )
+    open_rows = db.session.query(
+        Ticket.priority, Ticket.created_at, Ticket.updated_at,
+        Ticket.assignee_id, Ticket.co_assignee_id, last_note_sq,
+    ).filter(
         ~Ticket.status.in_(closed_statuses) &
         (Ticket.project_id.is_(None)) &
-        ((Ticket.snoozed_until.is_(None)) | (Ticket.snoozed_until <= datetime.utcnow())) &
-        (Ticket.priority == 'high') &
-        (Ticket.created_at < now - timedelta(days=1))
-    ).count()
+        ((Ticket.snoozed_until.is_(None)) | (Ticket.snoozed_until <= now))
+    ).all()
 
-    unassigned_24h = Ticket.query.filter(
-        ~Ticket.status.in_(closed_statuses) &
-        (Ticket.project_id.is_(None)) &
-        ((Ticket.snoozed_until.is_(None)) | (Ticket.snoozed_until <= datetime.utcnow())) &
-        (Ticket.assignee_id.is_(None)) &
-        (Ticket.co_assignee_id.is_(None)) &
-        (Ticket.created_at < now - timedelta(hours=24))
-    ).count()
-
-    open_7days = Ticket.query.filter(
-        ~Ticket.status.in_(closed_statuses) &
-        (Ticket.project_id.is_(None)) &
-        ((Ticket.snoozed_until.is_(None)) | (Ticket.snoozed_until <= datetime.utcnow())) &
-        (Ticket.created_at < now - timedelta(days=7))
-    ).count()
-
-    open_14days = Ticket.query.filter(
-        ~Ticket.status.in_(closed_statuses) &
-        (Ticket.project_id.is_(None)) &
-        ((Ticket.snoozed_until.is_(None)) | (Ticket.snoozed_until <= datetime.utcnow())) &
-        (Ticket.created_at < now - timedelta(days=14))
-    ).count()
+    stale_3_7 = stale_7_14 = stale_14 = 0
+    unassigned_24h = 0
+    high_stale = 0
+    aging_active = 0
+    scores = []
+    for priority, created_at, updated_at, assignee_id, co_assignee_id, last_note in open_rows:
+        touches = [d for d in (created_at, updated_at, last_note) if d]
+        last_touch = max(touches) if touches else now
+        touch_days = (now - last_touch).total_seconds() / 86400.0
+        age_days = (now - created_at).total_seconds() / 86400.0 if created_at else 0.0
+        score = 100
+        if touch_days > 14:
+            score -= 75
+            stale_14 += 1
+        elif touch_days > 7:
+            score -= 50
+            stale_7_14 += 1
+        elif touch_days > 3:
+            score -= 25
+            stale_3_7 += 1
+        if assignee_id is None and co_assignee_id is None and age_days > 1:
+            score -= 25
+            unassigned_24h += 1
+        if priority == 'high' and touch_days > 1:
+            score -= 25
+            high_stale += 1
+        if age_days > 30 and touch_days <= 3:
+            # Light drag so ancient tickets never become completely free
+            score -= 10
+            aging_active += 1
+        scores.append(max(0, score))
 
     closed_today = Ticket.query.filter(
         Ticket.status.in_(closed_statuses) &
@@ -81,13 +101,9 @@ def index():
         (Ticket.closed_at >= today_start)
     ).count()
 
-    health = 100
-    health -= (overdue_count * 10)
-    health -= (unassigned_24h * 5)
-    health -= (open_7days * 2)
-    health -= (open_14days * 4)
-    health += (closed_today * 3)
-    health = max(0, min(100, health))
+    freshness = (sum(scores) / len(scores)) if scores else 100.0
+    closed_bonus = min(closed_today * 2, 10)
+    health = max(0, min(100, int(round(freshness + closed_bonus))))
 
     if health >= 90:
         health_color = 'darkgreen'
@@ -221,16 +237,16 @@ def index():
         'health_class': health_class,
         'leaders': leaders,
         'health_breakdown': {
-            'overdue_count': overdue_count,
-            'overdue_penalty': overdue_count * 10,
+            'open_count': len(scores),
+            'freshness': int(round(freshness)),
+            'stale_3_7': stale_3_7,
+            'stale_7_14': stale_7_14,
+            'stale_14': stale_14,
             'unassigned_24h': unassigned_24h,
-            'unassigned_penalty': unassigned_24h * 5,
-            'open_7days': open_7days,
-            'open_7days_penalty': open_7days * 2,
-            'open_14days': open_14days,
-            'open_14days_penalty': open_14days * 4,
+            'high_stale': high_stale,
+            'aging_active': aging_active,
             'closed_today': closed_today,
-            'closed_today_bonus': closed_today * 3,
+            'closed_today_bonus': closed_bonus,
         },
         # Extra metrics
         'avg_resolution': avg_resolution,

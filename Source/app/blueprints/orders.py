@@ -8,7 +8,7 @@ from datetime import datetime
 import base64
 from sqlalchemy import func, cast, Integer
 from sqlalchemy.exc import IntegrityError
-import bleach
+from app.utils.html_sanitize import sanitize_rich_text
 
 orders_bp = Blueprint('orders', __name__, url_prefix='/orders')
 
@@ -458,32 +458,7 @@ def add_po_note(po_id):
         return redirect(url_for('orders.show_po', po_id=po.id))
     # Sanitize content similar to ticket notes
     raw_content = form.content.data or ''
-    allowed_tags = [
-        'p', 'br', 'div', 'span', 'b', 'strong', 'i', 'em', 'u', 'ul', 'ol', 'li',
-        'h3', 'h4', 'h5', 'h6', 'a', 'table', 'thead', 'tbody', 'tr', 'th', 'td'
-    ]
-    allowed_attrs = {
-        'a': ['href', 'title', 'target', 'rel'],
-        'td': ['colspan', 'rowspan'],
-        'th': ['colspan', 'rowspan']
-    }
-    sanitized_html = bleach.clean(
-        raw_content,
-        tags=allowed_tags,
-        attributes=allowed_attrs,
-        protocols=['http', 'https', 'mailto'],
-        strip=True
-    )
-    def _set_target_rel(attrs, new=False):
-        href = attrs.get('href')
-        if href:
-            attrs['target'] = '_blank'
-            rel = attrs.get('rel', '') or ''
-            rel_vals = set(rel.split()) if rel else set()
-            rel_vals.update(['noopener', 'noreferrer'])
-            attrs['rel'] = ' '.join(sorted(rel_vals))
-        return attrs
-    sanitized_html = bleach.linkify(sanitized_html, callbacks=[_set_target_rel])
+    sanitized_html = sanitize_rich_text(raw_content)
     # All PO reference notes are internal; mark them private without UI.
     is_private_flag = True
     note = PoNote(
@@ -512,32 +487,7 @@ def edit_po_note(po_id, note_id):
         flash('You do not have permission to edit this note.', 'danger')
         return redirect(url_for('orders.show_po', po_id=po.id))
     raw_content = (request.form.get('content') or '').strip()
-    allowed_tags = [
-        'p', 'br', 'div', 'span', 'b', 'strong', 'i', 'em', 'u', 'ul', 'ol', 'li',
-        'h3', 'h4', 'h5', 'h6', 'a', 'table', 'thead', 'tbody', 'tr', 'th', 'td'
-    ]
-    allowed_attrs = {
-        'a': ['href', 'title', 'target', 'rel'],
-        'td': ['colspan', 'rowspan'],
-        'th': ['colspan', 'rowspan']
-    }
-    sanitized_html = bleach.clean(
-        raw_content,
-        tags=allowed_tags,
-        attributes=allowed_attrs,
-        protocols=['http', 'https', 'mailto'],
-        strip=True
-    )
-    def _set_target_rel(attrs, new=False):
-        href = attrs.get('href')
-        if href:
-            attrs['target'] = '_blank'
-            rel = attrs.get('rel', '') or ''
-            rel_vals = set(rel.split()) if rel else set()
-            rel_vals.update(['noopener', 'noreferrer'])
-            attrs['rel'] = ' '.join(sorted(rel_vals))
-        return attrs
-    sanitized_html = bleach.linkify(sanitized_html, callbacks=[_set_target_rel])
+    sanitized_html = sanitize_rich_text(raw_content)
     # Keep notes private; no UI to toggle.
     is_private_flag = True
     note.content = sanitized_html
@@ -680,11 +630,11 @@ def finalize_po(po_id):
         if current_app:
             current_app.logger.exception("Error generating PDF for PO %s", po.id)
     try:
-        from app.services.ms_graph import send_mail
+        from app.services.mailer import enqueue_mail
         to_addr = getattr(current_user, 'email', None)
         to_name = getattr(current_user, 'name', None)
         if current_app:
-            current_app.logger.info("Emailing PO %s to %s (has_pdf=%s)", po.po_number, to_addr, bool(pdf_bytes))
+            current_app.logger.info("Queueing PO %s email to %s (has_pdf=%s)", po.po_number, to_addr, bool(pdf_bytes))
         if to_addr and pdf_bytes:
             filename = f"PO_{po.po_number or po.id}.pdf"
             attachment = {
@@ -697,16 +647,14 @@ def finalize_po(po_id):
                 f"<p>Attached is Purchase Order <strong>{po.po_number}</strong> for {po.vendor_name}.</p>"
                 f"<p>Total: ${po.grand_total:,.2f}</p>"
             )
-            ok = send_mail(to_addr, subj, html, to_name=to_name, attachments=[attachment], category='po_sent')
-            if current_app:
-                current_app.logger.info("Email send result: %s", ok)
+            enqueue_mail(to_addr, subj, html, to_name=to_name, attachments=[attachment], category='po_sent')
     except ImportError:
         pass
     except Exception:
         # Ignore email errors
         if current_app:
-            current_app.logger.exception("Error emailing PO %s", po.id)
-    flash('PO finalized and emailed PDF to you', 'success')
+            current_app.logger.exception("Error queueing PO email %s", po.id)
+    flash('PO finalized; the PDF will be emailed to you shortly', 'success')
     return redirect(url_for('orders.show_po', po_id=po.id))
 
 

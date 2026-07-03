@@ -889,6 +889,43 @@ class OutgoingEmail(db.Model):
     ticket = db.relationship('Ticket', foreign_keys=[ticket_id])
 
 
+class EmailOutbox(db.Model):
+    """Queued outbound email drained by the scheduler (see services/mailer.py).
+
+    Rows are claimed atomically (status pending/failed -> sending) so the
+    scheduler process and the dev-mode drain thread can never double-send.
+    """
+    __tablename__ = 'email_outbox'
+    id = db.Column(db.Integer, primary_key=True)
+    # JSON list of recipient addresses
+    to_json = db.Column(db.Text, nullable=False)
+    to_name = db.Column(db.String(255), nullable=True)
+    subject = db.Column(db.String(500), nullable=False)
+    html_body = db.Column(db.Text, nullable=True)
+    # JSON list of Graph attachment dicts (name/contentType/contentBytes/...)
+    attachments_json = db.Column(db.Text, nullable=True)
+    save_to_sent = db.Column(db.Boolean, default=True)
+    category = db.Column(db.String(50), default='other')
+    ticket_id = db.Column(db.Integer, db.ForeignKey('ticket.id'), nullable=True)
+    # pending | sending | sent | failed | dead
+    status = db.Column(db.String(20), default='pending', index=True)
+    attempts = db.Column(db.Integer, default=0)
+    last_error = db.Column(db.String(1000), nullable=True)
+    next_attempt_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    sent_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    ticket = db.relationship('Ticket', foreign_keys=[ticket_id])
+
+    @property
+    def recipients(self):
+        try:
+            return json.loads(self.to_json or '[]')
+        except Exception:
+            return []
+
+
 # --- Email Templates ---
 class EmailTemplate(db.Model):
     __tablename__ = 'email_templates'

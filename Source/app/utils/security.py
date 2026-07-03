@@ -3,6 +3,45 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import base64
+import os
+import secrets
+
+
+def load_or_create_secret_key(instance_path: str) -> str:
+    """Resolve the app SECRET_KEY without ever falling back to a constant.
+
+    Precedence: FLASK_SECRET_KEY env var, then <instance>/secret_key file,
+    else generate a 64-hex-char key and persist it there. The file is shared
+    by the web and scheduler processes; creation uses O_EXCL so a first-boot
+    race between them cannot produce two different keys.
+    """
+    env_key = (os.getenv('FLASK_SECRET_KEY') or '').strip()
+    if env_key:
+        return env_key
+    key_path = os.path.join(instance_path, 'secret_key')
+    try:
+        with open(key_path, 'r', encoding='utf-8') as f:
+            existing = f.read().strip()
+        if existing:
+            return existing
+    except FileNotFoundError:
+        pass
+    os.makedirs(instance_path, exist_ok=True)
+    new_key = secrets.token_hex(32)
+    try:
+        fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            f.write(new_key)
+    except FileExistsError:
+        # Another process created it between our read and write; use theirs.
+        with open(key_path, 'r', encoding='utf-8') as f:
+            existing = f.read().strip()
+        if existing:
+            return existing
+        # File exists but is empty (interrupted write): reclaim it.
+        with open(key_path, 'w', encoding='utf-8') as f:
+            f.write(new_key)
+    return new_key
 
 
 def hash_password(password: str) -> str:

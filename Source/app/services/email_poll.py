@@ -18,6 +18,7 @@ from pathlib import Path
 import re
 import html as _html
 import bleach
+from ..utils.html_sanitize import sanitize_email_html
 import ftplib
 from io import BytesIO
 
@@ -534,7 +535,7 @@ def poll_ms_graph(app=None):
                 requester=requester_addr,  # legacy
                 requester_name=requester_name,
                 requester_email=requester_addr,
-                body=body_html,
+                body=sanitize_email_html(body_html),
                 status="new",
                 priority="medium",
             )

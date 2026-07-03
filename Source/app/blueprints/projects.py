@@ -6,6 +6,7 @@ from sqlalchemy import or_
 from .. import db
 from ..forms import TicketForm
 from ..permissions import CREATE, EDIT, DELETE, require_permission, protect_blueprint
+from ..utils.html_sanitize import sanitize_ticket_body
 
 projects_bp = Blueprint('projects', __name__, url_prefix='/projects')
 
@@ -90,7 +91,7 @@ def new_project_ticket(project_id):
 			subject=form.subject.data,
 			requester=form.requester.data,
 			requester_email=form.requester.data,
-			body=form.body.data,
+			body=sanitize_ticket_body(form.body.data),
 			status='new',
 			priority=form.priority.data or 'medium',
 			source=form.source.data or 'manual',

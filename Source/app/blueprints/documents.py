@@ -3,6 +3,7 @@ from flask_login import login_required, current_user
 from .. import db
 from ..models import DocumentCategory, Document, DocumentFavorite
 from ..permissions import CREATE, EDIT, DELETE, require_permission, protect_blueprint
+from ..utils.html_sanitize import sanitize_document_html
 
 
 documents_bp = Blueprint('documents', __name__, url_prefix='/documents')
@@ -62,7 +63,7 @@ def toggle_favorite(doc_id):
 def new_document(category_id):
     cat = DocumentCategory.query.get_or_404(category_id)
     name = (request.form.get('name') or '').strip()
-    body = request.form.get('body') or ''
+    body = sanitize_document_html(request.form.get('body') or '')
     if not name:
         flash('Name is required', 'danger')
         return redirect(url_for('documents.category', category_id=cat.id))
@@ -89,7 +90,7 @@ def view(doc_id):
 def edit(doc_id):
     doc = Document.query.get_or_404(doc_id)
     name = (request.form.get('name') or '').strip()
-    body = request.form.get('body') or ''
+    body = sanitize_document_html(request.form.get('body') or '')
     # Optional: category change
     category_id_raw = request.form.get('category_id')
     new_category = None

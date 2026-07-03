@@ -49,6 +49,38 @@ def ensure_user_columns(engine):
         conn.commit()
 
 
+def ensure_email_outbox_table(engine):
+    with engine.connect() as conn:
+        rows = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='email_outbox'"))
+        exists = rows.fetchone() is not None
+        if not exists:
+            conn.execute(text(
+                """
+                CREATE TABLE email_outbox (
+                    id INTEGER PRIMARY KEY,
+                    to_json TEXT NOT NULL,
+                    to_name TEXT,
+                    subject TEXT NOT NULL,
+                    html_body TEXT,
+                    attachments_json TEXT,
+                    save_to_sent BOOLEAN DEFAULT 1,
+                    category TEXT DEFAULT 'other',
+                    ticket_id INTEGER,
+                    status TEXT DEFAULT 'pending',
+                    attempts INTEGER DEFAULT 0,
+                    last_error TEXT,
+                    next_attempt_at DATETIME,
+                    sent_at DATETIME,
+                    created_at DATETIME,
+                    updated_at DATETIME
+                )
+                """
+            ))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_email_outbox_status ON email_outbox (status)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_email_outbox_next_attempt_at ON email_outbox (next_attempt_at)"))
+        conn.commit()
+
+
 def ensure_api_token_table(engine):
     with engine.connect() as conn:
         rows = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='api_token'"))
@@ -932,3 +964,56 @@ def seed_builtin_roles(db):
             legacy_admin.role_id = admin_role.id
 
     db.session.commit()
+
+
+def sweep_sanitize_html_v1(db):
+    """One-time sweep sanitizing pre-existing Document/Ticket HTML bodies. Idempotent.
+
+    Web-form tickets always have external_id IS NULL; email/FTP intake always
+    sets external_id, so those rows get the email-friendly allowlist instead of
+    the strict one. System-generated sources are trusted and skipped.
+    """
+    import os
+    from flask import current_app
+    from sqlalchemy import or_
+    from ..models import Setting, Document, Ticket
+    from .html_sanitize import sanitize_document_html, sanitize_ticket_body, sanitize_email_html
+
+    if (Setting.get('HTML_SANITIZE_SWEEP_V1', '0') or '0') == '1':
+        return 0
+
+    # Content rewrite is irreversible: back up the SQLite file first
+    uri = current_app.config.get('SQLALCHEMY_DATABASE_URI', '')
+    if uri.startswith('sqlite:///'):
+        db_path = uri.replace('sqlite:///', '')
+        if os.path.exists(db_path):
+            try:
+                import shutil, datetime as _dt
+                ts = _dt.datetime.utcnow().strftime('%Y%m%d-%H%M%S')
+                shutil.copy2(db_path, f"{db_path}.pre-htmlsweep-{ts}.bak")
+            except Exception:
+                pass
+
+    changed = 0
+    for doc in Document.query.all():
+        cleaned = sanitize_document_html(doc.body or '')
+        if cleaned != (doc.body or ''):
+            doc.body = cleaned
+            changed += 1
+
+    trusted_sources = ('system', 'scheduled', 'DjinnWish', 'demo', 'ftp')
+    dirty = Ticket.query.filter(or_(Ticket.body.like('%<%'), Ticket.body.like('%>%'))).all()
+    for t in dirty:
+        raw = t.body or ''
+        if t.external_id:
+            cleaned = sanitize_email_html(raw)
+        elif (t.source or '') in trusted_sources:
+            continue
+        else:
+            cleaned = sanitize_ticket_body(raw)
+        if cleaned != raw:
+            t.body = cleaned
+            changed += 1
+
+    Setting.set('HTML_SANITIZE_SWEEP_V1', '1')  # commits the session
+    return changed
