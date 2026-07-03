@@ -20,7 +20,7 @@
           <div class="col-md-6">{{ form.name.label('Name', class='form-label small fw-semibold') }} {{ form.name(class='form-control') }}</div>
           <div class="col-md-6">{{ form.email.label('Email', class='form-label small fw-semibold') }} {{ form.email(class='form-control') }}</div>
           <div class="col-md-6">{{ form.password.label('Password', class='form-label small fw-semibold') }} {{ form.password(class='form-control') }}</div>
-          <div class="col-md-3">{{ form.role.label('Role', class='form-label small fw-semibold') }} {{ form.role(class='form-select') }}</div>
+          <div class="col-md-3">{{ form.role_id.label('Role', class='form-label small fw-semibold') }} {{ form.role_id(class='form-select') }}</div>
           <div class="col-md-3 d-flex align-items-center gap-2">{{ form.is_active(class='form-check-input mt-0') }} {{ form.is_active.label('Active', class='form-check-label small fw-semibold') }}</div>
           <div class="col-12 d-flex flex-wrap gap-2 justify-content-end">
             <a class="btn btn-outline-secondary" href="{{ url_for('admin.index') }}">Cancel</a>

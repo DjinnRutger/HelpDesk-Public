@@ -44,9 +44,15 @@ class TechForm(FlaskForm):
     name = StringField('Name', validators=[DataRequired(), Length(max=120)])
     email = StringField('Email', validators=[DataRequired(), Email(), Length(max=255)])
     password = PasswordField('Password', validators=[Optional()])
-    role = SelectField('Role', choices=[('tech','Tech'), ('admin','Admin')], validators=[DataRequired()])
+    role_id = SelectField('Role', coerce=int, validators=[DataRequired()])
     is_active = BooleanField('Active')
     submit = SubmitField('Save')
+
+    def __init__(self, *args, **kwargs):
+        super(TechForm, self).__init__(*args, **kwargs)
+        from .models import Role
+        roles = Role.query.order_by(Role.is_system.desc(), Role.name.asc()).all()
+        self.role_id.choices = [(r.id, r.name) for r in roles]
 
 class TicketForm(FlaskForm):
     subject = StringField('Subject', validators=[DataRequired(), Length(max=300)])

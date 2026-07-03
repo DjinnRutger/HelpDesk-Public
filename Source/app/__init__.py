@@ -460,7 +460,7 @@ def create_app():
 
     # Import models so SQLAlchemy registers them before create_all.
     from .models import (  # noqa: F401
-    User, Ticket, Setting, ProcessTemplate, ProcessTemplateItem, TicketProcess,
+    User, Role, Ticket, Setting, ProcessTemplate, ProcessTemplateItem, TicketProcess,
     TicketProcessItem, AllowedDomain, TicketAttachment, Contact, DenyFilter,
     TicketTask, OrderItem, PurchaseOrder, Vendor, Company, ShippingLocation,
     DocumentCategory, Document, DocumentFavorite, Asset, AssetCategory, AssetManufacturer, AssetCondition, AssetLocation,
@@ -491,6 +491,7 @@ def create_app():
                 ensure_email_templates_tables,
                 ensure_report_tables,
                 ensure_api_token_table,
+                ensure_role_tables,
             )
             ensure_ticket_columns(db.engine)
             ensure_user_columns(db.engine)
@@ -511,6 +512,7 @@ def create_app():
             ensure_email_templates_tables(db.engine)
             ensure_report_tables(db.engine)
             ensure_api_token_table(db.engine)
+            ensure_role_tables(db.engine)
             # Ensure AssetAudit table (runtime lightweight migration with pre-backup for SQLite)
             from sqlalchemy import inspect
             insp = inspect(db.engine)
@@ -572,6 +574,13 @@ def create_app():
         except Exception as e:
             app.logger.warning(f'Failed to seed default tags: {e}')
 
+        # Seed built-in roles and backfill user.role_id from the legacy role string
+        try:
+            from .utils.db_migrate import seed_builtin_roles
+            seed_builtin_roles(db)
+        except Exception as e:
+            app.logger.warning(f'Failed to seed built-in roles: {e}')
+
         # Migrate unencrypted sensitive settings to encrypted format
         try:
             from .utils.security import SENSITIVE_SETTING_KEYS, is_encrypted, encrypt_value
@@ -599,7 +608,9 @@ def create_app():
         if admin_email and admin_password and not User.query.filter_by(email=admin_email).first():
             # Check if any users exist - if not, we should use setup flow instead
             if User.query.count() > 0:
-                admin = User(email=admin_email, name="Administrator", role="admin", is_active=True)
+                admin = User(email=admin_email, name="Administrator", is_active=True)
+                admin_role = Role.query.filter_by(builtin_key='administrator').first()
+                admin.set_role(admin_role)
                 admin.password_hash = hash_password(admin_password)
                 db.session.add(admin)
                 db.session.commit()
@@ -652,6 +663,10 @@ def create_app():
         from flask import send_from_directory
         images_path = os.path.join(app.root_path, 'images')
         return send_from_directory(images_path, filename)
+
+    # Permission helpers for templates (can(), perm_modules, ...)
+    from .permissions import register_permission_helpers
+    register_permission_helpers(app)
 
     # Theming context
     @app.context_processor

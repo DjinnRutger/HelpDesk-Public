@@ -1,0 +1,74 @@
+{% extends 'base.html' %}
+{% block title %}{{ action }} Role · HelpDesk{% endblock %}
+{% block content %}
+{% set locked = role and role.builtin_key == 'administrator' %}
+<div class="row justify-content-center">
+  <div class="col-lg-8 col-xl-6">
+    <div class="card shadow-sm">
+      <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+        <div class="d-flex align-items-center gap-2">
+          <i class="bi bi-shield-lock text-primary"></i>
+          <div>
+            <h1 class="h5 mb-0">{{ action }} Role{% if role %}: {{ role.name }}{% endif %}</h1>
+            <small class="text-muted">Set a cumulative access level for each module</small>
+          </div>
+        </div>
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('admin.roles') }}"><i class="bi bi-arrow-left"></i></a>
+      </div>
+      <div class="card-body p-4">
+        {% if locked %}
+        <div class="alert alert-secondary small">
+          <i class="bi bi-lock me-1"></i>The built-in Administrator role always has full access and cannot be changed.
+        </div>
+        {% elif role and role.is_system %}
+        <div class="alert alert-light border small">
+          <i class="bi bi-info-circle me-1"></i>This is a built-in role — permissions can be adjusted but it cannot be renamed or deleted.
+        </div>
+        {% endif %}
+        <form method="post">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Role Name</label>
+            <input type="text" name="name" class="form-control" maxlength="80" required
+                   value="{{ role.name if role else '' }}"
+                   {% if role and role.is_system %}readonly{% endif %}>
+          </div>
+          <div class="table-responsive">
+            <table class="table align-middle">
+              <thead class="table-light"><tr><th>Module</th><th style="width: 14rem;">Access Level</th></tr></thead>
+              <tbody>
+                {% for m in modules %}
+                <tr>
+                  <td>
+                    <div class="fw-semibold">{{ m.label }}</div>
+                    <small class="text-muted">{{ m.description }}</small>
+                  </td>
+                  <td>
+                    <select name="perm_{{ m.key }}" class="form-select form-select-sm" {% if locked %}disabled{% endif %}>
+                      {% for value, label in level_choices %}
+                      <option value="{{ value }}" {% if role and role.level(m.key) == value %}selected{% elif not role and value == 0 %}selected{% endif %}>{{ label }}</option>
+                      {% endfor %}
+                    </select>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="alert alert-light border small">
+            Levels are cumulative: <strong>View &lt; Create &lt; Edit &lt; Delete</strong>.
+            Granting Admin / System access lets the role open system settings, but role and technician
+            management always requires the built-in Administrator role.
+          </div>
+          <div class="d-flex flex-wrap gap-2 justify-content-end">
+            <a class="btn btn-outline-secondary" href="{{ url_for('admin.roles') }}">Cancel</a>
+            {% if not locked %}
+            <button class="btn btn-primary" type="submit"><i class="bi bi-check-lg me-1"></i>Save Role</button>
+            {% endif %}
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

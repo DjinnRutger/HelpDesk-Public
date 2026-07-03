@@ -74,12 +74,20 @@
                   <span class="d-block">Attachments</span>
                 </button>
               </div>
+              {% if current_user.is_administrator %}
               <div class="col-6 col-md-3">
                 <button class="btn btn-outline-primary w-100 h-100 py-3" data-bs-toggle="modal" data-bs-target="#techniciansModal">
                   <i class="bi bi-people-fill d-block fs-3 mb-2"></i>
                   <span class="d-block">Technicians</span>
                 </button>
               </div>
+              <div class="col-6 col-md-3">
+                <a class="btn btn-outline-primary w-100 h-100 py-3" href="{{ url_for('admin.roles') }}">
+                  <i class="bi bi-shield-lock d-block fs-3 mb-2"></i>
+                  <span class="d-block">Roles &amp; Permissions</span>
+                </a>
+              </div>
+              {% endif %}
               <div class="col-6 col-md-3">
                 <button class="btn btn-outline-primary w-100 h-100 py-3" data-bs-toggle="modal" data-bs-target="#backupModal">
                   <i class="bi bi-database d-block fs-3 mb-2"></i>
@@ -417,6 +425,7 @@
 </div>
 
 <!-- Technicians Modal -->
+{% if current_user.is_administrator %}
 <div class="modal fade" id="techniciansModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
@@ -449,7 +458,7 @@
                   {{ t.name }}
                 </td>
                 <td class="small">{{ t.email }}</td>
-                <td><span class="badge text-bg-secondary">{{ t.role }}</span></td>
+                <td><span class="badge text-bg-secondary">{{ t.role_obj.name if t.role_obj else t.role }}</span></td>
                 <td class="text-end">
                   <div class="d-flex gap-1 justify-content-end">
                     <a href="{{ url_for('admin.tech_edit', user_id=t.id) }}" class="btn btn-sm btn-outline-secondary" title="Edit">
@@ -470,10 +479,16 @@
             </tbody>
           </table>
         </div>
+        <div class="text-end">
+          <a class="btn btn-outline-primary btn-sm" href="{{ url_for('admin.roles') }}">
+            <i class="bi bi-shield-lock me-1"></i>Roles &amp; Permissions
+          </a>
+        </div>
       </div>
     </div>
   </div>
 </div>
+{% endif %}
 
 <!-- Backup & Restore Modal -->
 <div class="modal fade" id="backupModal" tabindex="-1">

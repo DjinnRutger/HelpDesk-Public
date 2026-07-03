@@ -299,7 +299,7 @@
                 · {{ n.author.name if n.author else 'Unknown User' }} ·
                 {# Treat legacy NULL (no flag) as private to be safe #}
                 {% if n.is_private is none or n.is_private %}(private){% else %}(public){% endif %}
-                {% if current_user and (current_user.role == 'admin' or n.author_id == current_user.id) and t.status != 'closed' %}
+                {% if current_user and (can('tickets', 'edit') or n.author_id == current_user.id) and t.status != 'closed' %}
                 <button type="button" class="btn btn-sm btn-outline-secondary ms-auto note-edit-btn" title="Edit note"
                         data-note-id="{{ n.id }}" data-note-private="{{ 1 if (n.is_private is none or n.is_private) else 0 }}">
                   <i class="bi bi-pencil"></i>
@@ -307,7 +307,7 @@
                 {% endif %}
               {% else %}
                 (received)
-                {% if current_user and current_user.role == 'admin' and t.status != 'closed' %}
+                {% if current_user and can('tickets', 'edit') and t.status != 'closed' %}
                 <button type="button" class="btn btn-sm btn-outline-secondary ms-auto note-edit-btn" title="Edit note"
                         data-note-id="{{ n.id }}" data-note-private="{{ 1 if (n.is_private is none or n.is_private) else 0 }}">
                   <i class="bi bi-pencil"></i>

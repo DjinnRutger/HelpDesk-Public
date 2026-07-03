@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user
 from ..models import Asset, Contact, Ticket, AssetAudit, AssetCategory, AssetManufacturer, AssetCondition, AssetLocation, Tag
 from .. import db
+from ..permissions import CREATE, EDIT, DELETE, require_permission, protect_blueprint
 import csv
 import io
 from sqlalchemy.exc import IntegrityError
@@ -79,11 +80,8 @@ def index():
 
 @assets_bp.route('/new', methods=['GET','POST'])
 @login_required
+@require_permission('assets', CREATE)
 def new():
-    # Basic role check
-    if getattr(current_user, 'role', 'user') not in ('admin','tech','manager'):
-        flash('Not authorized to create assets.', 'danger')
-        return redirect(url_for('assets.index'))
     if request.method == 'POST':
         form = request.form
         name = (form.get('name') or '').strip()
@@ -199,6 +197,7 @@ def detail(asset_id):
 
 @assets_bp.route('/<int:asset_id>/status', methods=['POST'])
 @login_required
+@require_permission('assets', EDIT)
 def update_status(asset_id):
     a = Asset.query.get_or_404(asset_id)
     new_status = (request.form.get('status') or '').strip().lower()
@@ -216,6 +215,7 @@ def update_status(asset_id):
 
 @assets_bp.route('/<int:asset_id>/hard_delete', methods=['POST'])
 @login_required
+@require_permission('assets', DELETE)
 def hard_delete(asset_id):
     a = Asset.query.get_or_404(asset_id)
     if (a.status or '').lower() != 'archived':
@@ -232,12 +232,9 @@ def hard_delete(asset_id):
 
 @assets_bp.route('/<int:asset_id>/edit', methods=['GET','POST'])
 @login_required
+@require_permission('assets', EDIT)
 def edit(asset_id):
     a = Asset.query.get_or_404(asset_id)
-    # Basic role check (adjust as needed)
-    if getattr(current_user, 'role', 'user') not in ('admin','tech','manager'):
-        flash('Not authorized to edit assets.', 'danger')
-        return redirect(url_for('assets.detail', asset_id=a.id))
     if request.method == 'POST':
         try:
             form = request.form
@@ -314,6 +311,7 @@ def edit(asset_id):
 
 @assets_bp.route('/<int:asset_id>/checkout', methods=['POST'])
 @login_required
+@require_permission('assets', EDIT)
 def checkout(asset_id):
     a = Asset.query.get_or_404(asset_id)
     contact_id = request.form.get('contact_id')
@@ -346,6 +344,7 @@ def checkout(asset_id):
 
 @assets_bp.route('/<int:asset_id>/checkin', methods=['POST'])
 @login_required
+@require_permission('assets', EDIT)
 def checkin(asset_id):
     a = Asset.query.get_or_404(asset_id)
     prev_assigned = a.assigned_contact_id
@@ -380,10 +379,8 @@ def checkin(asset_id):
 
 @assets_bp.route('/import', methods=['POST'])
 @login_required
+@require_permission('assets', EDIT)
 def import_csv():
-    if current_user.role != 'admin':
-        flash('Only admins can import assets', 'danger')
-        return redirect(url_for('assets.index'))
     file = request.files.get('file')
     if not file:
         flash('No file uploaded', 'danger')
@@ -463,10 +460,8 @@ def import_csv():
 
 @assets_bp.route('/purge', methods=['POST'])
 @login_required
+@require_permission('assets', DELETE)
 def purge():
-    if current_user.role != 'admin':
-        flash('Only admins can purge assets', 'danger')
-        return redirect(url_for('assets.index'))
     try:
         deleted = Asset.query.delete()
         db.session.commit()
@@ -479,10 +474,8 @@ def purge():
 
 @assets_bp.route('/bulk_checkin/contact/<int:contact_id>', methods=['POST'])
 @login_required
+@require_permission('assets', EDIT)
 def bulk_checkin_contact(contact_id):
-    if current_user.role not in ('admin','tech','manager'):  # basic role check (expand as needed)
-        flash('Not authorized.', 'danger')
-        return redirect(url_for('users.show_user', contact_id=contact_id))
     assets = Asset.query.filter_by(assigned_contact_id=contact_id).all()
     if not assets:
         flash('No assets assigned to user.', 'info')
@@ -508,9 +501,6 @@ def bulk_checkin_contact(contact_id):
 @assets_bp.route('/export')
 @login_required
 def export_csv():
-    if current_user.role != 'admin':
-        flash('Only admins can export assets', 'danger')
-        return redirect(url_for('assets.index'))
     output = io.StringIO()
     fieldnames = [
         'ID','Company','Asset Name','Asset Tag','Model','Model No.','Category','Manufacturer','Serial','Purchased','Cost','EOL','Warranty','Warranty Expires','Current Value','Fully Depreciated','Order Number','Supplier','Location','Default Location','Status','Checkout Date','Last Checkin Date','Expected Checkin Date','Created At','Updated at','Last Audit','Next Audit Date','Notes','URL','Specs','Physical Condition','End of Life'
@@ -579,6 +569,7 @@ def api_search():
 
 @assets_bp.route('/<int:asset_id>/tags/add', methods=['POST'])
 @login_required
+@require_permission('assets', EDIT)
 def asset_tag_add(asset_id):
     """Add a tag to an asset (AJAX)."""
     a = Asset.query.get_or_404(asset_id)
@@ -596,6 +587,7 @@ def asset_tag_add(asset_id):
 
 @assets_bp.route('/<int:asset_id>/tags/remove/<int:tag_id>', methods=['POST'])
 @login_required
+@require_permission('assets', EDIT)
 def asset_tag_remove(asset_id, tag_id):
     """Remove a tag from an asset (AJAX)."""
     a = Asset.query.get_or_404(asset_id)
@@ -604,3 +596,6 @@ def asset_tag_remove(asset_id, tag_id):
         a.tags.remove(tag)
         db.session.commit()
     return jsonify({'success': True})
+
+
+protect_blueprint(assets_bp, 'assets')

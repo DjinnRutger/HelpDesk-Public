@@ -3,6 +3,7 @@ from flask_login import login_required, current_user
 from app.models import OrderItem, PurchaseOrder, Vendor, Company, ShippingLocation, PoNote, Asset, AssetAudit
 from app import db
 from app.forms import OrderItemForm, NoteForm
+from app.permissions import CREATE, EDIT, DELETE, require_permission, protect_blueprint
 from datetime import datetime
 import base64
 from sqlalchemy import func, cast, Integer
@@ -106,6 +107,7 @@ def list_items():
 
 @orders_bp.route('/items/new', methods=['POST'])
 @login_required
+@require_permission('orders', CREATE)
 def create_item():
     form = OrderItemForm()
     is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
@@ -252,6 +254,7 @@ def ticket_items_fragment(ticket_id):
 
 @orders_bp.route('/items/<int:item_id>/update', methods=['POST'])
 @login_required
+@require_permission('orders', EDIT)
 def update_item(item_id):
     itm = OrderItem.query.get_or_404(item_id)
     # Update simple editable fields
@@ -289,6 +292,7 @@ def update_item(item_id):
 
 @orders_bp.route('/items/<int:item_id>/delete', methods=['POST'])
 @login_required
+@require_permission('orders', DELETE)
 def delete_item(item_id):
     itm = OrderItem.query.get_or_404(item_id)
     ticket_id = itm.ticket_id
@@ -301,6 +305,7 @@ def delete_item(item_id):
 
 @orders_bp.route('/items/delete_selected', methods=['POST'])
 @login_required
+@require_permission('orders', DELETE)
 def delete_selected_items():
     """Delete multiple selected order items."""
     item_ids = request.form.getlist('item_ids')
@@ -345,6 +350,7 @@ def _next_po_number():
 
 @orders_bp.route('/create_po', methods=['POST'])
 @login_required
+@require_permission('orders', CREATE)
 def create_po_from_items():
     ids = request.form.getlist('item_id')
     vendor = (request.form.get('vendor') or '').strip() or 'Vendor'
@@ -376,6 +382,7 @@ def create_po_from_items():
 
 @orders_bp.route('/po/<int:po_id>/meta', methods=['POST'])
 @login_required
+@require_permission('orders', EDIT)
 def update_po_meta(po_id):
     po = PurchaseOrder.query.get_or_404(po_id)
     # Update company
@@ -424,6 +431,7 @@ def update_po_meta(po_id):
 
 @orders_bp.route('/po/<int:po_id>/notes', methods=['POST'])
 @login_required
+@require_permission('orders', EDIT)
 def update_po_notes(po_id):
     po = PurchaseOrder.query.get_or_404(po_id)
     if po.status != 'draft':
@@ -438,6 +446,7 @@ def update_po_notes(po_id):
 
 @orders_bp.route('/po/<int:po_id>/notes/add', methods=['POST'])
 @login_required
+@require_permission('orders', CREATE)
 def add_po_note(po_id):
     po = PurchaseOrder.query.get_or_404(po_id)
     if po.status == 'draft':
@@ -497,10 +506,9 @@ def edit_po_note(po_id, note_id):
         flash('Notes for draft POs are edited in the Notes section.', 'warning')
         return redirect(url_for('orders.show_po', po_id=po.id))
     note = PoNote.query.filter_by(id=note_id, po_id=po.id).first_or_404()
-    # Permission: author or admin
-    role = getattr(current_user, 'role', 'tech') or 'tech'
+    # Permission: author, or Edit level on Orders for moderating others' notes
     user_id = getattr(current_user, 'id', None)
-    if not ((note.author_id and note.author_id == user_id) or (role == 'admin')):
+    if not ((note.author_id and note.author_id == user_id) or current_user.can('orders', EDIT)):
         flash('You do not have permission to edit this note.', 'danger')
         return redirect(url_for('orders.show_po', po_id=po.id))
     raw_content = (request.form.get('content') or '').strip()
@@ -541,6 +549,7 @@ def edit_po_note(po_id, note_id):
 
 @orders_bp.route('/po/<int:po_id>/items/add', methods=['POST'])
 @login_required
+@require_permission('orders', EDIT)
 def add_item_to_po(po_id):
     po = PurchaseOrder.query.get_or_404(po_id)
     if po.status != 'draft':
@@ -631,6 +640,7 @@ def add_item_to_po(po_id):
 
 @orders_bp.route('/po/<int:po_id>/finalize', methods=['POST'])
 @login_required
+@require_permission('orders', EDIT)
 def finalize_po(po_id):
     po = PurchaseOrder.query.get_or_404(po_id)
     # Assign a unique PO number with retry in case of race/duplicate
@@ -702,6 +712,7 @@ def finalize_po(po_id):
 
 @orders_bp.route('/items/<int:item_id>/receive', methods=['POST'])
 @login_required
+@require_permission('orders', EDIT)
 def receive_item(item_id):
     itm = OrderItem.query.get_or_404(item_id)
     itm.status = 'received'
@@ -721,6 +732,7 @@ def receive_item(item_id):
 
 @orders_bp.route('/items/<int:item_id>/create_asset', methods=['POST'])
 @login_required
+@require_permission('orders', EDIT)
 def create_asset_from_item(item_id):
     """Create an Asset record from a received PO line item and redirect to edit page."""
     itm = OrderItem.query.get_or_404(item_id)
@@ -753,6 +765,7 @@ def create_asset_from_item(item_id):
 
 @orders_bp.route('/items/<int:item_id>/create_multiple_assets', methods=['POST'])
 @login_required
+@require_permission('orders', EDIT)
 def create_multiple_assets_from_item(item_id):
     """Create multiple Asset records from a received PO line item (one per quantity) via AJAX."""
     import json
@@ -879,6 +892,7 @@ def download_po_pdf(po_id):
 
 @orders_bp.route('/items/<int:item_id>/edit', methods=['POST'])
 @login_required
+@require_permission('orders', EDIT)
 def edit_po_item(item_id):
     """Edit an item in a draft PO."""
     item = OrderItem.query.get_or_404(item_id)
@@ -936,6 +950,7 @@ def edit_po_item(item_id):
 
 @orders_bp.route('/items/<int:item_id>/delete_po', methods=['POST'])
 @login_required
+@require_permission('orders', DELETE)
 def delete_po_item(item_id):
     """Delete an item from a draft PO."""
     item = OrderItem.query.get_or_404(item_id)
@@ -961,3 +976,6 @@ def delete_po_item(item_id):
         flash(f'Error deleting item: {str(e)}', 'danger')
     
     return redirect(url_for('orders.show_po', po_id=po_id))
+
+
+protect_blueprint(orders_bp, 'orders')

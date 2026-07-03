@@ -3,6 +3,7 @@ from flask_login import login_required
 from ..models import Contact, Ticket, Asset, AssetAudit
 from sqlalchemy import func, case, or_
 from .. import db
+from ..permissions import CREATE, EDIT, DELETE, require_permission, protect_blueprint
 
 
 users_bp = Blueprint('users', __name__, url_prefix='/users')
@@ -108,6 +109,7 @@ def list_users():
 
 @users_bp.route('/new', methods=['GET', 'POST'])
 @login_required
+@require_permission('contacts', CREATE)
 def new_user():
     if request.method == 'POST':
         name = (request.form.get('name') or '').strip()
@@ -136,6 +138,10 @@ def new_user():
 def show_user(contact_id):
     c = Contact.query.get_or_404(contact_id)
     if request.method == 'POST':
+        from flask_login import current_user
+        if not current_user.can('contacts', EDIT):
+            flash('You do not have permission to edit contacts.', 'danger')
+            return redirect(url_for('users.show_user', contact_id=c.id))
         # Allow updating name and email with uniqueness check
         new_name = (request.form.get('name') or '').strip()
         new_email = (request.form.get('email') or '').strip().lower()
@@ -171,6 +177,7 @@ def show_user(contact_id):
 
 @users_bp.route('/<int:contact_id>/delete', methods=['POST'])
 @login_required
+@require_permission('contacts', DELETE)
 def delete_user(contact_id):
     c = Contact.query.get_or_404(contact_id)
     # Prevent delete if any assets are still checked out to this contact
@@ -194,6 +201,7 @@ def delete_user(contact_id):
 
 @users_bp.route('/<int:contact_id>/archive', methods=['POST'])
 @login_required
+@require_permission('contacts', EDIT)
 def archive_user(contact_id):
     """Toggle archive status for a contact."""
     c = Contact.query.get_or_404(contact_id)
@@ -235,3 +243,6 @@ def asset_log_api(contact_id):
                            contact=c,
                            asset_log_entries=pagination.items,
                            asset_log_pagination=pagination)
+
+
+protect_blueprint(users_bp, 'contacts')

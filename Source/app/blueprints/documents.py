@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, redirect, url_for, request, flash,
 from flask_login import login_required, current_user
 from .. import db
 from ..models import DocumentCategory, Document, DocumentFavorite
+from ..permissions import CREATE, EDIT, DELETE, require_permission, protect_blueprint
 
 
 documents_bp = Blueprint('documents', __name__, url_prefix='/documents')
@@ -57,6 +58,7 @@ def toggle_favorite(doc_id):
 
 @documents_bp.route('/category/<int:category_id>/new', methods=['POST'])
 @login_required
+@require_permission('documents', CREATE)
 def new_document(category_id):
     cat = DocumentCategory.query.get_or_404(category_id)
     name = (request.form.get('name') or '').strip()
@@ -83,6 +85,7 @@ def view(doc_id):
 
 @documents_bp.route('/edit/<int:doc_id>', methods=['POST'])
 @login_required
+@require_permission('documents', EDIT)
 def edit(doc_id):
     doc = Document.query.get_or_404(doc_id)
     name = (request.form.get('name') or '').strip()
@@ -114,6 +117,7 @@ def edit(doc_id):
 
 @documents_bp.route('/delete/<int:doc_id>', methods=['POST'])
 @login_required
+@require_permission('documents', DELETE)
 def delete(doc_id):
     doc = Document.query.get_or_404(doc_id)
     cat_id = doc.category_id
@@ -171,3 +175,6 @@ def search():
 def api_body(doc_id):
     d = Document.query.get_or_404(doc_id)
     return jsonify({ 'id': d.id, 'name': d.name, 'body': d.body or '' })
+
+
+protect_blueprint(documents_bp, 'documents')

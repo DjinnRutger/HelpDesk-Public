@@ -5,6 +5,7 @@ from ..models import Project, Ticket, Contact
 from sqlalchemy import or_
 from .. import db
 from ..forms import TicketForm
+from ..permissions import CREATE, EDIT, DELETE, require_permission, protect_blueprint
 
 projects_bp = Blueprint('projects', __name__, url_prefix='/projects')
 
@@ -41,6 +42,7 @@ def list_projects():
 
 @projects_bp.route('/new', methods=['GET', 'POST'])
 @login_required
+@require_permission('projects', CREATE)
 def new_project():
 	if request.method == 'POST':
 		name = (request.form.get('name') or '').strip()
@@ -72,6 +74,7 @@ def show_project(project_id):
 
 @projects_bp.route('/<int:project_id>/tickets/new', methods=['GET', 'POST'])
 @login_required
+@require_permission('projects', CREATE)
 def new_project_ticket(project_id):
 	p = Project.query.get_or_404(project_id)
 	form = TicketForm()
@@ -104,6 +107,7 @@ def new_project_ticket(project_id):
 
 @projects_bp.route('/<int:project_id>/reorder', methods=['POST'])
 @login_required
+@require_permission('projects', EDIT)
 def reorder_project_tickets(project_id):
 	p = Project.query.get_or_404(project_id)
 	order = request.json if request.is_json else None
@@ -127,6 +131,7 @@ def reorder_project_tickets(project_id):
 
 @projects_bp.route('/<int:project_id>/edit', methods=['GET', 'POST'])
 @login_required
+@require_permission('projects', EDIT)
 def edit_project(project_id):
 	p = Project.query.get_or_404(project_id)
 	if request.method == 'POST':
@@ -147,6 +152,7 @@ def edit_project(project_id):
 
 @projects_bp.route('/<int:project_id>/close', methods=['POST'])
 @login_required
+@require_permission('projects', EDIT)
 def close_project(project_id):
 	p = Project.query.get_or_404(project_id)
 	# require all tickets to be closed
@@ -164,6 +170,7 @@ def close_project(project_id):
 
 @projects_bp.route('/<int:project_id>/delete', methods=['POST'])
 @login_required
+@require_permission('projects', DELETE)
 def delete_project(project_id):
 	p = Project.query.get_or_404(project_id)
 	db.session.delete(p)
@@ -171,3 +178,6 @@ def delete_project(project_id):
 	flash('Project deleted.', 'success')
 	return redirect(url_for('projects.list_projects'))
 
+
+
+protect_blueprint(projects_bp, 'projects')

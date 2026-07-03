@@ -67,14 +67,28 @@
         <div class="collapse navbar-collapse" id="nav">
           <ul class="navbar-nav me-auto mb-2 mb-lg-0">
             <li class="nav-item"><a class="nav-link" href="/">Dashboard</a></li>
+            {% if can('tickets', 'view') %}
             <li class="nav-item"><a class="nav-link" href="/tickets">Tickets</a></li>
             <li class="nav-item"><a class="nav-link" href="/tickets/pipeline">Pipeline</a></li>
+            {% endif %}
+            {% if can('projects', 'view') %}
             <li class="nav-item"><a class="nav-link" href="/projects">Projects</a></li>
+            {% endif %}
+            {% if can('documents', 'view') %}
             <li class="nav-item"><a class="nav-link" href="/documents">Documents</a></li>
+            {% endif %}
+            {% if can('assets', 'view') %}
             <li class="nav-item"><a class="nav-link" href="/assets">Assets</a></li>
+            {% endif %}
+            {% if can('orders', 'view') %}
             <li class="nav-item"><a class="nav-link" href="/orders">Orders</a></li>
+            {% endif %}
+            {% if can('contacts', 'view') %}
             <li class="nav-item"><a class="nav-link" href="/users">Users</a></li>
+            {% endif %}
+            {% if can('admin', 'view') %}
             <li class="nav-item"><a class="nav-link" href="/admin">Admin</a></li>
+            {% endif %}
           </ul>
           <ul class="navbar-nav align-items-center">
             {% if demo_mode %}
@@ -105,7 +119,7 @@
         {% endif %}
       {% endwith %}
       
-      {% if graph_needs_domains and current_user.is_authenticated and current_user.role == 'admin' %}
+      {% if graph_needs_domains and current_user.is_authenticated and current_user.is_administrator %}
       <div class="alert alert-warning alert-dismissible fade show d-flex align-items-start" role="alert">
         <i class="bi bi-exclamation-triangle-fill me-2 fs-5 flex-shrink-0"></i>
         <div class="flex-grow-1">

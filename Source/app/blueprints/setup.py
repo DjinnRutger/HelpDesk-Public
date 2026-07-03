@@ -75,14 +75,15 @@ def create_initial_user():
     
     try:
         # Create the first admin user
+        from ..models import Role
         user = User(
             email=email,
             name=name,
             password_hash=hash_password(password),
-            role='admin',
             is_active=True,
             theme=theme
         )
+        user.set_role(Role.query.filter_by(builtin_key='administrator').first())
         db.session.add(user)
         db.session.commit()
 
@@ -264,16 +265,18 @@ def _seed_demo_data():
     db.session.flush()
 
     # Demo tech users (20)
+    from ..models import Role
+    tech_role = Role.query.filter_by(builtin_key='technician').first()
     demo_users = []
     for i in range(1, 21):
         u = User(
             email=f'tech{i:02d}@example.com',
             name=f'Tech {i:02d}',
             password_hash=hash_password('Demo12345!'),
-            role='tech',
             is_active=True,
             theme='light'
         )
+        u.set_role(tech_role)
         db.session.add(u)
         demo_users.append(u)
 

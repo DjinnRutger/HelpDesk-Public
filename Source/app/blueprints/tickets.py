@@ -4,6 +4,7 @@ from ..models import Ticket, ProcessTemplate, TicketProcess, TicketProcessItem, 
 from .. import db
 from ..forms import TicketForm, NoteForm, TicketUpdateForm, ProcessAssignForm, TaskAssignForm
 from ..models import User, Contact, TicketNote
+from ..permissions import CREATE, EDIT, DELETE, require_permission, protect_blueprint
 from ..models import Asset
 from flask_login import current_user
 from datetime import datetime, timedelta
@@ -150,6 +151,7 @@ def pipeline():
 
 @tickets_bp.route('/<int:ticket_id>/update-status', methods=['POST'])
 @login_required
+@require_permission('tickets', EDIT)
 def update_ticket_status(ticket_id):
     """Update a ticket's status via AJAX (for drag-and-drop on pipeline)."""
     ticket = Ticket.query.get_or_404(ticket_id)
@@ -193,6 +195,7 @@ def update_ticket_status(ticket_id):
 
 @tickets_bp.route('/<int:ticket_id>/snooze', methods=['POST'])
 @login_required
+@require_permission('tickets', EDIT)
 def snooze_ticket(ticket_id):
     t = Ticket.query.get_or_404(ticket_id)
     # Expect date as YYYY-MM-DD
@@ -215,6 +218,7 @@ def snooze_ticket(ticket_id):
 
 @tickets_bp.route('/<int:ticket_id>/unsnooze', methods=['POST'])
 @login_required
+@require_permission('tickets', EDIT)
 def unsnooze_ticket(ticket_id):
     t = Ticket.query.get_or_404(ticket_id)
     t.snoozed_until = None
@@ -312,6 +316,7 @@ def notify_ticket_watchers(ticket, changed_by_user_id, changes):
 
 @tickets_bp.route('/new', methods=['GET', 'POST'])
 @login_required
+@require_permission('tickets', CREATE)
 def new_ticket():
     form = TicketForm()
     # Prefill requester (email) if provided via query string on initial GET
@@ -464,6 +469,11 @@ def assets_for_requester():
 @tickets_bp.route('/<int:ticket_id>', methods=['GET', 'POST'])
 @login_required
 def show_ticket(ticket_id):
+    # GET needs only the blueprint-level View gate; POSTs (notes, updates,
+    # process/task assignment) require at least Create on Tickets
+    if request.method == 'POST' and not current_user.can('tickets', CREATE):
+        flash('You do not have permission to do that.', 'danger')
+        return redirect(url_for('tickets.show_ticket', ticket_id=ticket_id))
     t = Ticket.query.get_or_404(ticket_id)
     # Find associated contact by email (preferred)
     contact = None
@@ -978,6 +988,7 @@ def get_approval_data(ticket_id):
 
 @tickets_bp.route('/<int:ticket_id>/forward_note', methods=['POST'])
 @login_required
+@require_permission('tickets', EDIT)
 def forward_note(ticket_id):
     t = Ticket.query.get_or_404(ticket_id)
     raw_email = (request.form.get('email') or '').strip()
@@ -1086,10 +1097,9 @@ def edit_note(ticket_id, note_id):
     """
     t = Ticket.query.get_or_404(ticket_id)
     note = TicketNote.query.filter_by(id=note_id, ticket_id=t.id).first_or_404()
-    # Permission check
-    role = getattr(current_user, 'role', 'tech') or 'tech'
+    # Permission check: author, or Edit level on Tickets for moderating others' notes
     user_id = getattr(current_user, 'id', None)
-    if not ((note.author_id and note.author_id == user_id) or (role == 'admin')):
+    if not ((note.author_id and note.author_id == user_id) or current_user.can('tickets', EDIT)):
         flash('You do not have permission to edit this note.', 'danger')
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id, _anchor='notes'))
     # Sanitize incoming HTML similar to add note
@@ -1134,6 +1144,7 @@ def edit_note(ticket_id, note_id):
 
 @tickets_bp.route('/<int:ticket_id>/tasks/<int:task_id>/toggle', methods=['POST'])
 @login_required
+@require_permission('tickets', EDIT)
 def toggle_task(ticket_id, task_id):
     t = Ticket.query.get_or_404(ticket_id)
     task = TicketTask.query.get_or_404(task_id)
@@ -1165,6 +1176,7 @@ def toggle_task(ticket_id, task_id):
 
 @tickets_bp.route('/<int:ticket_id>/tasks/<int:task_id>/edit', methods=['POST'])
 @login_required
+@require_permission('tickets', EDIT)
 def edit_task(ticket_id, task_id):
     t = Ticket.query.get_or_404(ticket_id)
     task = TicketTask.query.get_or_404(task_id)
@@ -1192,6 +1204,7 @@ def edit_task(ticket_id, task_id):
 
 @tickets_bp.route('/<int:ticket_id>/tasks/<int:task_id>/delete', methods=['POST'])
 @login_required
+@require_permission('tickets', EDIT)
 def delete_task(ticket_id, task_id):
     t = Ticket.query.get_or_404(ticket_id)
     task = TicketTask.query.get_or_404(task_id)
@@ -1209,6 +1222,7 @@ def delete_task(ticket_id, task_id):
 
 @tickets_bp.route('/<int:ticket_id>/tasks/delete_all', methods=['POST'])
 @login_required
+@require_permission('tickets', EDIT)
 def delete_all_tasks(ticket_id):
     t = Ticket.query.get_or_404(ticket_id)
     if t.is_closed:
@@ -1223,6 +1237,7 @@ def delete_all_tasks(ticket_id):
 
 @tickets_bp.route('/<int:ticket_id>/processes/<int:tp_id>/items/<int:item_id>', methods=['POST'])
 @login_required
+@require_permission('tickets', EDIT)
 def update_process_item(ticket_id, tp_id, item_id):
     t = Ticket.query.get_or_404(ticket_id)
     if t.is_closed:
@@ -1255,6 +1270,7 @@ def update_process_item(ticket_id, tp_id, item_id):
 
 @tickets_bp.route('/<int:ticket_id>/processes/<int:tp_id>/delete', methods=['POST'])
 @login_required
+@require_permission('tickets', EDIT)
 def delete_process(ticket_id, tp_id):
     t = Ticket.query.get_or_404(ticket_id)
     if t.is_closed:
@@ -1273,6 +1289,7 @@ def delete_process(ticket_id, tp_id):
 
 @tickets_bp.route('/<int:ticket_id>/delete', methods=['POST'])
 @login_required
+@require_permission('tickets', DELETE)
 def delete_ticket(ticket_id):
     t = Ticket.query.get_or_404(ticket_id)
     # Validation: must have no notes, no order items, no assignee
@@ -1311,6 +1328,7 @@ def delete_ticket(ticket_id):
 
 @tickets_bp.route('/<int:ticket_id>/processes/<int:tp_id>/edit', methods=['POST'])
 @login_required
+@require_permission('tickets', EDIT)
 def edit_process(ticket_id, tp_id):
     t = Ticket.query.get_or_404(ticket_id)
     if t.is_closed:
@@ -1342,6 +1360,7 @@ def edit_process(ticket_id, tp_id):
 
 @tickets_bp.route('/<int:ticket_id>/processes/<int:tp_id>/items/<int:item_id>/delete_line', methods=['POST'])
 @login_required
+@require_permission('tickets', EDIT)
 def delete_process_line(ticket_id, tp_id, item_id):
     t = Ticket.query.get_or_404(ticket_id)
     if t.is_closed:
@@ -1365,6 +1384,7 @@ def delete_process_line(ticket_id, tp_id, item_id):
 
 @tickets_bp.route('/<int:ticket_id>/assign_asset', methods=['POST'])
 @login_required
+@require_permission('tickets', EDIT)
 def assign_asset(ticket_id):
     t = Ticket.query.get_or_404(ticket_id)
     if t.asset_id:
@@ -1399,6 +1419,7 @@ def assign_asset(ticket_id):
 
 @tickets_bp.route('/<int:ticket_id>/request_approval', methods=['POST'])
 @login_required
+@require_permission('tickets', EDIT)
 def request_approval(ticket_id):
     """Send an approval request to the requester's manager for order items."""
     from ..services.ms_graph import send_mail
@@ -1519,6 +1540,7 @@ def request_approval(ticket_id):
 
 @tickets_bp.route('/<int:ticket_id>/resend_approval/<int:approval_id>', methods=['POST'])
 @login_required
+@require_permission('tickets', EDIT)
 def resend_approval(ticket_id, approval_id):
     """Resend an existing approval request email to the manager."""
     from ..services.ms_graph import send_mail
@@ -1652,6 +1674,7 @@ def tag_search():
 
 @tickets_bp.route('/<int:ticket_id>/tags/add', methods=['POST'])
 @login_required
+@require_permission('tickets', EDIT)
 def ticket_tag_add(ticket_id):
     """Add a tag to a ticket (AJAX)."""
     t = Ticket.query.get_or_404(ticket_id)
@@ -1669,6 +1692,7 @@ def ticket_tag_add(ticket_id):
 
 @tickets_bp.route('/<int:ticket_id>/tags/remove/<int:tag_id>', methods=['POST'])
 @login_required
+@require_permission('tickets', EDIT)
 def ticket_tag_remove(ticket_id, tag_id):
     """Remove a tag from a ticket (AJAX)."""
     t = Ticket.query.get_or_404(ticket_id)
@@ -1677,3 +1701,6 @@ def ticket_tag_remove(ticket_id, tag_id):
         t.tags.remove(tag)
         db.session.commit()
     return jsonify({'success': True})
+
+
+protect_blueprint(tickets_bp, 'tickets')

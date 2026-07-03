@@ -9,7 +9,7 @@
         <small class="text-muted">Manage and track organizational assets</small>
       </div>
       <div class="d-flex gap-2">
-        {% if current_user.role in ['admin','tech','manager'] %}
+        {% if can('assets', 'create') %}
         <a href="{{ url_for('assets.new') }}" class="btn btn-primary btn-sm">
           <i class="bi bi-plus-lg me-1"></i>New Asset
         </a>
@@ -168,7 +168,7 @@
                   {% if q or status or show=='available' %}
                     Try adjusting your filters or <a href="{{ url_for('assets.index') }}">clear all filters</a>
                   {% else %}
-                    {% if current_user.role == 'admin' %}
+                    {% if can('admin', 'view') and can('assets', 'edit') %}
                       <a href="{{ url_for('admin.index') }}#assets-card">Import assets</a> to get started
                     {% else %}
                       No assets have been imported yet

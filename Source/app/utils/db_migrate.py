@@ -868,3 +868,67 @@ def ensure_report_tables(engine):
                 )
             """))
         conn.commit()
+
+
+def ensure_role_tables(engine):
+    """Create the role table and user.role_id column for existing DBs."""
+    with engine.connect() as conn:
+        rows = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='role'"))
+        if rows.fetchone() is None:
+            conn.execute(text(
+                """
+                CREATE TABLE role (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE,
+                    builtin_key TEXT UNIQUE,
+                    is_system BOOLEAN DEFAULT 0 NOT NULL,
+                    permissions_json TEXT,
+                    created_at DATETIME
+                )
+                """
+            ))
+        info = conn.execute(text("PRAGMA table_info('user')")).fetchall()
+        existing = {row[1] for row in info}
+        if 'role_id' not in existing:
+            conn.execute(text("ALTER TABLE user ADD COLUMN role_id INTEGER"))
+        conn.commit()
+
+
+def seed_builtin_roles(db):
+    """Seed Administrator/Technician roles and backfill user.role_id. Idempotent."""
+    import json as _json
+    from ..models import Role, User
+    from ..permissions import MODULES, DELETE, NONE
+
+    full_access = {m['key']: DELETE for m in MODULES}
+    tech_access = {m['key']: (NONE if m['key'] == 'admin' else DELETE) for m in MODULES}
+
+    admin_role = Role.query.filter_by(builtin_key='administrator').first()
+    if not admin_role:
+        admin_role = Role(
+            name='Administrator', builtin_key='administrator', is_system=True,
+            permissions_json=_json.dumps(full_access),
+        )
+        db.session.add(admin_role)
+
+    tech_role = Role.query.filter_by(builtin_key='technician').first()
+    if not tech_role:
+        tech_role = Role(
+            name='Technician', builtin_key='technician', is_system=True,
+            permissions_json=_json.dumps(tech_access),
+        )
+        db.session.add(tech_role)
+    db.session.flush()
+
+    # Backfill users created before the role table existed
+    for user in User.query.filter(User.role_id.is_(None)).all():
+        user.role_id = admin_role.id if user.role == 'admin' else tech_role.id
+
+    # Safety net: a half-migrated DB must not end up with zero Administrators
+    has_active_admin = User.query.filter_by(role_id=admin_role.id, is_active=True).count() > 0
+    if not has_active_admin:
+        legacy_admin = User.query.filter_by(role='admin', is_active=True).first()
+        if legacy_admin:
+            legacy_admin.role_id = admin_role.id
+
+    db.session.commit()

@@ -1,4 +1,5 @@
 import hashlib
+import json
 import secrets
 from datetime import datetime
 from flask_login import UserMixin
@@ -42,12 +43,51 @@ class Setting(db.Model):
         return s.value if s else default
 
 
+class Role(db.Model):
+    """A named set of per-module access levels (see app/permissions.py).
+
+    permissions_json maps module key -> level int, e.g. {"tickets": 4, "assets": 1}.
+    Missing keys mean No Access (fail closed). The built-in Administrator role
+    bypasses the stored map entirely and always has full access.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(80), unique=True, nullable=False)
+    builtin_key = db.Column(db.String(40), nullable=True, unique=True)  # 'administrator' | 'technician' | None
+    is_system = db.Column(db.Boolean, default=False, nullable=False)
+    permissions_json = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    @property
+    def permissions(self) -> dict:
+        try:
+            data = json.loads(self.permissions_json) if self.permissions_json else {}
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def level(self, module_key: str) -> int:
+        if self.builtin_key == 'administrator':
+            from .permissions import DELETE
+            return DELETE
+        try:
+            return int(self.permissions.get(module_key, 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def set_permissions(self, perms: dict):
+        self.permissions_json = json.dumps(perms or {})
+
+
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(255), unique=True, nullable=False)
     name = db.Column(db.String(120), nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
+    # Legacy/derived column kept in sync by set_role(); do not check directly —
+    # use can()/is_administrator instead.
     role = db.Column(db.String(50), default="tech")  # 'admin' or 'tech'
+    role_id = db.Column(db.Integer, db.ForeignKey('role.id'), nullable=True)
+    role_obj = db.relationship('Role')
     is_active = db.Column(db.Boolean, default=True)
     theme = db.Column(db.String(20), default="light")  # 'light', 'dark', or custom keys
     tickets_view_pref = db.Column(db.String(40), default="any")  # 'any', 'me', 'me_or_unassigned'
@@ -63,6 +103,26 @@ class User(UserMixin, db.Model):
 
     def get_id(self):
         return str(self.id)
+
+    def set_role(self, role: "Role"):
+        """Assign a Role and keep the legacy role string in sync."""
+        self.role_id = role.id if role else None
+        self.role_obj = role
+        self.role = 'admin' if (role and role.builtin_key == 'administrator') else 'tech'
+
+    def permission_level(self, module_key: str) -> int:
+        from .permissions import get_level
+        return get_level(self, module_key)
+
+    def can(self, module_key: str, level: int) -> bool:
+        from .permissions import has_permission
+        return has_permission(self, module_key, level)
+
+    @property
+    def is_administrator(self) -> bool:
+        if self.role_obj is not None:
+            return self.role_obj.builtin_key == 'administrator'
+        return self.role == 'admin'
 
 
 @login_manager.user_loader
