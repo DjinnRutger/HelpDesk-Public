@@ -283,6 +283,24 @@ class Ticket(db.Model):
         except Exception:
             return False
 
+    def bump_new_to_open(self) -> bool:
+        """Auto-transition 'new' -> 'open' when a technician acts on the ticket.
+
+        Returns True if the status changed; the caller commits. No-op unless
+        the current status key is 'new' and an 'open' TicketStatus row exists
+        (admin renames/deletes of either key silently disable this). Both
+        statuses are non-closed, so closed_at is untouched. Never raises.
+        """
+        try:
+            if (self.status or '').strip().lower() != 'new':
+                return False
+            if TicketStatus.query.filter_by(name='open').first() is None:
+                return False
+            self.status = 'open'
+            return True
+        except Exception:
+            return False
+
     # Notes relationship
     notes = db.relationship('TicketNote', backref='ticket', lazy='dynamic', cascade='all, delete-orphan')
     attachments = db.relationship('TicketAttachment', backref='ticket', cascade='all, delete-orphan')
@@ -295,6 +313,9 @@ class Ticket(db.Model):
     created_by = db.relationship('User', foreign_keys=[created_by_user_id])
     # Tags (many-to-many)
     tags = db.relationship('Tag', secondary=ticket_tags, back_populates='tickets')
+    # AI assistant artifacts (one row each)
+    ai_embedding = db.relationship('TicketEmbedding', backref='ticket', uselist=False, cascade='all, delete-orphan')
+    ai_suggestion = db.relationship('TicketAISuggestion', backref='ticket', uselist=False, cascade='all, delete-orphan')
 
 
 class TicketNote(db.Model):
@@ -318,6 +339,35 @@ class TicketAttachment(db.Model):
     static_path = db.Column(db.String(1000), nullable=False)
     size_bytes = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class TicketEmbedding(db.Model):
+    """Vector embedding of a ticket's text, computed by the configured AI server.
+
+    vector holds L2-normalized float32 values packed little-endian, so cosine
+    similarity between two rows reduces to a dot product.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    ticket_id = db.Column(db.Integer, db.ForeignKey('ticket.id'), nullable=False, unique=True, index=True)
+    model = db.Column(db.String(100), nullable=True)
+    # sha256 of the embedded text; unchanged hash means no re-embed needed
+    content_hash = db.Column(db.String(64), nullable=True)
+    vector = db.Column(db.LargeBinary, nullable=False)
+    dim = db.Column(db.Integer, nullable=False, default=0)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class TicketAISuggestion(db.Model):
+    """AI-drafted reply for a ticket; the tech approves, edits, or dismisses it."""
+    id = db.Column(db.Integer, primary_key=True)
+    ticket_id = db.Column(db.Integer, db.ForeignKey('ticket.id'), nullable=False, unique=True, index=True)
+    # sanitized HTML (sanitize_rich_text applied before storage)
+    content = db.Column(db.Text, nullable=True)
+    model = db.Column(db.String(100), nullable=True)
+    status = db.Column(db.String(20), nullable=False, default='pending')  # pending|ready|failed|dismissed
+    error = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 # --- Simple per-ticket Tasks ---

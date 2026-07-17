@@ -926,6 +926,45 @@ def ensure_role_tables(engine):
         conn.commit()
 
 
+def ensure_ai_tables(engine):
+    """Tables for the AI assistant: ticket embeddings and suggested responses."""
+    with engine.connect() as conn:
+        rows = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='ticket_embedding'"))
+        if rows.fetchone() is None:
+            conn.execute(text(
+                """
+                CREATE TABLE ticket_embedding (
+                    id INTEGER PRIMARY KEY,
+                    ticket_id INTEGER NOT NULL UNIQUE,
+                    model TEXT,
+                    content_hash TEXT,
+                    vector BLOB NOT NULL,
+                    dim INTEGER NOT NULL DEFAULT 0,
+                    updated_at DATETIME
+                )
+                """
+            ))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ticket_embedding_ticket_id ON ticket_embedding (ticket_id)"))
+        rows = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='ticket_ai_suggestion'"))
+        if rows.fetchone() is None:
+            conn.execute(text(
+                """
+                CREATE TABLE ticket_ai_suggestion (
+                    id INTEGER PRIMARY KEY,
+                    ticket_id INTEGER NOT NULL UNIQUE,
+                    content TEXT,
+                    model TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    error TEXT,
+                    created_at DATETIME,
+                    updated_at DATETIME
+                )
+                """
+            ))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ticket_ai_suggestion_ticket_id ON ticket_ai_suggestion (ticket_id)"))
+        conn.commit()
+
+
 def seed_builtin_roles(db):
     """Seed Administrator/Technician roles and backfill user.role_id. Idempotent."""
     import json as _json

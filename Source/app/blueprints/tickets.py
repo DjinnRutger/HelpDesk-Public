@@ -4,7 +4,7 @@ from ..models import Ticket, ProcessTemplate, TicketProcess, TicketProcessItem, 
 from .. import db
 from ..forms import TicketForm, NoteForm, TicketUpdateForm, ProcessAssignForm, TaskAssignForm
 from ..models import User, Contact, TicketNote
-from ..permissions import CREATE, EDIT, DELETE, require_permission, protect_blueprint
+from ..permissions import VIEW, CREATE, EDIT, DELETE, require_permission, protect_blueprint
 from ..utils.html_sanitize import sanitize_rich_text, sanitize_ticket_body
 from ..models import Asset
 from flask_login import current_user
@@ -212,6 +212,7 @@ def snooze_ticket(ticket_id):
         flash('Invalid snooze date.', 'danger')
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
     t.snoozed_until = dt
+    t.bump_new_to_open()
     db.session.commit()
     flash('Ticket snoozed.', 'success')
     return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
@@ -223,6 +224,7 @@ def snooze_ticket(ticket_id):
 def unsnooze_ticket(ticket_id):
     t = Ticket.query.get_or_404(ticket_id)
     t.snoozed_until = None
+    t.bump_new_to_open()
     db.session.commit()
     flash('Ticket unsnoozed.', 'success')
     return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
@@ -517,6 +519,7 @@ def show_ticket(ticket_id):
             t.requester_name = (c.name or None)
             # Keep legacy requester in sync with email for backwards-compatibility
             t.requester = new_req
+            t.bump_new_to_open()
             db.session.commit()
             flash('Requester updated', 'success')
         else:
@@ -567,12 +570,26 @@ def show_ticket(ticket_id):
             flash('Co-Tech cannot be the same as the primary Assignee.', 'warning')
             return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
         t.co_assignee_id = new_co_id
+        # Auto-open: if the tech left the status as 'new' but changed anything
+        # else, treat the edit as engagement. An explicit status choice
+        # (new_status != prev_status) always wins.
+        auto_opened = False
+        if new_status == prev_status and (prev_status or '').strip().lower() == 'new':
+            other_changed = (
+                update_form.priority.data != prev_priority
+                or t.assignee_id != prev_assignee_id
+                or t.co_assignee_id != prev_co_assignee_id
+            )
+            if other_changed:
+                auto_opened = t.bump_new_to_open()
         db.session.commit()
 
         # Build list of changes for watcher notifications
         changes = []
         if new_status != prev_status:
             changes.append(f"Status changed from '{prev_status}' to '{new_status}'")
+        if auto_opened:
+            changes.append("Status changed from 'new' to 'open' (automatic: ticket updated)")
         if update_form.priority.data != prev_priority:
             changes.append(f"Priority changed from '{prev_priority}' to '{update_form.priority.data}'")
         if t.assignee_id != prev_assignee_id:
@@ -652,8 +669,9 @@ def show_ticket(ticket_id):
             is_private=is_private_flag,
         )
         db.session.add(note)
+        t.bump_new_to_open()
         db.session.commit()
-        
+
         # Notify watchers that a note was added
         author_name = current_user.name if current_user else 'Someone'
         note_type = 'private note' if is_private_flag else 'public note'
@@ -721,6 +739,7 @@ def show_ticket(ticket_id):
         )
         t.project_id = project.id
         t.project_position = max_pos + 1
+        t.bump_new_to_open()
         db.session.commit()
         flash('Ticket merged into project.', 'success')
         return redirect(url_for('projects.show_project', project_id=project.id))
@@ -762,6 +781,7 @@ def show_ticket(ticket_id):
                     position=pos,
                 ))
                 pos += 1
+            t.bump_new_to_open()
             db.session.commit()
             flash('Process assigned to ticket', 'success')
             return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
@@ -785,6 +805,7 @@ def show_ticket(ticket_id):
                 position=base_pos + idx,
             )
             db.session.add(tt)
+        t.bump_new_to_open()
         db.session.commit()
         flash('Tasks created', 'success')
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
@@ -850,7 +871,13 @@ def show_ticket(ticket_id):
             if len(suggested_tags) >= 15:
                 break
 
-    return render_template('tickets/detail.html', t=t, notes=notes, tasks=tasks, tasks_by_list=tasks_by_list, order_items=order_items, note_form=note_form, update_form=update_form, assign_form=assign_form, task_form=task_form, contact=contact, techs=techs, merge_form=merge_form, contact_assets=contact_assets, contacts=contacts, approval_requests=approval_requests, is_watching=is_watching, back_url=back_url, all_tags=all_tags, suggested_tags=suggested_tags)
+    from ..services.ai import ai_enabled as _ai_enabled
+    try:
+        ai_on = _ai_enabled()
+    except Exception:
+        ai_on = False
+
+    return render_template('tickets/detail.html', t=t, notes=notes, tasks=tasks, tasks_by_list=tasks_by_list, order_items=order_items, note_form=note_form, update_form=update_form, assign_form=assign_form, task_form=task_form, contact=contact, techs=techs, merge_form=merge_form, contact_assets=contact_assets, contacts=contacts, approval_requests=approval_requests, is_watching=is_watching, back_url=back_url, all_tags=all_tags, suggested_tags=suggested_tags, ai_enabled=ai_on)
 
 
 @tickets_bp.route('/<int:ticket_id>/attachments/<path:filename>')
@@ -957,8 +984,97 @@ def get_approval_data(ticket_id):
         })
     
     result['total_cost'] = total_cost
-    
+
     return jsonify(result)
+
+
+@tickets_bp.route('/<int:ticket_id>/api/ai_similar')
+@login_required
+@require_permission('ai', VIEW)
+def ai_similar(ticket_id):
+    """Similar tickets from the embedding index (works offline once indexed)."""
+    from ..services.ai import ai_enabled, find_similar
+    t = Ticket.query.get_or_404(ticket_id)
+    if not ai_enabled():
+        return jsonify({'enabled': False, 'items': []})
+    try:
+        results = find_similar(t)
+    except Exception as e:
+        current_app.logger.error(f'AI similar-ticket search failed for #{ticket_id}: {e}')
+        results = []
+    items = [{
+        'id': r['ticket'].id,
+        'subject': r['ticket'].subject or '(no subject)',
+        'status': r['ticket'].status or '',
+        'created_at': r['ticket'].created_at.strftime('%Y-%m-%d') if r['ticket'].created_at else '',
+        'score': round(max(0.0, min(1.0, r['score'])) * 100),
+        'url': url_for('tickets.show_ticket', ticket_id=r['ticket'].id),
+    } for r in results]
+    return jsonify({'enabled': True, 'items': items})
+
+
+@tickets_bp.route('/<int:ticket_id>/api/ai_suggestion')
+@login_required
+@require_permission('ai', VIEW)
+def ai_suggestion(ticket_id):
+    """Current AI-suggested response state (used for initial load + polling)."""
+    from ..models import TicketAISuggestion
+    from ..services.ai import ai_enabled
+    Ticket.query.get_or_404(ticket_id)
+    if not ai_enabled():
+        return jsonify({'enabled': False, 'status': 'none'})
+    row = TicketAISuggestion.query.filter_by(ticket_id=ticket_id).first()
+    if row is None:
+        return jsonify({'enabled': True, 'status': 'none'})
+    return jsonify({
+        'enabled': True,
+        'status': row.status,
+        'content': row.content if row.status == 'ready' else None,
+        'error': (row.error or '')[:300] if row.status == 'failed' else None,
+        'model': row.model,
+        'updated_at': row.updated_at.strftime('%Y-%m-%d %H:%M UTC') if row.updated_at else '',
+    })
+
+
+@tickets_bp.route('/<int:ticket_id>/ai/suggest', methods=['POST'])
+@login_required
+@require_permission('ai', CREATE)
+def ai_suggest(ticket_id):
+    """Request (re)generation of the suggested response. Returns immediately;
+    a background thread (and the scheduler as a safety net) does the work."""
+    from ..models import TicketAISuggestion
+    from ..services.ai import ai_enabled, kick_generate
+    Ticket.query.get_or_404(ticket_id)
+    if not ai_enabled():
+        return jsonify({'success': False, 'error': 'AI assistant is disabled'}), 400
+    row = TicketAISuggestion.query.filter_by(ticket_id=ticket_id).first()
+    if row is not None and row.status == 'generating':
+        return jsonify({'success': True, 'status': 'generating'})
+    if row is None:
+        row = TicketAISuggestion(ticket_id=ticket_id, status='pending')
+        db.session.add(row)
+    else:
+        row.status = 'pending'
+        row.error = None
+        row.updated_at = datetime.utcnow()
+    db.session.commit()
+    kick_generate(ticket_id)
+    return jsonify({'success': True, 'status': 'pending'})
+
+
+@tickets_bp.route('/<int:ticket_id>/ai/dismiss', methods=['POST'])
+@login_required
+@require_permission('ai', EDIT)
+def ai_dismiss(ticket_id):
+    """Hide the suggestion for this ticket (kept in DB; Regenerate revives it)."""
+    from ..models import TicketAISuggestion
+    Ticket.query.get_or_404(ticket_id)
+    row = TicketAISuggestion.query.filter_by(ticket_id=ticket_id).first()
+    if row is not None and row.status != 'generating':
+        row.status = 'dismissed'
+        row.updated_at = datetime.utcnow()
+        db.session.commit()
+    return jsonify({'success': True})
 
 
 @tickets_bp.route('/<int:ticket_id>/forward_note', methods=['POST'])
@@ -1023,6 +1139,7 @@ def forward_note(ticket_id):
                 is_private=False,
             )
             db.session.add(note)
+            t.bump_new_to_open()
             db.session.commit()
         except Exception:
             db.session.rollback()
@@ -1055,6 +1172,7 @@ def edit_note(ticket_id, note_id):
         is_private_flag = True
     note.content = sanitized_html
     note.is_private = is_private_flag
+    t.bump_new_to_open()
     db.session.commit()
     flash('Note updated.', 'success')
     return redirect(url_for('tickets.show_ticket', ticket_id=t.id, _anchor='notes'))
@@ -1085,6 +1203,7 @@ def toggle_task(ticket_id, task_id):
     else:
         task.checked_by_user_id = None
         task.checked_at = None
+    t.bump_new_to_open()
     db.session.commit()
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
         return ('', 204)
@@ -1115,6 +1234,7 @@ def edit_task(ticket_id, task_id):
         task.label = label
     task.list_name = list_name
     task.assigned_tech_id = None if assigned_val == 0 else assigned_val
+    t.bump_new_to_open()
     db.session.commit()
     flash('Task updated', 'success')
     return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
@@ -1133,6 +1253,7 @@ def delete_task(ticket_id, task_id):
         flash('Ticket is closed; tasks cannot be deleted.', 'warning')
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
     db.session.delete(task)
+    t.bump_new_to_open()
     db.session.commit()
     flash('Task deleted', 'success')
     return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
@@ -1148,6 +1269,7 @@ def delete_all_tasks(ticket_id):
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
     # Bulk delete all tasks for this ticket
     TicketTask.query.filter_by(ticket_id=t.id).delete()
+    t.bump_new_to_open()
     db.session.commit()
     flash('All tasks deleted', 'success')
     return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
@@ -1178,6 +1300,7 @@ def update_process_item(ticket_id, tp_id, item_id):
             item.checked_at = None
     else:
         item.text_value = request.form.get('text_value', '')
+    t.bump_new_to_open()
     db.session.commit()
     # If this is an AJAX request, return 204 to prevent page reload/scroll
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
@@ -1200,6 +1323,7 @@ def delete_process(ticket_id, tp_id):
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
     # Deleting the TicketProcess will cascade delete its items
     db.session.delete(tp)
+    t.bump_new_to_open()
     db.session.commit()
     flash('Process removed from ticket.', 'success')
     return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
@@ -1271,6 +1395,7 @@ def edit_process(ticket_id, tp_id):
         if type_val in type_choices:
             it.type = type_val
         it.assigned_tech_id = None if not assigned_val or assigned_val == 0 else assigned_val
+    t.bump_new_to_open()
     db.session.commit()
     flash('Process updated.', 'success')
     return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
@@ -1293,6 +1418,7 @@ def delete_process_line(ticket_id, tp_id, item_id):
         flash('Not found', 'danger')
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
     db.session.delete(item)
+    t.bump_new_to_open()
     db.session.commit()
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
         return ('', 204)
@@ -1330,6 +1456,7 @@ def assign_asset(ticket_id):
                 flash('Asset is not assigned to this requester.', 'danger')
                 return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
     t.asset_id = a.id
+    t.bump_new_to_open()
     db.session.commit()
     flash('Asset linked to ticket.', 'success')
     return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
@@ -1442,6 +1569,7 @@ def request_approval(ticket_id):
     
     # Persist the approval request, then queue the email for background delivery
     try:
+        t.bump_new_to_open()
         db.session.commit()
     except Exception as e:
         db.session.rollback()
@@ -1539,6 +1667,8 @@ def resend_approval(ticket_id, approval_id):
     # Queue the reminder email for background delivery
     try:
         enqueue_mail(manager.email, subject, email_body, to_name=manager.name, category='approval_request', ticket_id=t.id)
+        if t.bump_new_to_open():
+            db.session.commit()
         flash(f'Approval reminder queued for {manager.name or manager.email}.', 'success')
     except Exception as e:
         flash(f'Error queuing approval reminder: {str(e)}', 'danger')
@@ -1599,6 +1729,7 @@ def ticket_tag_add(ticket_id):
     tag = Tag.query.get_or_404(tag_id)
     if tag not in t.tags:
         t.tags.append(tag)
+        t.bump_new_to_open()
         db.session.commit()
     return jsonify({'success': True, 'tag': {
         'id': tag.id, 'name': tag.name, 'full_path': tag.full_path, 'color': tag.effective_color
@@ -1614,6 +1745,7 @@ def ticket_tag_remove(ticket_id, tag_id):
     tag = Tag.query.get_or_404(tag_id)
     if tag in t.tags:
         t.tags.remove(tag)
+        t.bump_new_to_open()
         db.session.commit()
     return jsonify({'success': True})
 

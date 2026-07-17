@@ -40,6 +40,18 @@ class ClientApiForm(FlaskForm):
         self.default_assignee_id.choices = [(0, '— Unassigned —')] + [(u.id, u.name) for u in techs]
 
 
+class AISettingsForm(FlaskForm):
+    enabled = BooleanField('Enable AI assistant')
+    host = StringField('AI server host / IP', validators=[DataRequired(), Length(max=255)])
+    port = IntegerField('Port', validators=[DataRequired(), NumberRange(min=1, max=65535)])
+    chat_model = StringField('Chat model', validators=[DataRequired(), Length(max=100)])
+    embed_model = StringField('Embedding model', validators=[DataRequired(), Length(max=100)])
+    auto_suggest = BooleanField('Auto-generate suggested responses for new tickets')
+    index_interval = IntegerField('Index refresh interval (minutes)', validators=[DataRequired(), NumberRange(min=1, max=1440)])
+    similar_count = IntegerField('Similar tickets to show', validators=[DataRequired(), NumberRange(min=1, max=20)])
+    submit = SubmitField('Save Settings')
+
+
 class TechForm(FlaskForm):
     name = StringField('Name', validators=[DataRequired(), Length(max=120)])
     email = StringField('Email', validators=[DataRequired(), Email(), Length(max=255)])

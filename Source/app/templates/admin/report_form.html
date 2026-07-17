@@ -2,12 +2,8 @@
 {% block title %}{{ action }} Report · Admin{% endblock %}
 {% block content %}
 {% set sections_raw = report.sections if report and report.sections else '{}' %}
-{% if form %}
-  {% set sel_user_ids = form.getlist('recipient_user_ids')|map('int')|list %}
-{% else %}
-  {% set sel_user_ids_raw = report.recipient_user_ids if report and report.recipient_user_ids else '[]' %}
-  {% set sel_user_ids = (sel_user_ids_raw|from_json) or [] %}
-{% endif %}
+{# sel_user_ids (list of ints) and users are computed by the route so the
+   checked state always matches what is actually stored/posted. #}
 {% set sections_obj = (sections_raw|from_json) or {} %}
 {# Coerce a section value (form string OR legacy bool from sections_obj) into one of off/data/chart/both. #}
 {% macro mode_of(key, form_field) -%}
@@ -169,12 +165,28 @@
             <div class="row g-3">
               <div class="col-md-6">
                 <label class="form-label small fw-semibold">Internal users</label>
-                <select class="form-select" name="recipient_user_ids" multiple size="6">
+                <div class="border rounded p-2" style="max-height: 220px; overflow-y: auto;">
                   {% for u in users %}
-                  <option value="{{ u.id }}" {% if u.id in sel_user_ids %}selected{% endif %}>{{ u.name or u.email }}{% if u.email %} &lt;{{ u.email }}&gt;{% endif %}</option>
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="recipient_user_ids"
+                           value="{{ u.id }}" id="recip_user_{{ u.id }}"
+                           {% if u.id in sel_user_ids %}checked{% endif %}>
+                    <label class="form-check-label" for="recip_user_{{ u.id }}">
+                      {{ u.name or u.email }}{% if u.email %} &lt;{{ u.email }}&gt;{% endif %}
+                      {% if not u.is_active %}<span class="badge bg-secondary-subtle text-secondary-emphasis ms-1">inactive</span>{% endif %}
+                    </label>
+                  </div>
+                  {% else %}
+                  <div class="text-muted small">No users available.</div>
                   {% endfor %}
-                </select>
-                <div class="form-text">Hold Ctrl/Cmd to select multiple.</div>
+                </div>
+                <div class="form-text">Check each user who should receive this report.</div>
+                {% if saved_recipients is defined and saved_recipients %}
+                <div class="form-text">
+                  <i class="bi bi-check-circle me-1"></i>Currently saved:
+                  {% for su in saved_recipients %}{{ su.name or su.email }}{% if not loop.last %}, {% endif %}{% endfor %}
+                </div>
+                {% endif %}
               </div>
               <div class="col-md-6">
                 <label class="form-label small fw-semibold">External emails</label>

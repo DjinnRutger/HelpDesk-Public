@@ -37,3 +37,6 @@ cryptography>=42.0.0
 
 # LDAP/Active Directory integration
 ldap3==2.9.1
+
+# AI assistant (ticket similarity search over stored embeddings)
+numpy>=1.26

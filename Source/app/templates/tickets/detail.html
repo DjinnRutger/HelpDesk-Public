@@ -324,6 +324,38 @@
       </div>
     </div>
 
+    {% if ai_enabled and can('ai', 'view') %}
+    <!-- AI Suggested Response -->
+    <div class="card shadow-sm mt-3" id="aiSuggestionCard" style="display:none;">
+      <div class="card-header bg-body-tertiary d-flex align-items-center justify-content-between">
+        <h6 class="mb-0"><i class="bi bi-stars me-1 text-primary"></i>AI Suggested Response</h6>
+        <small class="text-muted" id="aiSuggestionMeta"></small>
+      </div>
+      <div class="card-body">
+        <div id="aiSuggestionPending" style="display:none;" class="text-muted small">
+          <span class="spinner-border spinner-border-sm me-2"></span>Drafting a suggested response…
+        </div>
+        <div id="aiSuggestionError" style="display:none;" class="text-danger small"></div>
+        <div id="aiSuggestionContent" class="note-content email-html border rounded p-2 mb-2" style="display:none;"></div>
+        <div class="d-flex flex-wrap gap-2">
+          <button type="button" class="btn btn-sm btn-primary" id="aiUseBtn" style="display:none;">
+            <i class="bi bi-check-lg me-1"></i>Use in reply
+          </button>
+          {% if can('ai', 'create') %}
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="aiRegenBtn" style="display:none;">
+            <i class="bi bi-arrow-repeat me-1"></i>Regenerate
+          </button>
+          {% endif %}
+          {% if can('ai', 'edit') %}
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="aiDismissBtn" style="display:none;">
+            <i class="bi bi-x-lg me-1"></i>Dismiss
+          </button>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
     <!-- Add Note -->
     <div class="card shadow-sm mt-3">
       <div class="card-header bg-body-tertiary">
@@ -537,6 +569,17 @@
         {% endif %}
       </div>
     </div>
+    {% if ai_enabled and can('ai', 'view') %}
+    <!-- Similar Tickets (AI) -->
+    <div class="card shadow-sm mb-3" id="aiSimilarCard">
+      <div class="card-header bg-body-tertiary d-flex align-items-center justify-content-between">
+        <h6 class="mb-0"><i class="bi bi-stars me-1 text-primary"></i>Similar Tickets</h6>
+      </div>
+      <div class="card-body p-2" id="aiSimilarBody">
+        <div class="text-muted small p-1"><span class="spinner-border spinner-border-sm me-2"></span>Searching…</div>
+      </div>
+    </div>
+    {% endif %}
     <!-- Actions -->
     <div class="card shadow-sm mb-3">
       <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
@@ -696,6 +739,117 @@
   const CSRF_TOKEN = "{{ csrf_token() }}";
   const TICKET_ID = "{{ t.id }}";
   const NOTE_DRAFT_KEY = 'ticketNoteDraft:' + TICKET_ID;
+
+  {% if ai_enabled and can('ai', 'view') %}
+  // --- AI assistant: similar tickets + suggested response ---
+  (function () {
+    const SIM_URL = "{{ url_for('tickets.ai_similar', ticket_id=t.id) }}";
+    const SUG_URL = "{{ url_for('tickets.ai_suggestion', ticket_id=t.id) }}";
+    const GEN_URL = "{{ url_for('tickets.ai_suggest', ticket_id=t.id) }}";
+    const DIS_URL = "{{ url_for('tickets.ai_dismiss', ticket_id=t.id) }}";
+    const AI_CAN_CREATE = {{ 'true' if can('ai', 'create') else 'false' }};
+    const escHtml = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+    // Similar tickets card
+    const simCard = document.getElementById('aiSimilarCard');
+    const simBody = document.getElementById('aiSimilarBody');
+    if (simCard) {
+      fetch(SIM_URL, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(r => r.json())
+        .then(data => {
+          if (!data.enabled || !data.items || !data.items.length) {
+            simBody.innerHTML = '<div class="text-muted small fst-italic p-1">No similar tickets found yet.</div>';
+            return;
+          }
+          simBody.innerHTML = '<div class="list-group list-group-flush">' + data.items.map(it =>
+            '<a class="list-group-item list-group-item-action px-2 py-2" href="' + it.url + '?back=' + encodeURIComponent(window.location.pathname) + '">' +
+              '<div class="d-flex justify-content-between align-items-start gap-1">' +
+                '<span class="small">#' + it.id + ' ' + escHtml(it.subject) + '</span>' +
+                '<span class="badge text-bg-secondary rounded-pill flex-shrink-0">' + it.score + '%</span>' +
+              '</div>' +
+              '<div class="small text-muted">' + escHtml(it.status) + (it.created_at ? ' · ' + it.created_at : '') + '</div>' +
+            '</a>').join('') + '</div>';
+        })
+        .catch(() => { simBody.innerHTML = '<div class="text-muted small fst-italic p-1">Similar tickets unavailable.</div>'; });
+    }
+
+    // Suggested response card
+    const card = document.getElementById('aiSuggestionCard');
+    if (!card) return;
+    const pendingEl = document.getElementById('aiSuggestionPending');
+    const errorEl = document.getElementById('aiSuggestionError');
+    const contentEl = document.getElementById('aiSuggestionContent');
+    const metaEl = document.getElementById('aiSuggestionMeta');
+    const useBtn = document.getElementById('aiUseBtn');
+    const regenBtn = document.getElementById('aiRegenBtn');
+    const dismissBtn = document.getElementById('aiDismissBtn');
+    let pollTimer = null;
+    let currentContent = '';
+
+    function render(data) {
+      const st = data.status || 'none';
+      const show = el => { if (el) el.style.display = ''; };
+      const hide = el => { if (el) el.style.display = 'none'; };
+      [pendingEl, errorEl, contentEl, useBtn, regenBtn, dismissBtn].forEach(hide);
+      metaEl.textContent = '';
+      if (!data.enabled) { hide(card); return; }
+      if (st === 'ready') {
+        show(card); show(contentEl); show(useBtn); show(regenBtn); show(dismissBtn);
+        contentEl.innerHTML = data.content || '';
+        currentContent = data.content || '';
+        if (regenBtn) regenBtn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Regenerate';
+        metaEl.textContent = (data.model ? data.model + ' · ' : '') + (data.updated_at || '');
+      } else if (st === 'pending' || st === 'generating') {
+        show(card); show(pendingEl);
+        if (!pollTimer) pollTimer = setInterval(load, 5000);
+        return;
+      } else if (st === 'failed') {
+        show(card); show(errorEl); show(regenBtn);
+        errorEl.textContent = 'Suggestion failed: ' + (data.error || 'unknown error');
+        if (regenBtn) regenBtn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Try again';
+      } else {
+        // none / dismissed: offer a generate button if permitted
+        if (AI_CAN_CREATE && regenBtn) {
+          show(card); show(regenBtn);
+          regenBtn.innerHTML = '<i class="bi bi-stars me-1"></i>Generate suggested response';
+        } else { hide(card); }
+      }
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    }
+
+    function load() {
+      fetch(SUG_URL, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(r => r.json()).then(render)
+        .catch(() => { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } });
+    }
+
+    async function aiPost(url) {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'csrf_token=' + encodeURIComponent(CSRF_TOKEN)
+      });
+      return resp.json();
+    }
+
+    if (useBtn) useBtn.addEventListener('click', () => {
+      const editor = document.getElementById('noteEditor');
+      if (!editor || !currentContent) return;
+      editor.innerHTML = currentContent;
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+      editor.focus();
+      editor.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    if (regenBtn) regenBtn.addEventListener('click', async () => {
+      try { await aiPost(GEN_URL); load(); } catch (e) { console.error(e); }
+    });
+    if (dismissBtn) dismissBtn.addEventListener('click', async () => {
+      try { await aiPost(DIS_URL); load(); } catch (e) { console.error(e); }
+    });
+
+    load();
+  })();
+  {% endif %}
   async function submitProcessItem(form) {
     try {
       const fd = new FormData(form);

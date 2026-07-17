@@ -1,0 +1,105 @@
+{% extends 'base.html' %}
+{% block title %}AI Assistant · HelpDesk{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8 col-xl-6">
+    <div class="card shadow-sm">
+      <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+        <div class="d-flex align-items-center gap-2">
+          <i class="bi bi-stars text-primary"></i>
+          <div>
+            <h1 class="h5 mb-0">AI Assistant Settings</h1>
+            <small class="text-muted">Connect to the Ollama server that powers similar tickets and suggested responses</small>
+          </div>
+        </div>
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('admin.index') }}"><i class="bi bi-arrow-left"></i></a>
+      </div>
+      <div class="card-body p-4">
+        <form method="post" class="row g-3" id="aiSettingsForm">
+          {{ form.hidden_tag() }}
+          <div class="col-12">
+            <div class="form-check form-switch">
+              {{ form.enabled(class='form-check-input', role='switch') }}
+              {{ form.enabled.label(class='form-check-label fw-semibold') }}
+            </div>
+          </div>
+          <div class="col-md-8">{{ form.host.label(class='form-label small fw-semibold') }} {{ form.host(class='form-control', placeholder='e.g. 192.168.1.50 or localhost') }}</div>
+          <div class="col-md-4">{{ form.port.label(class='form-label small fw-semibold') }} {{ form.port(class='form-control') }}</div>
+          <div class="col-md-6">{{ form.chat_model.label(class='form-label small fw-semibold') }} {{ form.chat_model(class='form-control') }}
+            <div class="form-text">Model used to draft responses (e.g. qwen2.5:14b)</div></div>
+          <div class="col-md-6">{{ form.embed_model.label(class='form-label small fw-semibold') }} {{ form.embed_model(class='form-control') }}
+            <div class="form-text">Model used for the ticket similarity index (e.g. nomic-embed-text)</div></div>
+          <div class="col-12">
+            <div class="form-check form-switch">
+              {{ form.auto_suggest(class='form-check-input', role='switch') }}
+              {{ form.auto_suggest.label(class='form-check-label') }}
+            </div>
+          </div>
+          <div class="col-md-6">{{ form.index_interval.label(class='form-label small fw-semibold') }} {{ form.index_interval(class='form-control') }}</div>
+          <div class="col-md-6">{{ form.similar_count.label(class='form-label small fw-semibold') }} {{ form.similar_count(class='form-control') }}</div>
+          <div class="col-12" id="aiTestResult" style="display:none;"></div>
+          <div class="col-12 d-flex flex-wrap gap-2 justify-content-end mt-2">
+            <button class="btn btn-outline-info" type="button" id="aiTestBtn"><i class="bi bi-lightning-charge me-1"></i>Test Connection</button>
+            {{ form.submit(class='btn btn-primary') }}
+          </div>
+        </form>
+        <hr>
+        <h2 class="h6">Index status</h2>
+        <ul class="list-unstyled small mb-2">
+          <li><strong>{{ status.embedded_count }}</strong> of <strong>{{ status.ticket_count }}</strong> tickets indexed</li>
+          <li><strong>{{ status.suggestion_count }}</strong> suggested response(s) ready</li>
+          {% if status.last_run %}<li>Last index run: {{ status.last_run }}</li>{% endif %}
+          {% if status.last_error %}<li class="text-danger">Last error: {{ status.last_error }}</li>{% endif %}
+        </ul>
+        <form method="post" action="{{ url_for('admin.ai_reindex') }}" onsubmit="return confirm('Re-embed all tickets on the next index run?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-outline-secondary btn-sm" type="submit"><i class="bi bi-arrow-repeat me-1"></i>Rebuild Full Index</button>
+        </form>
+        <div class="alert alert-light border small mt-3 mb-0">
+          <i class="bi bi-info-circle me-1"></i>
+          The index and suggestion jobs run in the scheduler process. See <code>AI.md</code> in the repository root
+          for setting up the AI computer (Ollama install, models, firewall).
+          Note: Ollama has no built-in authentication — keep the AI computer on your private LAN.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  document.getElementById('aiTestBtn').addEventListener('click', async function () {
+    const btn = this;
+    const out = document.getElementById('aiTestResult');
+    btn.disabled = true;
+    out.style.display = 'block';
+    out.innerHTML = '<div class="alert alert-secondary py-2 mb-0"><span class="spinner-border spinner-border-sm me-2"></span>Testing connection…</div>';
+    const form = document.getElementById('aiSettingsForm');
+    const body = new URLSearchParams();
+    body.set('csrf_token', form.querySelector('input[name="csrf_token"]').value);
+    body.set('host', form.querySelector('#host').value);
+    body.set('port', form.querySelector('#port').value);
+    body.set('chat_model', form.querySelector('#chat_model').value);
+    body.set('embed_model', form.querySelector('#embed_model').value);
+    try {
+      const resp = await fetch('{{ url_for('admin.ai_test') }}', {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString()
+      });
+      const data = await resp.json();
+      const cls = data.success ? 'alert-success' : 'alert-danger';
+      const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      let msg = esc(data.message || (data.success ? 'Connected.' : 'Connection failed.'));
+      if (data.success && data.models && data.models.length) {
+        msg += '<br><span class="text-muted">Installed models: ' + esc(data.models.join(', ')) + '</span>';
+      }
+      out.innerHTML = '<div class="alert ' + cls + ' py-2 mb-0 small">' + msg + '</div>';
+    } catch (e) {
+      out.innerHTML = '<div class="alert alert-danger py-2 mb-0 small">Test failed: ' + e + '</div>';
+    } finally {
+      btn.disabled = false;
+    }
+  });
+</script>
+{% endblock %}

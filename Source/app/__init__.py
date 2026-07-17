@@ -143,6 +143,46 @@ def _apply_dynamic_jobs(app: Flask) -> None:
         except Exception as e:
             app.logger.error(f'Failed to apply asset_spot_check: {e}')
 
+        # AI assistant: ticket embedding index
+        try:
+            from .services.ai import run_ai_index
+            enabled = (_Setting.get('AI_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes')
+            if enabled:
+                try:
+                    interval = max(1, int(_Setting.get('AI_INDEX_INTERVAL_MINUTES', '10') or '10'))
+                except Exception:
+                    interval = 10
+                scheduler.add_job(
+                    func=lambda _app=app: run_ai_index(_app),
+                    trigger='interval', minutes=interval,
+                    id='ai_index', replace_existing=True,
+                )
+            else:
+                try:
+                    scheduler.remove_job('ai_index')
+                except Exception:
+                    pass
+        except Exception as e:
+            app.logger.error(f'Failed to apply ai_index: {e}')
+
+        # AI assistant: suggested replies (auto + web-requested pending rows)
+        try:
+            from .services.ai import run_ai_auto_suggest
+            enabled = (_Setting.get('AI_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes')
+            if enabled:
+                scheduler.add_job(
+                    func=lambda _app=app: run_ai_auto_suggest(_app),
+                    trigger='interval', minutes=2,
+                    id='ai_auto_suggest', replace_existing=True,
+                )
+            else:
+                try:
+                    scheduler.remove_job('ai_auto_suggest')
+                except Exception:
+                    pass
+        except Exception as e:
+            app.logger.error(f'Failed to apply ai_auto_suggest: {e}')
+
 
 def _watch_schedule_version(app: Flask) -> None:
     """Poll SCHEDULE_VERSION; reapply dynamic jobs when it changes."""
@@ -515,6 +555,7 @@ def create_app():
                 ensure_api_token_table,
                 ensure_role_tables,
                 ensure_email_outbox_table,
+                ensure_ai_tables,
             )
             ensure_ticket_columns(db.engine)
             ensure_user_columns(db.engine)
@@ -537,6 +578,7 @@ def create_app():
             ensure_api_token_table(db.engine)
             ensure_role_tables(db.engine)
             ensure_email_outbox_table(db.engine)
+            ensure_ai_tables(db.engine)
             # Ensure AssetAudit table (runtime lightweight migration with pre-backup for SQLite)
             from sqlalchemy import inspect
             insp = inspect(db.engine)

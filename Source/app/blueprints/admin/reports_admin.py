@@ -89,12 +89,8 @@ def _parse_report_form():
         except Exception:
             return None, 'Day of month must be 1–28'
 
-    # Recipients
-    user_ids = request.form.getlist('recipient_user_ids')
-    try:
-        user_ids = [int(x) for x in user_ids if str(x).strip()]
-    except Exception:
-        user_ids = []
+    # Recipients — coerce per item so one bad value can't wipe the whole list.
+    user_ids = _coerce_int_ids(request.form.getlist('recipient_user_ids'))
 
     emails_raw = (request.form.get('recipient_emails') or '').strip()
     cleaned_emails = []
@@ -173,9 +169,44 @@ def _parse_report_form():
     }, None
 
 
-def _all_techs():
-    """Users that can receive internal report emails."""
-    return User.query.filter(User.is_active.is_(True)).order_by(User.name.asc()).all()
+def _coerce_int_ids(values):
+    """Coerce a list of raw form/JSON values to unique ints, skipping bad items."""
+    out = []
+    for x in values or []:
+        try:
+            n = int(str(x).strip())
+        except Exception:
+            continue
+        if n not in out:
+            out.append(n)
+    return out
+
+
+def _selected_recipient_ids(report=None, formdata=None):
+    """Selected internal-user recipient ids: posted form values win (error
+    re-render), otherwise the report's stored JSON. Legacy rows may hold
+    string ids — coercion normalizes them so options still render checked."""
+    if formdata:
+        return _coerce_int_ids(formdata.getlist('recipient_user_ids'))
+    if report and report.recipient_user_ids:
+        try:
+            return _coerce_int_ids(_json.loads(report.recipient_user_ids))
+        except Exception:
+            return []
+    return []
+
+
+def _recipient_user_options(selected_ids):
+    """Users offered as internal recipients: all active users, plus any
+    already-selected inactive ones so a saved recipient is never hidden
+    (and silently dropped on the next save). The scheduler emails stored
+    ids regardless of is_active, so the form must show them too."""
+    users = User.query.filter(User.is_active.is_(True)).order_by(User.name.asc()).all()
+    missing = [i for i in (selected_ids or []) if i not in {u.id for u in users}]
+    if missing:
+        users.extend(User.query.filter(User.id.in_(missing)).all())
+        users.sort(key=lambda u: (u.name or u.email or '').lower())
+    return users
 
 
 @admin_bp.route('/reports')
@@ -194,8 +225,10 @@ def report_new():
         data, err = _parse_report_form()
         if err:
             flash(err, 'danger')
+            sel_ids = _selected_recipient_ids(formdata=request.form)
             return render_template('admin/report_form.html', action='New', report=None,
-                                   users=_all_techs(),
+                                   users=_recipient_user_options(sel_ids),
+                                   sel_user_ids=sel_ids,
                                    type_choices=_REPORT_TYPE_CHOICES,
                                    freq_choices=_REPORT_FREQ_CHOICES,
                                    dow_choices=_DAY_OF_WEEK_CHOICES,
@@ -212,7 +245,8 @@ def report_new():
             return redirect(url_for('admin.report_new'))
 
     return render_template('admin/report_form.html', action='New', report=None,
-                           users=_all_techs(),
+                           users=_recipient_user_options([]),
+                           sel_user_ids=[],
                            type_choices=_REPORT_TYPE_CHOICES,
                            freq_choices=_REPORT_FREQ_CHOICES,
                            dow_choices=_DAY_OF_WEEK_CHOICES,
@@ -227,8 +261,12 @@ def report_edit(report_id):
         data, err = _parse_report_form()
         if err:
             flash(err, 'danger')
+            sel_ids = _selected_recipient_ids(formdata=request.form)
+            saved_ids = _selected_recipient_ids(report=r)
             return render_template('admin/report_form.html', action='Edit', report=r,
-                                   users=_all_techs(),
+                                   users=_recipient_user_options(sel_ids),
+                                   sel_user_ids=sel_ids,
+                                   saved_recipients=User.query.filter(User.id.in_(saved_ids)).all() if saved_ids else [],
                                    type_choices=_REPORT_TYPE_CHOICES,
                                    freq_choices=_REPORT_FREQ_CHOICES,
                                    dow_choices=_DAY_OF_WEEK_CHOICES,
@@ -249,8 +287,11 @@ def report_edit(report_id):
             flash(f'Error: {e}', 'danger')
             return redirect(url_for('admin.report_edit', report_id=r.id))
 
+    sel_ids = _selected_recipient_ids(report=r)
     resp = make_response(render_template('admin/report_form.html', action='Edit', report=r,
-                                         users=_all_techs(),
+                                         users=_recipient_user_options(sel_ids),
+                                         sel_user_ids=sel_ids,
+                                         saved_recipients=User.query.filter(User.id.in_(sel_ids)).all() if sel_ids else [],
                                          type_choices=_REPORT_TYPE_CHOICES,
                                          freq_choices=_REPORT_FREQ_CHOICES,
                                          dow_choices=_DAY_OF_WEEK_CHOICES,

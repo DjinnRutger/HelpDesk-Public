@@ -79,6 +79,7 @@ from . import (  # noqa: E402,F401
     email_admin,
     backup,
     reports_admin,
+    ai_admin,
 )
 
 # Re-exports used by app/__init__.py scheduler wiring (_apply_dynamic_jobs)

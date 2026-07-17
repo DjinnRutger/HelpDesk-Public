@@ -47,6 +47,7 @@ MODULES = [
     {'key': 'assets',    'label': 'Assets',           'description': 'Asset / device inventory'},
     {'key': 'orders',    'label': 'Orders',           'description': 'Purchase orders'},
     {'key': 'contacts',  'label': 'Users (Contacts)', 'description': 'Contact / end-user directory'},
+    {'key': 'ai',        'label': 'AI Assistant',     'description': 'Similar-ticket search and AI-suggested responses on tickets'},
     {'key': 'admin',     'label': 'Admin / System',   'description': 'System settings (role and technician management always requires the Administrator role)'},
 ]
 
