@@ -23,6 +23,7 @@ def ai_settings():
             form.port.data = 11434
         form.chat_model.data = cfg['chat_model']
         form.embed_model.data = cfg['embed_model']
+        form.think_disabled.data = cfg['think_disabled']
         form.auto_suggest.data = cfg['auto_suggest']
         form.index_interval.data = cfg['index_interval']
         form.similar_count.data = cfg['similar_count']
@@ -33,6 +34,7 @@ def ai_settings():
         Setting.set('AI_PORT', str(form.port.data))
         Setting.set('AI_CHAT_MODEL', (form.chat_model.data or '').strip())
         Setting.set('AI_EMBED_MODEL', (form.embed_model.data or '').strip())
+        Setting.set('AI_THINK_DISABLED', '1' if form.think_disabled.data else '0')
         Setting.set('AI_AUTO_SUGGEST_ENABLED', '1' if form.auto_suggest.data else '0')
         Setting.set('AI_INDEX_INTERVAL_MINUTES', str(form.index_interval.data))
         Setting.set('AI_SIMILAR_COUNT', str(form.similar_count.data))

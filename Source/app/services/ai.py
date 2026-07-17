@@ -50,6 +50,7 @@ def get_ai_config():
         'port': (Setting.get('AI_PORT', '11434') or '11434').strip(),
         'chat_model': (Setting.get('AI_CHAT_MODEL', 'qwen2.5:14b') or 'qwen2.5:14b').strip(),
         'embed_model': (Setting.get('AI_EMBED_MODEL', 'nomic-embed-text') or 'nomic-embed-text').strip(),
+        'think_disabled': (Setting.get('AI_THINK_DISABLED', '0') or '0') in ('1', 'true', 'on', 'yes'),
         'auto_suggest': (Setting.get('AI_AUTO_SUGGEST_ENABLED', '0') or '0') in ('1', 'true', 'on', 'yes'),
         'similar_count': _to_int(Setting.get('AI_SIMILAR_COUNT', '5'), 5),
         'index_interval': _to_int(Setting.get('AI_INDEX_INTERVAL_MINUTES', '10'), 10),
@@ -125,16 +126,26 @@ def chat(messages, cfg=None):
     """Non-streaming chat completion; returns the assistant message text."""
     cfg = cfg or get_ai_config()
     base = _base_url(cfg['host'], cfg['port'])
-    resp = requests.post(base + '/api/chat',
-                         json={'model': cfg['chat_model'], 'messages': messages,
-                               'stream': False, 'options': {'temperature': 0.3}},
-                         timeout=CHAT_TIMEOUT)
+    payload = {'model': cfg['chat_model'], 'messages': messages,
+               'stream': False, 'options': {'temperature': 0.3}}
+    # Models without thinking support reject the field with a 400, so it is
+    # only sent when the admin opted in (Admin -> AI Assistant).
+    if cfg.get('think_disabled'):
+        payload['think'] = False
+    resp = requests.post(base + '/api/chat', json=payload, timeout=CHAT_TIMEOUT)
     resp.raise_for_status()
     content = ((resp.json().get('message') or {}).get('content') or '').strip()
     # Reasoning models may prepend a think block; drop it.
     content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
     if not content:
-        raise RuntimeError('Ollama returned an empty response')
+        hint = ('Ollama returned an empty response. If the chat model is a '
+                'reasoning model (e.g. qwen3.5), enable "Disable model thinking" '
+                'in Admin -> AI Assistant.')
+        try:
+            current_app.logger.warning('AI chat: %s (model %s)', hint, cfg['chat_model'])
+        except Exception:
+            pass
+        raise RuntimeError(hint)
     return content
 
 

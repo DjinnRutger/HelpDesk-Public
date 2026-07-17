@@ -46,6 +46,7 @@ class AISettingsForm(FlaskForm):
     port = IntegerField('Port', validators=[DataRequired(), NumberRange(min=1, max=65535)])
     chat_model = StringField('Chat model', validators=[DataRequired(), Length(max=100)])
     embed_model = StringField('Embedding model', validators=[DataRequired(), Length(max=100)])
+    think_disabled = BooleanField('Disable model thinking')
     auto_suggest = BooleanField('Auto-generate suggested responses for new tickets')
     index_interval = IntegerField('Index refresh interval (minutes)', validators=[DataRequired(), NumberRange(min=1, max=1440)])
     similar_count = IntegerField('Similar tickets to show', validators=[DataRequired(), NumberRange(min=1, max=20)])

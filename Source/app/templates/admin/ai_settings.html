@@ -31,6 +31,14 @@
             <div class="form-text">Model used for the ticket similarity index (e.g. nomic-embed-text)</div></div>
           <div class="col-12">
             <div class="form-check form-switch">
+              {{ form.think_disabled(class='form-check-input', role='switch') }}
+              {{ form.think_disabled.label(class='form-check-label') }}
+            </div>
+            <div class="form-text">For reasoning models like qwen3.5: sends think:false so replies are generated directly.
+              Leave unchecked for models that don't support thinking (e.g. qwen2.5), or requests will fail.</div>
+          </div>
+          <div class="col-12">
+            <div class="form-check form-switch">
               {{ form.auto_suggest(class='form-check-input', role='switch') }}
               {{ form.auto_suggest.label(class='form-check-label') }}
             </div>
