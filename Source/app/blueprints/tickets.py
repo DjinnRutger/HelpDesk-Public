@@ -1032,6 +1032,15 @@ def ai_suggestion(ticket_id):
     row = TicketAISuggestion.query.filter_by(ticket_id=ticket_id).first()
     if row is None:
         return jsonify({'enabled': True, 'status': 'none'})
+    sources = []
+    if row.status == 'ready' and row.sources_json:
+        try:
+            import json as _json
+            sources = [{'id': int(s['id']), 'name': str(s.get('name') or ''),
+                        'url': url_for('documents.view', doc_id=int(s['id']))}
+                       for s in _json.loads(row.sources_json)]
+        except Exception:
+            sources = []
     return jsonify({
         'enabled': True,
         'status': row.status,
@@ -1039,6 +1048,7 @@ def ai_suggestion(ticket_id):
         'error': (row.error or '')[:300] if row.status == 'failed' else None,
         'model': row.model,
         'updated_at': row.updated_at.strftime('%Y-%m-%d %H:%M UTC') if row.updated_at else '',
+        'sources': sources,
     })
 
 

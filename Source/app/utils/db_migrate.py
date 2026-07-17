@@ -956,12 +956,35 @@ def ensure_ai_tables(engine):
                     model TEXT,
                     status TEXT NOT NULL DEFAULT 'pending',
                     error TEXT,
+                    sources_json TEXT,
                     created_at DATETIME,
                     updated_at DATETIME
                 )
                 """
             ))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ticket_ai_suggestion_ticket_id ON ticket_ai_suggestion (ticket_id)"))
+        rows = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='document_embedding'"))
+        if rows.fetchone() is None:
+            conn.execute(text(
+                """
+                CREATE TABLE document_embedding (
+                    id INTEGER PRIMARY KEY,
+                    document_id INTEGER NOT NULL UNIQUE,
+                    model TEXT,
+                    content_hash TEXT,
+                    vector BLOB NOT NULL,
+                    dim INTEGER NOT NULL DEFAULT 0,
+                    updated_at DATETIME
+                )
+                """
+            ))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_document_embedding_document_id ON document_embedding (document_id)"))
+        cols = {r[1] for r in conn.execute(text("PRAGMA table_info('document')")).fetchall()}
+        if 'ai_excluded' not in cols:
+            conn.execute(text("ALTER TABLE document ADD COLUMN ai_excluded BOOLEAN DEFAULT 0"))
+        cols = {r[1] for r in conn.execute(text("PRAGMA table_info('ticket_ai_suggestion')")).fetchall()}
+        if 'sources_json' not in cols:
+            conn.execute(text("ALTER TABLE ticket_ai_suggestion ADD COLUMN sources_json TEXT"))
         conn.commit()
 
 

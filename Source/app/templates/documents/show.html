@@ -68,6 +68,11 @@
             <label class="form-label">Name</label>
             <input name="name" id="editDocName" class="form-control" value="{{ doc.name }}" required>
           </div>
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" role="switch" name="ai_excluded" value="1" id="editDocAiExcluded" {% if doc.ai_excluded %}checked{% endif %}>
+            <label class="form-check-label small" for="editDocAiExcluded">Exclude from AI suggestions
+              <span class="text-muted">(never used as context for suggested replies)</span></label>
+          </div>
           <div class="mb-2">
             <label class="form-label">Body</label>
             <div class="btn-toolbar mb-2" role="toolbar" aria-label="Editor toolbar">

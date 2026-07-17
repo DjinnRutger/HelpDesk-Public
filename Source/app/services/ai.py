@@ -11,6 +11,7 @@ scheduler job and a web-kicked thread never generate the same row twice.
 """
 import hashlib
 import html as _html
+import json
 import math
 import re
 import threading
@@ -22,7 +23,8 @@ from flask import current_app
 from sqlalchemy import text as sql_text
 
 from .. import db
-from ..models import Setting, Ticket, TicketEmbedding, TicketAISuggestion
+from ..models import (Document, DocumentEmbedding, Setting, Ticket,
+                      TicketEmbedding, TicketAISuggestion)
 
 HEALTH_TIMEOUT = 10
 EMBED_TIMEOUT = 180
@@ -34,6 +36,13 @@ MAX_CONTEXT_TICKETS_CHARS = 2500
 MAX_CONVERSATION_CHARS = 4000
 MAX_NOTE_ENTRY_CHARS = 600
 MAX_PROMPT_TASKS = 30
+# Documents fed into suggestions. DOC_MIN_SCORE filters retrieval: prefix-less
+# nomic embeddings score unrelated prose around 0.35-0.50 and related pairs
+# around 0.55-0.80, so 0.45 keeps off-topic docs out of every prompt.
+DOC_TOP_N = 3
+DOC_MIN_SCORE = 0.45
+MAX_PROMPT_DOC_CHARS = 1500   # per document body in the prompt
+MAX_PROMPT_DOCS_CHARS = 4000  # total documentation budget in the prompt
 # A row stuck in 'generating' longer than this (crashed worker) is retried.
 STALE_GENERATING = timedelta(minutes=30)
 # How far back the auto-suggest job looks for tickets without a suggestion.
@@ -206,6 +215,38 @@ def _ensure_embedding(ticket, cfg=None, force=False):
     return row
 
 
+def document_index_text(doc):
+    """Plain-text representation of a document used for embedding and prompts."""
+    cat = getattr(doc, 'category', None)
+    parts = [getattr(cat, 'name', '') or '', doc.name or '', _strip_html(doc.body)]
+    joined = '\n'.join(p.strip() for p in parts if p and p.strip())
+    joined = re.sub(r'[ \t]+', ' ', joined)
+    return joined[:MAX_INDEX_CHARS]
+
+
+def _ensure_document_embedding(doc, cfg=None, force=False):
+    """Upsert the document's embedding if missing or stale. Returns the row or None."""
+    cfg = cfg or get_ai_config()
+    text_ = document_index_text(doc)
+    if not text_.strip():
+        return None
+    h = _content_hash(text_ + '|' + cfg['embed_model'])
+    row = DocumentEmbedding.query.filter_by(document_id=doc.id).first()
+    if row and row.content_hash == h and not force:
+        return row
+    vec = embed_text(text_, cfg)
+    if row is None:
+        row = DocumentEmbedding(document_id=doc.id)
+        db.session.add(row)
+    row.model = cfg['embed_model']
+    row.content_hash = h
+    row.vector = _pack_vector(vec)
+    row.dim = len(vec)
+    row.updated_at = datetime.utcnow()
+    db.session.commit()
+    return row
+
+
 def run_ai_index(app, batch_size=200):
     """Scheduler job: embed tickets that are new or whose text changed."""
     with app.app_context():
@@ -241,12 +282,44 @@ def run_ai_index(app, batch_size=200):
                     break
             if done >= batch_size:
                 break
+        # Documents: sweep embeddings of deleted/excluded docs, then embed the
+        # rest. Own counter so a big ticket backlog can't starve doc indexing.
+        doc_done = 0
+        doc_errors = 0
+        try:
+            doc_ids = {d.id for d in Document.query.all()}
+            excluded_ids = {d.id for d in Document.query.filter(Document.ai_excluded.is_(True)).all()}
+            for e in DocumentEmbedding.query.all():
+                if e.document_id not in doc_ids or e.document_id in excluded_ids:
+                    db.session.delete(e)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+        by_doc = {e.document_id: e for e in DocumentEmbedding.query.all()}
+        for d in Document.query.filter(Document.ai_excluded.isnot(True)).order_by(Document.id.asc()).all():
+            existing = by_doc.get(d.id)
+            if existing and existing.content_hash and existing.updated_at and \
+                    (d.updated_at or d.created_at) and (d.updated_at or d.created_at) <= existing.updated_at:
+                continue
+            try:
+                _ensure_document_embedding(d, cfg)
+                doc_done += 1
+            except Exception as e:
+                doc_errors += 1
+                db.session.rollback()
+                Setting.set('AI_LAST_ERROR', f'Embedding document #{d.id}: {str(e)[:300]}')
+                app.logger.error('AI index: failed to embed document %s: %s', d.id, e)
+                if doc_errors >= 3:
+                    app.logger.warning('AI index: skipping remaining documents after repeated errors')
+                    break
+            if doc_done >= batch_size:
+                break
         Setting.set('AI_INDEX_LAST_RUN', datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC'))
-        if done and not errors:
+        if (done or doc_done) and not errors and not doc_errors:
             Setting.set('AI_LAST_ERROR', '')
-        if done:
-            app.logger.info('AI index: embedded %d ticket(s)', done)
-        return done
+        if done or doc_done:
+            app.logger.info('AI index: embedded %d ticket(s), %d document(s)', done, doc_done)
+        return done + doc_done
 
 
 def find_similar(ticket, top_n=None, cfg=None):
@@ -288,6 +361,50 @@ def find_similar(ticket, top_n=None, cfg=None):
             for r, s in ranked if r.ticket_id in tickets]
 
 
+def find_relevant_documents(ticket, cfg=None, top_n=DOC_TOP_N):
+    """Return [{'doc': Document, 'score': float}] documents relevant to the ticket.
+
+    Reuses the ticket's stored embedding as the query vector, so this works
+    offline once indexed. Scores below DOC_MIN_SCORE are dropped entirely so
+    off-topic documents never pad the prompt.
+    """
+    cfg = cfg or get_ai_config()
+    me = TicketEmbedding.query.filter_by(ticket_id=ticket.id).first()
+    if me is None or not me.vector:
+        return []
+    rows = (DocumentEmbedding.query
+            .filter(DocumentEmbedding.dim == me.dim,
+                    DocumentEmbedding.model == me.model)
+            .all())
+    if not rows:
+        return []
+    try:
+        import numpy as np
+        matrix = np.frombuffer(b''.join(r.vector for r in rows), dtype=np.float32).reshape(len(rows), me.dim)
+        query = np.frombuffer(me.vector, dtype=np.float32)
+        scores = matrix @ query
+        order = np.argsort(scores)[::-1]
+        ranked = [(rows[i], float(scores[i])) for i in order]
+    except ImportError:
+        query = _unpack_vector(me.vector)
+        scored = []
+        for r in rows:
+            v = _unpack_vector(r.vector)
+            scored.append((r, sum(a * b for a, b in zip(query, v))))
+        scored.sort(key=lambda x: x[1], reverse=True)
+        ranked = scored
+    ranked = [(r, s) for r, s in ranked if s >= DOC_MIN_SCORE][:top_n]
+    if not ranked:
+        return []
+    # ai_excluded filter is defense-in-depth for the window between a doc being
+    # excluded and the next index sweep removing its embedding.
+    docs = {d.id: d for d in Document.query.filter(
+        Document.id.in_([r.document_id for r, _ in ranked]),
+        Document.ai_excluded.isnot(True)).all()}
+    return [{'doc': docs[r.document_id], 'score': s}
+            for r, s in ranked if r.document_id in docs]
+
+
 # --- Suggested replies ------------------------------------------------------
 
 SUGGESTION_SYSTEM_PROMPT = (
@@ -301,7 +418,12 @@ SUGGESTION_SYSTEM_PROMPT = (
     'otherwise. The ticket context may include INTERNAL notes and a tech task '
     'list that the requester cannot see: use them to inform your reply, but '
     'never quote, mention, or reveal internal notes, tasks, or other internal '
-    'details to the requester.'
+    'details to the requester. When RELEVANT DOCUMENTATION is provided and it '
+    'applies to the issue, base your steps on it and mention the document by '
+    'name in your reply (for example: per our "Printer Setup" guide). Never '
+    'quote passwords, license keys, IP addresses, or other credentials from '
+    'documentation, even if they appear there; tell the requester to contact '
+    'IT for those details instead.'
 )
 
 
@@ -335,7 +457,7 @@ def _conversation_lines(ticket):
     return list(reversed(kept))
 
 
-def _build_suggestion_prompt(ticket, similar, cfg):
+def _build_suggestion_prompt(ticket, similar, cfg, docs=None):
     lines = ['A support ticket needs a reply.', '',
              f'TICKET #{ticket.id}',
              f'Subject: {ticket.subject or "(none)"}',
@@ -353,6 +475,18 @@ def _build_suggestion_prompt(ticket, similar, cfg):
             state = 'done' if tk.checked else 'open'
             suffix = f' (list: {tk.list_name})' if tk.list_name else ''
             lines.append(f'- [{state}] {tk.label}{suffix}')
+    if docs:
+        lines += ['', 'RELEVANT DOCUMENTATION (internal step-by-step guides; prefer these when applicable):']
+        total = 0
+        for item in docs:
+            d = item['doc']
+            cat = getattr(getattr(d, 'category', None), 'name', '') or 'Uncategorized'
+            body = re.sub(r'\s+', ' ', _strip_html(d.body)).strip()[:MAX_PROMPT_DOC_CHARS]
+            entry = f'--- Document: "{d.name}" (category: {cat})\n{body}'
+            total += len(entry)
+            if total > MAX_PROMPT_DOCS_CHARS:
+                break
+            lines.append(entry)
     if similar:
         lines += ['', 'PAST SIMILAR TICKETS (how similar issues were handled before):']
         for item in similar:
@@ -421,18 +555,25 @@ def generate_suggestion(app, ticket_id):
             except Exception:
                 db.session.rollback()  # similar-ticket context is best-effort
             similar = find_similar(ticket, cfg=cfg)
-            prompt = _build_suggestion_prompt(ticket, similar, cfg)
+            try:
+                docs = find_relevant_documents(ticket, cfg=cfg)
+            except Exception:
+                db.session.rollback()  # documentation context is best-effort
+                docs = []
+            prompt = _build_suggestion_prompt(ticket, similar, cfg, docs=docs)
             reply = chat([{'role': 'system', 'content': SUGGESTION_SYSTEM_PROMPT},
                           {'role': 'user', 'content': prompt}], cfg)
             content = sanitize_rich_text(_plain_text_to_html(reply))
+            sources = json.dumps([{'id': item['doc'].id, 'name': item['doc'].name}
+                                  for item in docs])
             # Guarded publish: if new activity re-marked the row pending (or a
             # fresher worker re-claimed it) while we generated, our token no
             # longer matches and this write misses instead of clobbering.
             done = db.session.execute(
                 sql_text("UPDATE ticket_ai_suggestion SET content=:content, model=:model, "
-                         "status='ready', error=NULL, updated_at=:now "
+                         "sources_json=:sources, status='ready', error=NULL, updated_at=:now "
                          "WHERE id=:id AND status='generating' AND updated_at=:token"),
-                {'content': content, 'model': cfg['chat_model'],
+                {'content': content, 'model': cfg['chat_model'], 'sources': sources,
                  'now': datetime.utcnow(), 'id': row_id, 'token': claim_token}
             )
             db.session.commit()

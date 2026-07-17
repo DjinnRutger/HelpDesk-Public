@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, redirect, url_for, request, flash, jsonify
 from flask_login import login_required, current_user
 from .. import db
-from ..models import DocumentCategory, Document, DocumentFavorite
+from ..models import DocumentCategory, Document, DocumentEmbedding, DocumentFavorite
 from ..permissions import CREATE, EDIT, DELETE, require_permission, protect_blueprint
 from ..utils.html_sanitize import sanitize_document_html
 
@@ -67,7 +67,8 @@ def new_document(category_id):
     if not name:
         flash('Name is required', 'danger')
         return redirect(url_for('documents.category', category_id=cat.id))
-    d = Document(category_id=cat.id, name=name, body=body)
+    d = Document(category_id=cat.id, name=name, body=body,
+                 ai_excluded=bool(request.form.get('ai_excluded')))
     db.session.add(d)
     db.session.commit()
     flash('Document created', 'success')
@@ -109,6 +110,10 @@ def edit(doc_id):
         return redirect(url_for('documents.view', doc_id=doc.id))
     doc.name = name
     doc.body = body
+    doc.ai_excluded = bool(request.form.get('ai_excluded'))
+    if doc.ai_excluded:
+        # Excluded docs must never be retrievable; don't wait for the index sweep
+        DocumentEmbedding.query.filter_by(document_id=doc.id).delete()
     if new_category and new_category.id != doc.category_id:
         doc.category_id = new_category.id
     db.session.commit()

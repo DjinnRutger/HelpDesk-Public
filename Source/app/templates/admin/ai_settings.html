@@ -55,11 +55,12 @@
         <h2 class="h6">Index status</h2>
         <ul class="list-unstyled small mb-2">
           <li><strong>{{ status.embedded_count }}</strong> of <strong>{{ status.ticket_count }}</strong> tickets indexed</li>
+          <li><strong>{{ status.doc_embedded_count }}</strong> of <strong>{{ status.doc_count }}</strong> documents indexed (excluded docs not counted)</li>
           <li><strong>{{ status.suggestion_count }}</strong> suggested response(s) ready</li>
           {% if status.last_run %}<li>Last index run: {{ status.last_run }}</li>{% endif %}
           {% if status.last_error %}<li class="text-danger">Last error: {{ status.last_error }}</li>{% endif %}
         </ul>
-        <form method="post" action="{{ url_for('admin.ai_reindex') }}" onsubmit="return confirm('Re-embed all tickets on the next index run?');">
+        <form method="post" action="{{ url_for('admin.ai_reindex') }}" onsubmit="return confirm('Re-embed all tickets and documents on the next index run?');">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button class="btn btn-outline-secondary btn-sm" type="submit"><i class="bi bi-arrow-repeat me-1"></i>Rebuild Full Index</button>
         </form>
@@ -67,6 +68,8 @@
           <i class="bi bi-info-circle me-1"></i>
           The index and suggestion jobs run in the scheduler process. See <code>AI.md</code> in the repository root
           for setting up the AI computer (Ollama install, models, firewall).
+          Suggested responses also draw on the Documents section unless a document is marked
+          "Exclude from AI suggestions".
           Note: Ollama has no built-in authentication — keep the AI computer on your private LAN.
         </div>
       </div>

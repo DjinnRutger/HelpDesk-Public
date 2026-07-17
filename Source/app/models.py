@@ -366,6 +366,8 @@ class TicketAISuggestion(db.Model):
     model = db.Column(db.String(100), nullable=True)
     status = db.Column(db.String(20), nullable=False, default='pending')  # pending|ready|failed|dismissed
     error = db.Column(db.Text, nullable=True)
+    # JSON list of {"id": int, "name": str} documents fed into this suggestion
+    sources_json = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -747,7 +749,24 @@ class Document(db.Model):
     category_id = db.Column(db.Integer, db.ForeignKey('document_category.id'), nullable=False)
     name = db.Column(db.String(300), nullable=False)
     body = db.Column(db.Text, nullable=True)  # rich text / HTML allowed
+    # Excluded documents are never embedded or fed to AI suggestions
+    ai_excluded = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    ai_embedding = db.relationship('DocumentEmbedding', backref='document',
+                                   uselist=False, cascade='all, delete-orphan')
+
+
+class DocumentEmbedding(db.Model):
+    """Vector embedding of a document (category + name + body), same format as TicketEmbedding."""
+    id = db.Column(db.Integer, primary_key=True)
+    document_id = db.Column(db.Integer, db.ForeignKey('document.id'), nullable=False, unique=True, index=True)
+    model = db.Column(db.String(100), nullable=True)
+    # sha256 of the embedded text; unchanged hash means no re-embed needed
+    content_hash = db.Column(db.String(64), nullable=True)
+    vector = db.Column(db.LargeBinary, nullable=False)
+    dim = db.Column(db.Integer, nullable=False, default=0)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 

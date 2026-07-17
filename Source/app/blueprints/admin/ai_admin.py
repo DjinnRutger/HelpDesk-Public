@@ -2,7 +2,8 @@ from flask import render_template, redirect, url_for, flash, request, jsonify
 from flask_login import login_required
 
 from ...forms import AISettingsForm
-from ...models import Setting, Ticket, TicketEmbedding, TicketAISuggestion
+from ...models import (Document, DocumentEmbedding, Setting, Ticket,
+                       TicketEmbedding, TicketAISuggestion)
 from ... import db
 from ...services.ai import check_health, get_ai_config, kick_index
 
@@ -48,6 +49,8 @@ def ai_settings():
         'ticket_count': Ticket.query.count(),
         'embedded_count': TicketEmbedding.query.count(),
         'suggestion_count': TicketAISuggestion.query.filter_by(status='ready').count(),
+        'doc_count': Document.query.filter(Document.ai_excluded.isnot(True)).count(),
+        'doc_embedded_count': DocumentEmbedding.query.count(),
         'last_run': Setting.get('AI_INDEX_LAST_RUN', ''),
         'last_error': Setting.get('AI_LAST_ERROR', ''),
     }
@@ -79,8 +82,11 @@ def ai_reindex():
     """Force a full re-embed on the next index run by clearing content hashes."""
     updated = TicketEmbedding.query.update({TicketEmbedding.content_hash: None,
                                             TicketEmbedding.updated_at: None})
+    doc_updated = DocumentEmbedding.query.update({DocumentEmbedding.content_hash: None,
+                                                  DocumentEmbedding.updated_at: None})
     db.session.commit()
     _bump_schedule_version()
     kick_index()
-    flash(f'Marked {updated} ticket embedding(s) for rebuild. The index job will re-embed all tickets on its next run.', 'success')
+    flash(f'Marked {updated} ticket and {doc_updated} document embedding(s) for rebuild. '
+          'The index job will re-embed everything on its next run.', 'success')
     return redirect(url_for('admin.ai_settings'))
