@@ -30,6 +30,10 @@ CHAT_TIMEOUT = 900
 # Cap text sent for embedding/prompting so huge email chains don't blow context
 MAX_INDEX_CHARS = 6000
 MAX_CONTEXT_TICKETS_CHARS = 2500
+# Budget for this ticket's own conversation (notes/emails) in the prompt
+MAX_CONVERSATION_CHARS = 4000
+MAX_NOTE_ENTRY_CHARS = 600
+MAX_PROMPT_TASKS = 30
 # A row stuck in 'generating' longer than this (crashed worker) is retried.
 STALE_GENERATING = timedelta(minutes=30)
 # How far back the auto-suggest job looks for tickets without a suggestion.
@@ -276,24 +280,68 @@ def find_similar(ticket, top_n=None, cfg=None):
 # --- Suggested replies ------------------------------------------------------
 
 SUGGESTION_SYSTEM_PROMPT = (
-    'You are an experienced IT helpdesk technician writing a first reply to a '
+    'You are an experienced IT helpdesk technician writing the next reply to a '
     'support ticket. Write in plain text (no markdown, no headers, no bullet '
     'symbols like ** or #). Be professional, friendly, and concise. Suggest '
     'concrete troubleshooting steps or a resolution when the ticket and past '
     'similar tickets give you enough information; otherwise ask the most useful '
     'clarifying questions. Never invent account details, policies, or promises. '
     'Do not include a subject line. Sign off simply as "IT Support" unless told '
-    'otherwise.'
+    'otherwise. The ticket context may include INTERNAL notes and a tech task '
+    'list that the requester cannot see: use them to inform your reply, but '
+    'never quote, mention, or reveal internal notes, tasks, or other internal '
+    'details to the requester.'
 )
 
 
+def _conversation_lines(ticket):
+    """Chronological note/email entries for the prompt, newest kept when over budget."""
+    entries = []
+    try:
+        notes = ticket.notes.order_by(sql_text('created_at asc')).all()
+    except Exception:
+        notes = []
+    for n in notes:
+        text = _strip_html(n.content).strip()[:MAX_NOTE_ENTRY_CHARS]
+        if not text:
+            continue
+        when = n.created_at.strftime('%Y-%m-%d %H:%M') if n.created_at else ''
+        if n.author_id is None:
+            label = 'REQUESTER EMAIL'
+        elif n.is_private is None or n.is_private:
+            # Legacy NULL is treated as private, same as the ticket page.
+            label = 'INTERNAL NOTE (tech-only, never reveal)'
+        else:
+            who = getattr(n.author, 'name', None) or 'Technician'
+            label = f'REPLY SENT to requester by {who}'
+        entries.append(f'[{when}] {label}:\n{text}')
+    kept, total = [], 0
+    for e in reversed(entries):  # trim from the oldest end
+        total += len(e) + 2
+        if total > MAX_CONVERSATION_CHARS and kept:
+            break
+        kept.append(e)
+    return list(reversed(kept))
+
+
 def _build_suggestion_prompt(ticket, similar, cfg):
-    lines = ['A new support ticket needs a reply.', '',
+    lines = ['A support ticket needs a reply.', '',
              f'TICKET #{ticket.id}',
              f'Subject: {ticket.subject or "(none)"}',
              f'From: {ticket.requester_name or ticket.requester_email or "unknown requester"}',
              'Description:',
              _strip_html(ticket.body)[:MAX_INDEX_CHARS] or '(no description)']
+    convo = _conversation_lines(ticket)
+    if convo:
+        lines += ['', 'CONVERSATION SO FAR (chronological; INTERNAL notes are tech-only):']
+        lines += convo
+    tasks = list(ticket.tasks or [])[:MAX_PROMPT_TASKS]
+    if tasks:
+        lines += ['', 'TECH TASK LIST FOR THIS TICKET (internal, never reveal):']
+        for tk in tasks:
+            state = 'done' if tk.checked else 'open'
+            suffix = f' (list: {tk.list_name})' if tk.list_name else ''
+            lines.append(f'- [{state}] {tk.label}{suffix}')
     if similar:
         lines += ['', 'PAST SIMILAR TICKETS (how similar issues were handled before):']
         for item in similar:
@@ -309,7 +357,7 @@ def _build_suggestion_prompt(ticket, similar, cfg):
             notes_text = ' | '.join(_strip_html(n.content).strip()[:400] for n in public_notes[-3:])
             if notes_text:
                 lines.append('Replies sent: ' + notes_text[:MAX_CONTEXT_TICKETS_CHARS])
-    lines += ['', 'Write the reply to the requester now.']
+    lines += ['', 'Write the next reply to the requester now.']
     return '\n'.join(lines)
 
 
@@ -354,6 +402,8 @@ def generate_suggestion(app, ticket_id):
         if claimed.rowcount != 1:
             return False
         db.session.refresh(row)
+        row_id = row.id
+        claim_token = row.updated_at  # exact stored value from our claim
         try:
             try:
                 _ensure_embedding(ticket, cfg)
@@ -363,21 +413,41 @@ def generate_suggestion(app, ticket_id):
             prompt = _build_suggestion_prompt(ticket, similar, cfg)
             reply = chat([{'role': 'system', 'content': SUGGESTION_SYSTEM_PROMPT},
                           {'role': 'user', 'content': prompt}], cfg)
-            row.content = sanitize_rich_text(_plain_text_to_html(reply))
-            row.model = cfg['chat_model']
-            row.status = 'ready'
-            row.error = None
+            content = sanitize_rich_text(_plain_text_to_html(reply))
+            # Guarded publish: if new activity re-marked the row pending (or a
+            # fresher worker re-claimed it) while we generated, our token no
+            # longer matches and this write misses instead of clobbering.
+            done = db.session.execute(
+                sql_text("UPDATE ticket_ai_suggestion SET content=:content, model=:model, "
+                         "status='ready', error=NULL, updated_at=:now "
+                         "WHERE id=:id AND status='generating' AND updated_at=:token"),
+                {'content': content, 'model': cfg['chat_model'],
+                 'now': datetime.utcnow(), 'id': row_id, 'token': claim_token}
+            )
+            db.session.commit()
         except Exception as e:
             db.session.rollback()
-            row = TicketAISuggestion.query.filter_by(ticket_id=ticket_id).first()
-            if row is None:
-                return False
-            row.status = 'failed'
-            row.error = str(e)[:1000]
             app.logger.error('AI suggestion failed for ticket %s: %s', ticket_id, e)
-        row.updated_at = datetime.utcnow()
-        db.session.commit()
-        return row.status == 'ready'
+            try:
+                db.session.execute(
+                    sql_text("UPDATE ticket_ai_suggestion SET status='failed', error=:err, updated_at=:now "
+                             "WHERE id=:id AND status='generating' AND updated_at=:token"),
+                    {'err': str(e)[:1000], 'now': datetime.utcnow(), 'id': row_id, 'token': claim_token}
+                )
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+            return False
+        if done.rowcount == 1:
+            return True
+        # Claim lost mid-run: new activity re-marked the row pending. If it is
+        # sitting unclaimed, run once more so the new context gets drafted;
+        # each re-run consumes one refresh event, so this cannot loop.
+        db.session.expire_all()
+        current = TicketAISuggestion.query.filter_by(ticket_id=ticket_id).first()
+        if current is not None and current.status == 'pending':
+            threading.Thread(target=generate_suggestion, args=(app, ticket_id), daemon=True).start()
+        return False
 
 
 def run_ai_auto_suggest(app):
@@ -425,6 +495,59 @@ def run_ai_auto_suggest(app):
         if count:
             app.logger.info('AI auto-suggest: drafted %d repl(y/ies)', count)
         return count
+
+
+def refresh_suggestion(ticket_id, source='note'):
+    """Mark the cached suggestion stale after ticket activity and kick regeneration.
+
+    source: 'note' | 'task' | 'email'. A new requester email revives a dismissed
+    draft (something new to answer); tech notes/tasks leave it dismissed. Safe to
+    call from web requests and the scheduler's email poll (both run inside an app
+    context). Never raises.
+    """
+    try:
+        if not ai_enabled():
+            return
+        ticket = db.session.get(Ticket, ticket_id)
+        if ticket is None or ticket.is_closed:
+            return
+        row = TicketAISuggestion.query.filter_by(ticket_id=ticket_id).first()
+        if row is None:
+            # Mirror the scheduler: only auto-create drafts when auto-suggest is on.
+            if not get_ai_config()['auto_suggest']:
+                return
+            row = TicketAISuggestion(ticket_id=ticket_id, status='pending')
+            db.session.add(row)
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()  # lost a create race; the other worker owns it
+                return
+            kick_generate(ticket_id)
+            return
+        statuses = "'pending','failed','ready','generating'"
+        if source == 'email':
+            statuses += ",'dismissed'"
+        # Marking over 'generating' is the mid-run staleness signal consumed by
+        # generate_suggestion's claim token.
+        res = db.session.execute(
+            sql_text("UPDATE ticket_ai_suggestion SET status='pending', error=NULL, updated_at=:now "
+                     "WHERE id=:id AND status IN (" + statuses + ")"),
+            {'id': row.id, 'now': datetime.utcnow()}
+        )
+        db.session.commit()
+        if res.rowcount == 1:
+            kick_generate(ticket_id)
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        try:
+            current_app.logger.warning('AI: refresh_suggestion(#%s, %s) failed',
+                                       ticket_id, source, exc_info=True)
+        except Exception:
+            pass
 
 
 def kick_generate(ticket_id):

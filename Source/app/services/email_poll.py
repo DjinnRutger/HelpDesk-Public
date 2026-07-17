@@ -472,6 +472,12 @@ def poll_ms_graph(app=None):
                             db.session.commit()
                         except Exception:
                             db.session.rollback()
+                        # New requester message: refresh the AI-suggested reply
+                        try:
+                            from .ai import refresh_suggestion
+                            refresh_suggestion(existing.id, source='email')
+                        except Exception:
+                            pass
                         to_mark_read.append(msg_id)
                         # Notify assigned tech and co-assignee, if any
                         try:

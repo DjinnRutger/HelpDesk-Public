@@ -710,6 +710,8 @@ def show_ticket(ticket_id):
                         incomplete = True
                         break
             if incomplete:
+                from ..services.ai import refresh_suggestion
+                refresh_suggestion(t.id, source='note')
                 flash('Note added, but ticket not closed (open checklist items/tasks remain).', 'warning')
                 return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
             t.status = 'closed'
@@ -717,6 +719,8 @@ def show_ticket(ticket_id):
             db.session.commit()
             flash('Note added and ticket closed', 'success')
             return redirect(url_for('tickets.list_tickets'))
+        from ..services.ai import refresh_suggestion
+        refresh_suggestion(t.id, source='note')
         flash('Note added', 'success')
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
 
@@ -807,6 +811,8 @@ def show_ticket(ticket_id):
             db.session.add(tt)
         t.bump_new_to_open()
         db.session.commit()
+        from ..services.ai import refresh_suggestion
+        refresh_suggestion(t.id, source='task')
         flash('Tasks created', 'success')
         return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
     # Initialize update_form defaults
@@ -1141,6 +1147,8 @@ def forward_note(ticket_id):
             db.session.add(note)
             t.bump_new_to_open()
             db.session.commit()
+            from ..services.ai import refresh_suggestion
+            refresh_suggestion(t.id, source='note')
         except Exception:
             db.session.rollback()
         flash('Note forwarded.', 'success')
@@ -1174,6 +1182,8 @@ def edit_note(ticket_id, note_id):
     note.is_private = is_private_flag
     t.bump_new_to_open()
     db.session.commit()
+    from ..services.ai import refresh_suggestion
+    refresh_suggestion(t.id, source='note')
     flash('Note updated.', 'success')
     return redirect(url_for('tickets.show_ticket', ticket_id=t.id, _anchor='notes'))
 
@@ -1205,6 +1215,8 @@ def toggle_task(ticket_id, task_id):
         task.checked_at = None
     t.bump_new_to_open()
     db.session.commit()
+    from ..services.ai import refresh_suggestion
+    refresh_suggestion(t.id, source='task')
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
         return ('', 204)
     flash('Task updated', 'success')
@@ -1236,6 +1248,8 @@ def edit_task(ticket_id, task_id):
     task.assigned_tech_id = None if assigned_val == 0 else assigned_val
     t.bump_new_to_open()
     db.session.commit()
+    from ..services.ai import refresh_suggestion
+    refresh_suggestion(t.id, source='task')
     flash('Task updated', 'success')
     return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
 

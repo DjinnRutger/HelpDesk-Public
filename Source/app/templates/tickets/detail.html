@@ -329,9 +329,17 @@
     <div class="card shadow-sm mt-3" id="aiSuggestionCard" style="display:none;">
       <div class="card-header bg-body-tertiary d-flex align-items-center justify-content-between">
         <h6 class="mb-0"><i class="bi bi-stars me-1 text-primary"></i>AI Suggested Response</h6>
-        <small class="text-muted" id="aiSuggestionMeta"></small>
+        <div class="d-flex align-items-center gap-2">
+          <small class="text-muted" id="aiSuggestionMeta"></small>
+          <button type="button" class="btn btn-sm btn-outline-secondary ai-collapse-btn"
+                  style="padding:.15rem .4rem; line-height:1;"
+                  data-ai-body="aiSuggestionBody" data-ai-key="aiCardCollapsed:suggestion"
+                  aria-controls="aiSuggestionBody" aria-expanded="true" title="Collapse">
+            <i class="bi bi-chevron-up"></i>
+          </button>
+        </div>
       </div>
-      <div class="card-body">
+      <div class="card-body" id="aiSuggestionBody">
         <div id="aiSuggestionPending" style="display:none;" class="text-muted small">
           <span class="spinner-border spinner-border-sm me-2"></span>Drafting a suggested response…
         </div>
@@ -574,6 +582,12 @@
     <div class="card shadow-sm mb-3" id="aiSimilarCard">
       <div class="card-header bg-body-tertiary d-flex align-items-center justify-content-between">
         <h6 class="mb-0"><i class="bi bi-stars me-1 text-primary"></i>Similar Tickets</h6>
+        <button type="button" class="btn btn-sm btn-outline-secondary ai-collapse-btn"
+                style="padding:.15rem .4rem; line-height:1;"
+                data-ai-body="aiSimilarBody" data-ai-key="aiCardCollapsed:similar"
+                aria-controls="aiSimilarBody" aria-expanded="true" title="Collapse">
+          <i class="bi bi-chevron-up"></i>
+        </button>
       </div>
       <div class="card-body p-2" id="aiSimilarBody">
         <div class="text-muted small p-1"><span class="spinner-border spinner-border-sm me-2"></span>Searching…</div>
@@ -750,6 +764,28 @@
     const AI_CAN_CREATE = {{ 'true' if can('ai', 'create') else 'false' }};
     const escHtml = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+    // Roll up / roll down; the collapsed choice sticks per card type across tickets.
+    document.querySelectorAll('.ai-collapse-btn').forEach(btn => {
+      const body = document.getElementById(btn.getAttribute('data-ai-body'));
+      const key = btn.getAttribute('data-ai-key');
+      if (!body) return;
+      const apply = collapsed => {
+        body.classList.toggle('d-none', collapsed);
+        btn.setAttribute('aria-expanded', String(!collapsed));
+        btn.title = collapsed ? 'Expand' : 'Collapse';
+        const icon = btn.querySelector('i');
+        if (icon) icon.className = collapsed ? 'bi bi-chevron-down' : 'bi bi-chevron-up';
+      };
+      let collapsed = false;
+      try { collapsed = localStorage.getItem(key) === '1'; } catch (_) {}
+      apply(collapsed);
+      btn.addEventListener('click', () => {
+        collapsed = !collapsed;
+        try { localStorage.setItem(key, collapsed ? '1' : '0'); } catch (_) {}
+        apply(collapsed);
+      });
+    });
+
     // Similar tickets card
     const simCard = document.getElementById('aiSimilarCard');
     const simBody = document.getElementById('aiSimilarBody');
@@ -847,6 +883,9 @@
       try { await aiPost(DIS_URL); load(); } catch (e) { console.error(e); }
     });
 
+    // Let non-reloading actions (task toggles) refresh the suggestion state.
+    window.aiSuggestionReload = load;
+
     load();
   })();
   {% endif %}
@@ -876,6 +915,7 @@
       });
       if (res.ok) {
         showSavedToast();
+        if (window.aiSuggestionReload) window.aiSuggestionReload();
       }
     } catch (e) {
       console.error('Failed to update task', e);
