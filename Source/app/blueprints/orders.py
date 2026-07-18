@@ -105,6 +105,24 @@ def list_items():
                          show_completed=show_completed)
 
 
+def _parse_needed_by(raw):
+    """Parse a needed-by date string; returns (datetime, mm-dd-yyyy text) or (None, None).
+
+    input[type=date] submits yyyy-mm-dd; mm-dd-yyyy is accepted for custom text.
+    """
+    raw = (raw or '').strip()
+    if not raw:
+        return None, None
+    try:
+        needed_by = datetime.strptime(raw, '%Y-%m-%d')
+        return needed_by, needed_by.strftime('%m-%d-%Y')
+    except ValueError:
+        try:
+            return datetime.strptime(raw, '%m-%d-%Y'), raw
+        except ValueError:
+            return None, None
+
+
 @orders_bp.route('/items/new', methods=['POST'])
 @login_required
 @require_permission('orders', CREATE)
@@ -123,22 +141,7 @@ def create_item():
                 est_cost = float(cleaned)
             except ValueError:
                 est_cost = None
-        needed_by = None
-        needed_by_text = None
-        if form.needed_by.data:
-            raw_date = form.needed_by.data.strip()
-            # input[type=date] submits yyyy-mm-dd; store both datetime and mm-dd-yyyy text
-            try:
-                needed_by = datetime.strptime(raw_date, '%Y-%m-%d')
-                needed_by_text = needed_by.strftime('%m-%d-%Y')
-            except ValueError:
-                # Accept mm-dd-yyyy if browser sends custom text
-                try:
-                    needed_by = datetime.strptime(raw_date, '%m-%d-%Y')
-                    needed_by_text = raw_date
-                except ValueError:
-                    needed_by = None
-                    needed_by_text = None
+        needed_by, needed_by_text = _parse_needed_by(form.needed_by.data)
         itm = OrderItem(
             description=form.description.data.strip(),
             quantity=form.quantity.data or 1,
@@ -158,7 +161,10 @@ def create_item():
         additional_quantities = request.form.getlist('additional_quantity[]')
         additional_vendors = request.form.getlist('additional_vendor[]')
         additional_costs = request.form.getlist('additional_cost[]')
-        
+        additional_depts = request.form.getlist('additional_dept[]')
+        additional_needed_bys = request.form.getlist('additional_needed_by[]')
+        additional_source_urls = request.form.getlist('additional_source_url[]')
+
         for i, desc in enumerate(additional_descriptions):
             desc = (desc or '').strip()
             if not desc:
@@ -185,11 +191,20 @@ def create_item():
                 except ValueError:
                     add_cost = None
             
+            dept = additional_depts[i].strip() if i < len(additional_depts) and additional_depts[i] else None
+            src_url = additional_source_urls[i].strip() if i < len(additional_source_urls) and additional_source_urls[i] else None
+            add_needed_by, add_needed_by_text = _parse_needed_by(
+                additional_needed_bys[i] if i < len(additional_needed_bys) else '')
+
             add_item = OrderItem(
                 description=desc,
                 quantity=qty,
                 target_vendor=vendor or None,
                 est_unit_cost=add_cost,
+                dept_code=dept or None,
+                needed_by=add_needed_by,
+                needed_by_text=add_needed_by_text,
+                source_url=src_url or None,
             )
             db.session.add(add_item)
             items_created += 1
