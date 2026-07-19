@@ -1,0 +1,235 @@
+{% extends 'base.html' %}
+{% block title %}Data · HelpfulDjinn{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h1 class="h5 mb-0"><i class="bi bi-database me-2"></i>Data</h1>
+  <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>Back to Admin</a>
+</div>
+
+{% with active_tab='health' %}{% include 'admin/_data_nav.html' %}{% endwith %}
+
+<!-- Stat tiles -->
+<div class="row g-3 mb-3">
+  <div class="col-6 col-lg-3">
+    <div class="card shadow-sm text-center h-100">
+      <div class="card-body">
+        <div class="fs-4 fw-semibold">{{ db_info.size|filesizeformat if db_info.size is not none else '—' }}</div>
+        <div class="small text-muted">Database size</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card shadow-sm text-center h-100">
+      <div class="card-body">
+        <div class="fs-4 fw-semibold">{{ att_info.total_bytes|filesizeformat }}</div>
+        <div class="small text-muted">Attachments ({{ '{:,}'.format(att_info.file_count) }} files)</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card shadow-sm text-center h-100">
+      <div class="card-body">
+        <div class="fs-4 fw-semibold">{{ backup_info.file_count }}
+          {% if backup_info.status == 'ok' %}<span class="badge text-bg-success fs-6 align-middle">OK</span>
+          {% elif backup_info.status == 'stale' %}<span class="badge text-bg-warning fs-6 align-middle">Stale</span>
+          {% elif backup_info.status == 'never' %}<span class="badge text-bg-warning fs-6 align-middle">None yet</span>
+          {% elif backup_info.status == 'error' %}<span class="badge text-bg-danger fs-6 align-middle">Error</span>
+          {% else %}<span class="badge text-bg-secondary fs-6 align-middle">Disabled</span>{% endif %}
+        </div>
+        <div class="small text-muted">Backup files</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card shadow-sm text-center h-100">
+      <div class="card-body">
+        <div class="fs-4 fw-semibold">{{ '{:,}'.format(total_records) }}</div>
+        <div class="small text-muted">Total records</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Detail cards -->
+<div class="row g-3 mb-3">
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header bg-body-tertiary">
+        <h6 class="mb-0"><i class="bi bi-hdd me-1"></i>Database</h6>
+      </div>
+      <div class="card-body">
+        <table class="table table-sm table-borderless mb-0">
+          <tr>
+            <td class="text-muted small">Engine:</td>
+            <td class="small text-capitalize">{{ db_info.dialect }}</td>
+          </tr>
+          {% if db_info.is_sqlite %}
+          <tr>
+            <td class="text-muted small">File:</td>
+            <td class="small"><code>{{ db_info.path }}</code></td>
+          </tr>
+          <tr>
+            <td class="text-muted small">Size:</td>
+            <td class="small">{{ db_info.size|filesizeformat if db_info.size is not none else '—' }}</td>
+          </tr>
+          {% if db_info.wal_size %}
+          <tr>
+            <td class="text-muted small">Write-ahead log:</td>
+            <td class="small">{{ db_info.wal_size|filesizeformat }}</td>
+          </tr>
+          {% endif %}
+          <tr>
+            <td class="text-muted small">Old restore/migration copies:</td>
+            <td class="small">
+              {% if db_info.stray_count %}
+                {{ db_info.stray_count }} file{{ 's' if db_info.stray_count != 1 }} ({{ db_info.stray_bytes|filesizeformat }})
+                <div class="text-muted">Automatic pre-restore/migration snapshots next to the database — safe to delete once you're confident in the current data.</div>
+                {% if can('admin', 'edit') %}
+                <form method="post" action="{{ url_for('admin.data_cleanup_strays') }}" class="mt-1" onsubmit="return confirm('Delete {{ db_info.stray_count }} old database snapshot file{{ 's' if db_info.stray_count != 1 }}? The current database is not affected.');">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-outline-danger btn-sm">
+                    <i class="bi bi-trash me-1"></i>Clean Up
+                  </button>
+                </form>
+                {% endif %}
+              {% else %}None{% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td class="text-muted small">Size:</td>
+            <td class="small text-muted">File statistics are available for SQLite databases only.</td>
+          </tr>
+          {% endif %}
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header bg-body-tertiary">
+        <h6 class="mb-0"><i class="bi bi-paperclip me-1"></i>Attachments</h6>
+      </div>
+      <div class="card-body">
+        <table class="table table-sm table-borderless mb-0">
+          <tr>
+            <td class="text-muted small">Directory:</td>
+            <td class="small">
+              <code>{{ att_info.path }}</code>
+              {% if att_info.error %}<span class="badge text-bg-danger ms-1">unreadable</span>
+              {% elif not att_info.exists %}<span class="badge text-bg-warning text-dark ms-1">not created yet</span>{% endif %}
+            </td>
+          </tr>
+          <tr>
+            <td class="text-muted small">Ticket folders:</td>
+            <td class="small">{{ '{:,}'.format(att_info.folder_count) }}</td>
+          </tr>
+          <tr>
+            <td class="text-muted small">Files on disk:</td>
+            <td class="small">{{ '{:,}'.format(att_info.file_count) }} ({{ att_info.total_bytes|filesizeformat }})</td>
+          </tr>
+          <tr>
+            <td class="text-muted small">Database records:</td>
+            <td class="small">{{ '{:,}'.format(att_info.db_count) }} ({{ att_info.db_bytes|filesizeformat }})</td>
+          </tr>
+          {% if att_info.error %}
+          <tr>
+            <td class="text-muted small">Error:</td>
+            <td class="small text-danger">{{ att_info.error }}</td>
+          </tr>
+          {% endif %}
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+        <h6 class="mb-0"><i class="bi bi-archive me-1"></i>Backups</h6>
+        <a href="{{ url_for('admin.data_backup') }}" class="btn btn-outline-primary btn-sm"><i class="bi bi-database me-1"></i>Backup &amp; Restore</a>
+      </div>
+      <div class="card-body">
+        <table class="table table-sm table-borderless mb-0">
+          <tr>
+            <td class="text-muted small">Directory:</td>
+            <td class="small">
+              <code>{{ backup_info.dir }}</code>
+              {% if backup_info.error %}<span class="badge text-bg-danger ms-1">unreadable</span>
+              {% elif not backup_info.exists %}<span class="badge text-bg-warning text-dark ms-1">not created yet</span>{% endif %}
+            </td>
+          </tr>
+          <tr>
+            <td class="text-muted small">Files:</td>
+            <td class="small">{{ backup_info.file_count }} ({{ backup_info.total_bytes|filesizeformat }})</td>
+          </tr>
+          <tr>
+            <td class="text-muted small">Latest automated backup:</td>
+            <td class="small">
+              {% if backup_info.latest_auto %}
+                {{ backup_info.latest_auto.mtime.strftime('%Y-%m-%d %H:%M') }} ({{ backup_info.latest_auto.size|filesizeformat }})
+                {% if backup_info.latest_age_hours is not none %}<span class="text-muted">— {{ backup_info.latest_age_hours }}h ago</span>{% endif %}
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+        <h6 class="mb-0"><i class="bi bi-file-text me-1"></i>Application Logs</h6>
+        <a href="{{ url_for('admin.app_logs') }}" class="btn btn-outline-primary btn-sm"><i class="bi bi-file-text me-1"></i>View App Logs</a>
+      </div>
+      <div class="card-body">
+        <table class="table table-sm table-borderless mb-0">
+          <tr>
+            <td class="text-muted small">Directory:</td>
+            <td class="small">
+              <code>{{ log_info.path or '—' }}</code>
+              {% if log_info.path and not log_info.exists %}<span class="badge text-bg-warning text-dark ms-1">not created yet</span>{% endif %}
+            </td>
+          </tr>
+          <tr>
+            <td class="text-muted small">Files:</td>
+            <td class="small">{{ log_info.file_count }} ({{ log_info.total_bytes|filesizeformat }})</td>
+          </tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Record counts -->
+<div class="card shadow-sm mb-3">
+  <div class="card-header bg-body-tertiary">
+    <h6 class="mb-0"><i class="bi bi-table me-1"></i>Record Counts</h6>
+  </div>
+  <div class="card-body">
+    <div class="row g-4">
+      {% for group_label, rows in record_groups %}
+      <div class="col-md-6 col-lg-4">
+        <h6 class="small text-muted text-uppercase mb-2">{{ group_label }}</h6>
+        <table class="table table-sm mb-0">
+          {% for label, count in rows %}
+          <tr>
+            <td class="small">{{ label }}</td>
+            <td class="small text-end">
+              {{ '{:,}'.format(count) }}
+              {% if label == 'Outbox' %}
+                {% if outbox_pending %}<span class="badge text-bg-info ms-1" title="Pending">{{ outbox_pending }} pending</span>{% endif %}
+                {% if outbox_dead %}<span class="badge text-bg-danger ms-1" title="Dead (gave up after retries)">{{ outbox_dead }} dead</span>{% endif %}
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </table>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

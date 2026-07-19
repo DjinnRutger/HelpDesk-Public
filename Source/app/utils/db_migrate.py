@@ -22,6 +22,8 @@ def ensure_ticket_columns(engine):
     'snoozed_until': "DATETIME",
     'created_by_user_id': "INTEGER",
     'system_info_json': "TEXT",
+    'merged_into_id': "INTEGER",
+    'merged_at': "DATETIME",
     }
 
     with engine.connect() as conn:

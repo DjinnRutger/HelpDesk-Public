@@ -213,6 +213,20 @@ def update_status(asset_id):
     return redirect(url_for('assets.detail', asset_id=a.id))
 
 
+@assets_bp.route('/<int:asset_id>/mark_audited', methods=['POST'])
+@login_required
+@require_permission('assets', EDIT)
+def mark_audited(asset_id):
+    a = Asset.query.get_or_404(asset_id)
+    now = datetime.utcnow()
+    a.last_spot_check = now
+    a.last_audit = now
+    db.session.add(AssetAudit(asset_id=a.id, user_id=getattr(current_user,'id',None), action='audit', field='manual_verification', old_value=None, new_value='Manually verified'))
+    db.session.commit()
+    flash('Asset marked as audited.', 'success')
+    return redirect(url_for('assets.detail', asset_id=a.id))
+
+
 @assets_bp.route('/<int:asset_id>/hard_delete', methods=['POST'])
 @login_required
 @require_permission('assets', DELETE)

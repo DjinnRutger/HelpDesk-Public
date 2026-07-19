@@ -48,6 +48,7 @@ def process_wakeups(app=None) -> None:
             Ticket.query
             .filter(Ticket.snoozed_until.isnot(None))
             .filter(Ticket.snoozed_until <= now)
+            .filter(Ticket.merged_into_id.is_(None))
             .all()
         )
         if not candidates:

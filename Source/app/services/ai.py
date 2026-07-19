@@ -636,7 +636,8 @@ def run_ai_auto_suggest(app):
             cutoff = now - AUTO_SUGGEST_WINDOW
             with_suggestion = {r.ticket_id for r in TicketAISuggestion.query.all()}
             fresh = (Ticket.query
-                     .filter(Ticket.created_at >= cutoff, Ticket.closed_at.is_(None))
+                     .filter(Ticket.created_at >= cutoff, Ticket.closed_at.is_(None),
+                             Ticket.merged_into_id.is_(None))
                      .order_by(Ticket.created_at.asc())
                      .all())
             todo.extend(t.id for t in fresh if t.id not in with_suggestion)

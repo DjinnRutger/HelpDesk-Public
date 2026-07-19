@@ -33,10 +33,11 @@ _COLOR_MAP = {
 def index():
     closed_statuses = get_closed_status_names()
 
-    # Total open tickets (exclude project tickets and currently-snoozed)
+    # Total open tickets (exclude project tickets, merged tickets and currently-snoozed)
     total_open = Ticket.query.filter(
         ~Ticket.status.in_(closed_statuses) &
         (Ticket.project_id.is_(None)) &
+        (Ticket.merged_into_id.is_(None)) &
         ((Ticket.snoozed_until.is_(None)) | (Ticket.snoozed_until <= datetime.utcnow()))
     ).count()
 
@@ -60,6 +61,7 @@ def index():
     ).filter(
         ~Ticket.status.in_(closed_statuses) &
         (Ticket.project_id.is_(None)) &
+        (Ticket.merged_into_id.is_(None)) &
         ((Ticket.snoozed_until.is_(None)) | (Ticket.snoozed_until <= now))
     ).all()
 
@@ -98,6 +100,7 @@ def index():
     closed_today = Ticket.query.filter(
         Ticket.status.in_(closed_statuses) &
         (Ticket.project_id.is_(None)) &
+        (Ticket.merged_into_id.is_(None)) &
         (Ticket.closed_at >= today_start)
     ).count()
 
@@ -131,13 +134,16 @@ def index():
     ).filter(
         Ticket.status.in_(closed_statuses) &
         (Ticket.closed_at >= week_start) &
-        (Ticket.project_id.is_(None))
+        (Ticket.project_id.is_(None)) &
+        (Ticket.merged_into_id.is_(None))
     ).group_by(User.id, User.name).order_by(func.count(Ticket.id).desc()).limit(2).all()
 
     active_projects = Project.query.filter(Project.status != 'closed').count()
 
     snoozed_count = Ticket.query.filter(
         ~Ticket.status.in_(closed_statuses) &
+        (Ticket.project_id.is_(None)) &
+        (Ticket.merged_into_id.is_(None)) &
         (Ticket.snoozed_until.isnot(None)) &
         (Ticket.snoozed_until > datetime.utcnow())
     ).count()
@@ -149,6 +155,7 @@ def index():
     resolved = db.session.query(Ticket.created_at, Ticket.closed_at).filter(
         Ticket.status.in_(closed_statuses),
         Ticket.project_id.is_(None),
+        Ticket.merged_into_id.is_(None),
         Ticket.closed_at.isnot(None),
         Ticket.closed_at >= thirty_days_ago,
     ).all()
@@ -169,6 +176,7 @@ def index():
     unassigned_open = Ticket.query.filter(
         ~Ticket.status.in_(closed_statuses),
         Ticket.project_id.is_(None),
+        Ticket.merged_into_id.is_(None),
         Ticket.assignee_id.is_(None),
         Ticket.co_assignee_id.is_(None),
         (Ticket.snoozed_until.is_(None)) | (Ticket.snoozed_until <= now),
@@ -180,6 +188,7 @@ def index():
     ).filter(
         ~Ticket.status.in_(closed_statuses),
         Ticket.project_id.is_(None),
+        Ticket.merged_into_id.is_(None),
     ).group_by(Ticket.priority).all()
     priority_breakdown = {'high': 0, 'medium': 0, 'low': 0}
     for priority, cnt in priority_rows:
@@ -190,6 +199,7 @@ def index():
     opened_this_week = Ticket.query.filter(
         Ticket.created_at >= week_start,
         Ticket.project_id.is_(None),
+        Ticket.merged_into_id.is_(None),
     ).count()
 
     # Closed this week
@@ -198,6 +208,7 @@ def index():
         Ticket.closed_at.isnot(None),
         Ticket.closed_at >= week_start,
         Ticket.project_id.is_(None),
+        Ticket.merged_into_id.is_(None),
     ).count()
 
     # Top requesters last 30 days — resolve name and contact_id via Contact table
@@ -207,6 +218,7 @@ def index():
     ).filter(
         Ticket.created_at >= thirty_days_ago,
         Ticket.project_id.is_(None),
+        Ticket.merged_into_id.is_(None),
         Ticket.requester_email.isnot(None),
         Ticket.requester_email != '',
     ).group_by(Ticket.requester_email).order_by(func.count(Ticket.id).desc()).limit(5).all()
@@ -286,7 +298,7 @@ def top_tags():
         )
         .join(ticket_tags, Tag.id == ticket_tags.c.tag_id)
         .join(Ticket, Ticket.id == ticket_tags.c.ticket_id)
-        .filter(Ticket.created_at >= cutoff)
+        .filter(Ticket.created_at >= cutoff, Ticket.merged_into_id.is_(None))
         .group_by(func.coalesce(Tag.parent_id, Tag.id))
         .order_by(func.count(ticket_tags.c.ticket_id).desc())
         .limit(10)
@@ -308,7 +320,7 @@ def top_tags():
         )
         .join(ticket_tags, Tag.id == ticket_tags.c.tag_id)
         .join(Ticket, Ticket.id == ticket_tags.c.ticket_id)
-        .filter(Ticket.created_at >= cutoff, Tag.parent_id.isnot(None))
+        .filter(Ticket.created_at >= cutoff, Ticket.merged_into_id.is_(None), Tag.parent_id.isnot(None))
         .group_by(Tag.id, Tag.name, Tag.parent_id)
         .order_by(func.count(ticket_tags.c.ticket_id).desc())
         .limit(10)
@@ -335,7 +347,7 @@ def ticket_sources():
     cutoff = datetime.utcnow() - timedelta(days=days)
     rows = (
         db.session.query(Ticket.source, func.count(Ticket.id))
-        .filter(Ticket.created_at >= cutoff)
+        .filter(Ticket.created_at >= cutoff, Ticket.merged_into_id.is_(None))
         .group_by(Ticket.source)
         .all()
     )
@@ -371,12 +383,14 @@ def tickets_per_week():
     opened_rows = db.session.query(Ticket.created_at).filter(
         Ticket.created_at >= earliest,
         Ticket.project_id.is_(None),
+        Ticket.merged_into_id.is_(None),
     ).all()
 
     closed_rows = db.session.query(Ticket.closed_at).filter(
         Ticket.closed_at.isnot(None),
         Ticket.closed_at >= earliest,
         Ticket.project_id.is_(None),
+        Ticket.merged_into_id.is_(None),
         Ticket.status.in_(closed_statuses),
     ).all()
 

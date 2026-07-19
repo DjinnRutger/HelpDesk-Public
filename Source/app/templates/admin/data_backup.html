@@ -1,0 +1,169 @@
+{% extends 'base.html' %}
+{% block title %}Backup &amp; Restore · HelpfulDjinn{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h1 class="h5 mb-0"><i class="bi bi-database me-2"></i>Data</h1>
+  <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>Back to Admin</a>
+</div>
+
+{% with active_tab='backup' %}{% include 'admin/_data_nav.html' %}{% endwith %}
+
+{% if not is_sqlite %}
+<div class="alert alert-info">
+  <i class="bi bi-info-circle me-1"></i>Backup and restore are only supported for SQLite databases in this version.
+</div>
+{% endif %}
+
+<!-- Automated Backup Status -->
+<div class="card shadow-sm mb-3">
+  <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+    <h6 class="mb-0"><i class="bi bi-heart-pulse me-1"></i>Automated Backup Status</h6>
+    {% if backup_info.status == 'ok' %}
+      <span class="badge text-bg-success">OK — last backup {{ backup_info.latest_age_hours }}h ago</span>
+    {% elif backup_info.status == 'stale' %}
+      <span class="badge text-bg-warning">Stale — last backup {{ backup_info.latest_age_hours }}h ago</span>
+    {% elif backup_info.status == 'never' %}
+      <span class="badge text-bg-warning">Enabled — no backup yet</span>
+    {% elif backup_info.status == 'error' %}
+      <span class="badge text-bg-danger">Cannot read directory</span>
+    {% else %}
+      <span class="badge text-bg-secondary">Disabled</span>
+    {% endif %}
+  </div>
+  <div class="card-body">
+    <table class="table table-sm table-borderless mb-0">
+      <tr>
+        <td class="text-muted small">Backup directory:</td>
+        <td class="small">
+          <code>{{ backup_info.dir }}</code>
+          {% if backup_info.error %}<span class="badge text-bg-danger ms-1">unreadable</span>
+          {% elif not backup_info.exists %}<span class="badge text-bg-warning text-dark ms-1">not created yet</span>{% endif %}
+        </td>
+      </tr>
+      <tr>
+        <td class="text-muted small">Files in directory:</td>
+        <td class="small">{{ backup_info.file_count }} ({{ backup_info.total_bytes|filesizeformat }})</td>
+      </tr>
+      <tr>
+        <td class="text-muted small">Automated backups:</td>
+        <td class="small">{{ backup_info.auto_count }}</td>
+      </tr>
+      <tr>
+        <td class="text-muted small">Latest automated backup:</td>
+        <td class="small">
+          {% if backup_info.latest_auto %}
+            <code>{{ backup_info.latest_auto.name }}</code> — {{ backup_info.latest_auto.size|filesizeformat }} — {{ backup_info.latest_auto.mtime.strftime('%Y-%m-%d %H:%M') }}
+            {% if backup_info.latest_age_hours is not none %}<span class="text-muted">({{ backup_info.latest_age_hours }}h ago)</span>{% endif %}
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+      <tr>
+        <td class="text-muted small">Encryption key in directory:</td>
+        <td class="small">
+          {{ 'Yes' if backup_info.has_secret_key else 'No' }}
+          <span class="text-muted">— restoring encrypted settings (MS Graph secret, AD password) requires the paired secret_key file.</span>
+        </td>
+      </tr>
+      {% if backup_info.error %}
+      <tr>
+        <td class="text-muted small">Error:</td>
+        <td class="small text-danger">{{ backup_info.error }}</td>
+      </tr>
+      {% endif %}
+    </table>
+  </div>
+</div>
+
+<!-- Manual Actions -->
+<div class="card shadow-sm mb-3">
+  <div class="card-header bg-body-tertiary">
+    <h6 class="mb-0"><i class="bi bi-hand-index me-1"></i>Manual Actions</h6>
+  </div>
+  <div class="card-body">
+    <div class="row g-2">
+      <div class="col-md-4">
+        <form method="post" action="{{ url_for('admin.backup_db') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-outline-primary w-100" type="submit">
+            <i class="bi bi-download me-2"></i>Download Backup
+          </button>
+        </form>
+        <div class="small text-muted mt-1">Zip of the database + encryption key &mdash; store it securely</div>
+      </div>
+      <div class="col-md-4">
+        <form method="post" action="{{ url_for('admin.backup_attachments') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-outline-secondary w-100" type="submit">
+            <i class="bi bi-file-earmark-zip me-2"></i>Backup Attachments
+          </button>
+        </form>
+        <div class="small text-muted mt-1">Downloads all attachments as ZIP</div>
+      </div>
+      <div class="col-md-4">
+        <form method="post" action="{{ url_for('admin.restore_db') }}" enctype="multipart/form-data" onsubmit="return confirm('This will replace the current database with the uploaded backup. Continue?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-1">
+            <input class="form-control form-control-sm" type="file" name="backup_file" accept=".db,.zip,application/octet-stream,application/zip" required>
+          </div>
+          <button class="btn btn-danger w-100" type="submit">
+            <i class="bi bi-upload me-2"></i>Restore from File
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Auto-backup Settings -->
+<div class="card shadow-sm mb-3">
+  <div class="card-header bg-body-tertiary">
+    <h6 class="mb-0"><i class="bi bi-clock-history me-1"></i>Automatic Backup Schedule</h6>
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('admin.backup_settings') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div class="row g-3 mb-3">
+        <div class="col-md-6">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="autoEnabled" name="auto_enabled" {% if auto_enabled %}checked{% endif %}>
+            <label class="form-check-label" for="autoEnabled">
+              <i class="bi bi-check-circle me-1"></i>Enable nightly backup
+            </label>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="input-group">
+            <span class="input-group-text"><i class="bi bi-clock"></i></span>
+            <input type="time" class="form-control" name="auto_time" value="{{ auto_time or '23:00' }}" title="Local time">
+          </div>
+        </div>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label small">Backup Directory</label>
+        <input type="text" class="form-control" name="auto_dir" placeholder="instance/backups" value="{{ auto_dir or '' }}">
+        <div class="form-text">Leave blank for default: instance/backups. Currently resolves to: <code>{{ backup_info.dir }}</code></div>
+      </div>
+
+      <div class="row g-2 mb-3">
+        <div class="col-md-6">
+          <label class="form-label small">Retention</label>
+          <div class="input-group">
+            <span class="input-group-text">Keep last</span>
+            <input type="number" min="1" max="365" class="form-control" name="auto_keep" value="{{ auto_keep or 7 }}">
+            <span class="input-group-text">files</span>
+          </div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary w-100" type="submit">
+        <i class="bi bi-check-lg me-1"></i>Save Backup Settings
+      </button>
+    </form>
+    <div class="small text-muted mt-2">
+      <i class="bi bi-info-circle me-1"></i>Older backups beyond retention count are automatically deleted.
+    </div>
+  </div>
+</div>
+{% endblock %}

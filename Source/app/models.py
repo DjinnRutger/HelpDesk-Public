@@ -256,6 +256,10 @@ class Ticket(db.Model):
     created_by_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     # Raw systemInfo JSON archived from machine-client (DjinnWish) submissions; null otherwise
     system_info_json = db.Column(db.Text, nullable=True)
+    # Merge-to-ticket: when set, this ticket is hidden from all lists/counts
+    # and appears only under its parent ticket's "Merged Tickets" section
+    merged_into_id = db.Column(db.Integer, db.ForeignKey('ticket.id'), nullable=True)
+    merged_at = db.Column(db.DateTime, nullable=True)
 
     @property
     def age_hours(self) -> float:
@@ -313,6 +317,14 @@ class Ticket(db.Model):
     created_by = db.relationship('User', foreign_keys=[created_by_user_id])
     # Tags (many-to-many)
     tags = db.relationship('Tag', secondary=ticket_tags, back_populates='tickets')
+    # Tickets merged under this one (self-referential; no cascade delete —
+    # children are released, not deleted, when the parent goes away)
+    merged_children = db.relationship(
+        'Ticket',
+        backref=db.backref('merged_into', remote_side=[id]),
+        foreign_keys=[merged_into_id],
+        order_by='Ticket.merged_at',
+    )
     # AI assistant artifacts (one row each)
     ai_embedding = db.relationship('TicketEmbedding', backref='ticket', uselist=False, cascade='all, delete-orphan')
     ai_suggestion = db.relationship('TicketAISuggestion', backref='ticket', uselist=False, cascade='all, delete-orphan')

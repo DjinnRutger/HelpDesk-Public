@@ -43,15 +43,9 @@ def list_tickets():
 
     me_id = getattr(current_user, 'id', -1)
     base = Ticket.query.options(joinedload(Ticket.assignee), joinedload(Ticket.co_assignee), joinedload(Ticket.project))
-    # If searching (q provided) include ALL tickets (project + non-project) so project tickets are discoverable.
-    # Otherwise (no search) keep existing behavior: hide project tickets unless assigned to current user.
-    if q:
-        query = base
-    else:
-        query = base.filter(
-            (Ticket.project_id.is_(None)) |
-            ((Ticket.project_id.isnot(None)) & ((Ticket.assignee_id == me_id) | (Ticket.co_assignee_id == me_id)))
-        )
+    # Project tickets live only under their project; merged tickets only under
+    # their parent ticket. Neither ever appears in the main ticket list.
+    query = base.filter(Ticket.project_id.is_(None), Ticket.merged_into_id.is_(None))
 
     if status == 'open':
         query = query.filter(~Ticket.status.in_(closed_statuses))
@@ -74,7 +68,7 @@ def list_tickets():
         # Find ticket IDs that have notes matching the search term
         tickets_with_matching_notes = db.session.query(TicketNote.ticket_id).filter(
             TicketNote.content.ilike(like)
-        ).distinct().subquery()
+        ).distinct().scalar_subquery()
         # Include legacy requester field (may contain email) in search, plus notes
         query = query.filter(
             (Ticket.subject.ilike(like)) |
@@ -90,6 +84,7 @@ def list_tickets():
     # Snoozed count for toggle badge
     snoozed_count = Ticket.query.filter(
         ~Ticket.status.in_(closed_statuses) & (Ticket.snoozed_until.isnot(None)) & (Ticket.snoozed_until > datetime.utcnow())
+        & (Ticket.project_id.is_(None)) & (Ticket.merged_into_id.is_(None))
     ).count()
 
     all_tags = Tag.query.order_by(Tag.parent_id.asc(), Tag.position).all()
@@ -124,12 +119,14 @@ def pipeline():
             q = Ticket.query.filter(
                 Ticket.status == status.name,
                 Ticket.project_id.is_(None),
+                Ticket.merged_into_id.is_(None),
                 Ticket.closed_at >= seven_days_ago
             )
         else:
             q = Ticket.query.filter(
                 Ticket.status == status.name,
-                Ticket.project_id.is_(None)
+                Ticket.project_id.is_(None),
+                Ticket.merged_into_id.is_(None)
             )
         if pipeline_tag_id:
             q = q.filter(Ticket.tags.any(Tag.id == pipeline_tag_id))
@@ -730,6 +727,9 @@ def show_ticket(ticket_id):
         if t.project_id:
             flash('Ticket is already part of a project.', 'info')
             return redirect(url_for('projects.show_project', project_id=t.project_id))
+        if t.merged_into_id:
+            flash('This ticket is merged into another ticket and cannot be moved to a project. Unmerge it first.', 'warning')
+            return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
         project = Project.query.get(merge_form.project_id.data)
         if not project or project.status == 'closed':
             flash('Invalid project selection.', 'danger')
@@ -1382,6 +1382,9 @@ def delete_ticket(ticket_id):
         except Exception:
             # Do not block deletion if filesystem cleanup fails
             pass
+        # Release any tickets merged under this one (no FK enforcement in SQLite;
+        # avoid dangling merged_into_id references)
+        Ticket.query.filter_by(merged_into_id=t.id).update({'merged_into_id': None, 'merged_at': None})
         db.session.delete(t)
         db.session.commit()
         flash('Ticket deleted', 'success')
@@ -1698,6 +1701,140 @@ def resend_approval(ticket_id, approval_id):
         flash(f'Error queuing approval reminder: {str(e)}', 'danger')
 
     return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
+
+
+# ---------------------------------------------------------------------------
+# Merge to ticket
+# ---------------------------------------------------------------------------
+
+@tickets_bp.route('/api/merge_search')
+@login_required
+def merge_search():
+    """Typeahead for Merge-to-Ticket: open, non-merged, non-project tickets."""
+    q = (request.args.get('q') or '').strip()
+    exclude_id = request.args.get('exclude', type=int)
+    items = []
+    if q:
+        closed_statuses = get_closed_status_names()
+        query = Ticket.query.filter(
+            ~Ticket.status.in_(closed_statuses),
+            Ticket.merged_into_id.is_(None),
+            Ticket.project_id.is_(None),
+        )
+        if exclude_id:
+            query = query.filter(Ticket.id != exclude_id)
+        like = f"%{q}%"
+        num = q.lstrip('#')
+        if num.isdigit():
+            query = query.filter((Ticket.id == int(num)) | Ticket.subject.ilike(like))
+        else:
+            query = query.filter(Ticket.subject.ilike(like))
+        rows = query.order_by(Ticket.created_at.desc()).limit(10).all()
+        smap = {s.name: s for s in TicketStatus.query.all()}
+        for t in rows:
+            s = smap.get(t.status)
+            items.append({
+                'id': t.id,
+                'subject': t.subject,
+                'status': t.status,
+                'status_label': (s.label if s else (t.status or '').replace('_', ' ').title()),
+                'status_color': (s.color if s else 'secondary'),
+                'requester': t.requester_name or t.requester_email or t.requester or '',
+            })
+    return jsonify({'items': items})
+
+
+@tickets_bp.route('/<int:ticket_id>/merge_to_ticket', methods=['POST'])
+@login_required
+@require_permission('tickets', EDIT)
+def merge_to_ticket(ticket_id):
+    t = Ticket.query.get_or_404(ticket_id)
+    target_id = request.form.get('target_ticket_id', type=int)
+    if not target_id:
+        flash('Select a ticket to merge into.', 'warning')
+        return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
+    if target_id == t.id:
+        flash('A ticket cannot be merged into itself.', 'warning')
+        return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
+    if t.merged_into_id:
+        flash('This ticket is already merged into another ticket.', 'info')
+        return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
+    if t.project_id:
+        flash('This ticket belongs to a project and cannot be merged into a ticket.', 'warning')
+        return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
+    target = Ticket.query.get(target_id)
+    if not target:
+        flash('Target ticket not found.', 'danger')
+        return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
+    if target.merged_into_id:
+        flash('Target ticket is itself merged into another ticket. Merge into that ticket instead.', 'warning')
+        return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
+    if target.is_closed:
+        flash('Target ticket is closed. Choose an open ticket.', 'warning')
+        return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
+    if target.project_id:
+        flash('Target ticket belongs to a project and cannot receive merges.', 'warning')
+        return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
+
+    # Re-parent any tickets already merged under this one so the merge tree
+    # stays exactly one level deep
+    moved = []
+    for child in list(t.merged_children):
+        child.merged_into_id = target.id
+        moved.append(child.id)
+
+    t.merged_into_id = target.id
+    t.merged_at = datetime.utcnow()
+    t.bump_new_to_open()
+
+    parent_link = url_for('tickets.show_ticket', ticket_id=target.id)
+    child_link = url_for('tickets.show_ticket', ticket_id=t.id)
+    actor = bleach.clean(getattr(current_user, 'name', None) or 'a technician')
+    db.session.add(TicketNote(
+        ticket_id=t.id, author_id=None, is_private=True,
+        content=f'<em>System:</em> Merged into <a href="{parent_link}">Ticket #{target.id}</a> by {actor}.',
+    ))
+    extra = (
+        " Previously merged ticket(s) moved along: " + ", ".join(f"#{m}" for m in moved) + "."
+        if moved else ''
+    )
+    db.session.add(TicketNote(
+        ticket_id=target.id, author_id=None, is_private=True,
+        content=(f'<em>System:</em> <a href="{child_link}">Ticket #{t.id}</a> '
+                 f'({bleach.clean(t.subject or "")}) was merged into this ticket by {actor}.{extra}'),
+    ))
+    db.session.commit()
+    notify_ticket_watchers(t, getattr(current_user, 'id', None), [f"Merged into Ticket #{target.id}"])
+    flash(f'Ticket #{t.id} merged into Ticket #{target.id}.', 'success')
+    return redirect(url_for('tickets.show_ticket', ticket_id=target.id))
+
+
+@tickets_bp.route('/<int:ticket_id>/unmerge', methods=['POST'])
+@login_required
+@require_permission('tickets', EDIT)
+def unmerge_ticket(ticket_id):
+    t = Ticket.query.get_or_404(ticket_id)
+    if not t.merged_into_id:
+        flash('Ticket is not merged.', 'info')
+        return redirect(url_for('tickets.show_ticket', ticket_id=t.id))
+    parent_id = t.merged_into_id
+    t.merged_into_id = None
+    t.merged_at = None
+    parent_link = url_for('tickets.show_ticket', ticket_id=parent_id)
+    child_link = url_for('tickets.show_ticket', ticket_id=t.id)
+    actor = bleach.clean(getattr(current_user, 'name', None) or 'a technician')
+    db.session.add(TicketNote(
+        ticket_id=t.id, author_id=None, is_private=True,
+        content=f'<em>System:</em> Unmerged from <a href="{parent_link}">Ticket #{parent_id}</a> by {actor}.',
+    ))
+    db.session.add(TicketNote(
+        ticket_id=parent_id, author_id=None, is_private=True,
+        content=f'<em>System:</em> <a href="{child_link}">Ticket #{t.id}</a> was unmerged from this ticket by {actor}.',
+    ))
+    db.session.commit()
+    notify_ticket_watchers(t, getattr(current_user, 'id', None), [f"Unmerged from Ticket #{parent_id}"])
+    flash(f'Ticket #{t.id} returned to the ticket list.', 'success')
+    return redirect(url_for('tickets.show_ticket', ticket_id=parent_id))
 
 
 # ---------------------------------------------------------------------------

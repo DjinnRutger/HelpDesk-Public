@@ -54,7 +54,7 @@ def list_items():
         # Create a subquery for POs that have matching line items
         item_subquery = db.session.query(OrderItem.po_id).filter(
             OrderItem.description.ilike(search_pattern)
-        ).distinct().subquery()
+        ).distinct().scalar_subquery()
         
         # Main query that searches PO fields OR has matching line items
         pos_query = pos_query.filter(
@@ -70,7 +70,7 @@ def list_items():
                 PurchaseOrder.company_name.ilike(search_pattern),
                 PurchaseOrder.shipping_name.ilike(search_pattern),
                 # PO has matching line items
-                PurchaseOrder.id.in_(db.session.query(item_subquery.c.po_id))
+                PurchaseOrder.id.in_(item_subquery)
             )
         )
     

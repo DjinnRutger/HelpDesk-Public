@@ -101,14 +101,6 @@ def index():
     mfg_count = AssetManufacturer.query.count()
     cond_count = AssetCondition.query.count()
     loc_count = AssetLocation.query.count()
-    # Auto-backup settings
-    auto_enabled = (Setting.get('AUTO_BACKUP_ENABLED', '0') or '0') in ('1','true','on','yes')
-    auto_time = (Setting.get('AUTO_BACKUP_TIME', '23:00') or '23:00')
-    auto_dir = (Setting.get('AUTO_BACKUP_DIR', '') or '')
-    try:
-        auto_keep = int(Setting.get('AUTO_BACKUP_RETENTION', '7') or '7')
-    except Exception:
-        auto_keep = 7
     demo_mode = (Setting.get('DEMO_MODE', '0') or '0') in ('1','true','on','yes') or (Setting.get('DEMO_DATA_LOADED','0') in ('1','true','on','yes'))
     # Asset Spot Check settings
     spot_check_enabled = (Setting.get('ASSET_SPOT_CHECK_ENABLED', '0') or '0') in ('1','true','on','yes')
@@ -139,10 +131,6 @@ def index():
         mfg_count=mfg_count,
         cond_count=cond_count,
         loc_count=loc_count,
-        auto_enabled=auto_enabled,
-        auto_time=auto_time,
-        auto_dir=auto_dir,
-        auto_keep=auto_keep,
         demo_mode=demo_mode,
         spot_check_enabled=spot_check_enabled,
         spot_check_frequency=spot_check_frequency,

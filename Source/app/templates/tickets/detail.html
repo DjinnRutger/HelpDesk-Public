@@ -2,6 +2,15 @@
 {% block title %}Ticket #{{ t.id }} · HelpDesk{% endblock %}
 
 {% block content %}
+{% if t.merged_into_id %}
+<div class="alert alert-info d-flex align-items-center mb-3">
+  <i class="bi bi-sign-merge-left me-2 fs-5"></i>
+  <div>This ticket has been merged into
+    <a class="alert-link" href="{{ url_for('tickets.show_ticket', ticket_id=t.merged_into_id) }}">Ticket #{{ t.merged_into_id }}{% if t.merged_into %} · {{ t.merged_into.subject }}{% endif %}</a>.
+    It no longer appears in ticket lists.
+  </div>
+</div>
+{% endif %}
 <!-- Ticket Header -->
 <div class="card shadow-sm mb-3">
   <div class="card-header bg-body-tertiary">
@@ -24,6 +33,7 @@
             <span class="badge text-bg-{{ priority_class }} text-capitalize">{{ t.priority }}</span> ·
             <span class="badge text-bg-{{ t.status|status_color }}">{{ t.status|status_label }}</span>
             {% if t.project_id %}<span class="badge text-bg-dark ms-1">Project</span>{% endif %}
+            {% if t.merged_into_id %}<span class="badge text-bg-secondary ms-1">Merged</span>{% endif %}
             {% if t.co_assignee %}<span class="badge text-bg-info ms-1" title="Co-Tech">Co: {{ t.co_assignee.name }}</span>{% endif %}
           </small>
         </div>
@@ -80,6 +90,37 @@
         {% endif %}
       </div>
     </div>
+
+    {% if t.merged_children %}
+    <!-- Merged Tickets -->
+    <div class="card shadow-sm mt-3" id="mergedTicketsCard">
+      <div class="card-header bg-body-tertiary">
+        <h6 class="mb-0"><i class="bi bi-sign-merge-left me-1"></i>Merged Tickets
+          <span class="badge text-bg-secondary">{{ t.merged_children|length }}</span></h6>
+      </div>
+      <div class="list-group list-group-flush">
+        {% for child in t.merged_children %}
+        <div class="list-group-item d-flex align-items-center justify-content-between gap-2">
+          <div class="min-w-0">
+            <a href="{{ url_for('tickets.show_ticket', ticket_id=child.id) }}" class="text-decoration-none fw-semibold">#{{ child.id }} · {{ child.subject }}</a>
+            <div class="small text-muted">
+              <span class="badge text-bg-{{ child.status|status_color }}">{{ child.status|status_label }}</span>
+              · from {{ child.requester_name or child.requester_email or child.requester or 'Unknown' }}
+              {% if child.merged_at %} · merged {{ child.merged_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}
+            </div>
+          </div>
+          {% if can('tickets', 'edit') %}
+          <form method="post" action="{{ url_for('tickets.unmerge_ticket', ticket_id=child.id) }}"
+                onsubmit="return confirm('Unmerge Ticket #{{ child.id }}? It will return to the ticket list.');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-outline-secondary" title="Unmerge"><i class="bi bi-box-arrow-up-left me-1"></i>Unmerge</button>
+          </form>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
 
     <!-- Order Items -->
     <div class="card shadow-sm mt-3" id="orderItemsWidget">
@@ -613,7 +654,8 @@
           <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#assignProcessModal" {% if t.is_closed %}disabled{% endif %}><i class="bi bi-diagram-3 me-1"></i>Assign Process</button>
           <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#assignTasksModal" {% if t.is_closed %}disabled{% endif %}><i class="bi bi-list-task me-1"></i>Assign Tasks</button>
           <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addOrderItemModal"><i class="bi bi-cart-plus me-1"></i>Add Order Item</button>
-          <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#mergeToProjectModal" {% if t.project_id %}disabled{% endif %}><i class="bi bi-box-arrow-in-right me-1"></i>Merge to Project</button>
+          <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#mergeToProjectModal" {% if t.project_id or t.merged_into_id %}disabled{% endif %}><i class="bi bi-box-arrow-in-right me-1"></i>Merge to Project</button>
+          <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#mergeToTicketModal" {% if t.project_id or t.merged_into_id %}disabled{% endif %}><i class="bi bi-sign-merge-left me-1"></i>Merge to Ticket</button>
           <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#requestApprovalModal">
             <i class="bi bi-check-circle me-1"></i>Request Approval
           </button>
@@ -1929,6 +1971,30 @@
   </div>
 </div>
 
+<div class="modal fade" id="mergeToTicketModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Merge to Ticket</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted mb-2">Search for an open ticket by number or subject. This ticket will be hidden from ticket lists and shown under the selected ticket.</p>
+        <form method="post" action="{{ url_for('tickets.merge_to_ticket', ticket_id=t.id) }}" id="mergeToTicketForm">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="target_ticket_id" id="mergeTargetId">
+          <div class="position-relative mb-2" id="merge-ticket-search-wrap">
+            <input type="text" id="merge-ticket-search-input" class="form-control" placeholder="Ticket # or subject…" autocomplete="off">
+            <ul id="merge-ticket-dropdown" class="dropdown-menu w-100 p-1" style="display:none; max-height:260px; overflow-y:auto; position:absolute; z-index:1055;"></ul>
+          </div>
+          <div id="mergeTargetPreview" class="alert alert-secondary py-2 px-3 small d-none mb-2"></div>
+          <div class="d-grid"><button type="submit" class="btn btn-primary" id="mergeToTicketSubmit" disabled>Merge</button></div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Request Approval Modal -->
 <div class="modal fade" id="requestApprovalModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
@@ -2427,6 +2493,72 @@ document.getElementById('watchBtn').addEventListener('click', async function() {
       });
     }
   }
+})();
+</script>
+
+<script>
+// ── Merge to Ticket typeahead ───────────────────────────────────────────────
+(function () {
+  'use strict';
+  const input = document.getElementById('merge-ticket-search-input');
+  if (!input) return;
+  const dropdown  = document.getElementById('merge-ticket-dropdown');
+  const hidden    = document.getElementById('mergeTargetId');
+  const preview   = document.getElementById('mergeTargetPreview');
+  const submitBtn = document.getElementById('mergeToTicketSubmit');
+  let debounce = null;
+
+  function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+  function hideDropdown() { dropdown.style.display = 'none'; dropdown.innerHTML = ''; }
+
+  function select(tk) {
+    hidden.value = tk.id;
+    input.value = '#' + tk.id + ' — ' + tk.subject;
+    preview.innerHTML = 'Merging into <strong>#' + tk.id + '</strong> · ' + esc(tk.subject);
+    preview.classList.remove('d-none');
+    submitBtn.disabled = false;
+    hideDropdown();
+  }
+
+  function showResults(items) {
+    dropdown.innerHTML = '';
+    if (!items.length) { hideDropdown(); return; }
+    items.forEach(tk => {
+      const li = document.createElement('li');
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'dropdown-item text-wrap';
+      btn.innerHTML = '<span class="fw-semibold">#' + tk.id + '</span> ' + esc(tk.subject) +
+        ' <span class="badge text-bg-' + esc(tk.status_color) + ' ms-1">' + esc(tk.status_label) + '</span>';
+      btn.addEventListener('click', () => select(tk));
+      li.appendChild(btn);
+      dropdown.appendChild(li);
+    });
+    dropdown.style.display = 'block';
+  }
+
+  input.addEventListener('input', function () {
+    clearTimeout(debounce);
+    hidden.value = '';
+    submitBtn.disabled = true;
+    preview.classList.add('d-none');
+    const q = this.value.trim();
+    if (!q) { hideDropdown(); return; }
+    debounce = setTimeout(() => {
+      fetch('/tickets/api/merge_search?q=' + encodeURIComponent(q) + '&exclude={{ t.id }}')
+        .then(r => r.json())
+        .then(data => showResults(data.items || []))
+        .catch(() => hideDropdown());
+    }, 200);
+  });
+
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') hideDropdown();
+  });
+
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest('#merge-ticket-search-wrap')) hideDropdown();
+  });
 })();
 </script>
 {% endblock %}

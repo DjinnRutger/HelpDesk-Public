@@ -379,6 +379,7 @@ def _count_created(start: datetime, end: datetime) -> int:
         Ticket.created_at >= start,
         Ticket.created_at <= end,
         Ticket.project_id.is_(None),
+        Ticket.merged_into_id.is_(None),
     ).count()
 
 
@@ -389,6 +390,7 @@ def _count_closed(start: datetime, end: datetime, closed_statuses: List[str]) ->
         Ticket.closed_at >= start,
         Ticket.closed_at <= end,
         Ticket.project_id.is_(None),
+        Ticket.merged_into_id.is_(None),
     ).count()
 
 
@@ -416,6 +418,7 @@ def _source_breakdown(start: datetime, end: datetime) -> List[Dict]:
         Ticket.created_at >= start,
         Ticket.created_at <= end,
         Ticket.project_id.is_(None),
+        Ticket.merged_into_id.is_(None),
     ).group_by(Ticket.source).all()
     counts = {(src or 'email'): int(cnt) for src, cnt in rows}
     total = sum(counts.values()) or 1
@@ -449,12 +452,14 @@ def _user_vs_tech_split(start: datetime, end: datetime) -> Dict:
         Ticket.created_at <= end,
         Ticket.created_by_user_id.is_(None),
         Ticket.project_id.is_(None),
+        Ticket.merged_into_id.is_(None),
     ).count()
     tech_created = Ticket.query.filter(
         Ticket.created_at >= start,
         Ticket.created_at <= end,
         Ticket.created_by_user_id.isnot(None),
         Ticket.project_id.is_(None),
+        Ticket.merged_into_id.is_(None),
     ).count()
     total = (user_created + tech_created) or 1
     user_pct = round(100.0 * user_created / total, 1)
@@ -648,6 +653,7 @@ def _sla_resolution_by_priority(start: datetime, end: datetime, closed_statuses:
         Ticket.closed_at >= start,
         Ticket.closed_at <= end,
         Ticket.project_id.is_(None),
+        Ticket.merged_into_id.is_(None),
     ).all()
     buckets: Dict[str, List[float]] = {'high': [], 'medium': [], 'low': []}
     for t in rows:
@@ -688,6 +694,7 @@ def _backlog_and_priority_snapshot(closed_statuses: List[str]) -> Dict:
     base_filter = [
         ~Ticket.status.in_(closed_statuses),
         Ticket.project_id.is_(None),
+        Ticket.merged_into_id.is_(None),
         ((Ticket.snoozed_until.is_(None)) | (Ticket.snoozed_until <= now)),
     ]
 
@@ -776,6 +783,7 @@ def _tech_workload(period_start: datetime, period_end: datetime, closed_statuses
             ((Ticket.assignee_id == u.id) | (Ticket.co_assignee_id == u.id)),
             ~Ticket.status.in_(closed_statuses),
             Ticket.project_id.is_(None),
+            Ticket.merged_into_id.is_(None),
             ((Ticket.snoozed_until.is_(None)) | (Ticket.snoozed_until <= now)),
         ).count()
         closed_count = Ticket.query.filter(
@@ -785,6 +793,7 @@ def _tech_workload(period_start: datetime, period_end: datetime, closed_statuses
             Ticket.closed_at >= period_start,
             Ticket.closed_at <= period_end,
             Ticket.project_id.is_(None),
+            Ticket.merged_into_id.is_(None),
         ).count()
         if open_count == 0 and closed_count == 0:
             continue
